@@ -1,37 +1,165 @@
 package main
 
 import (
-	"log/slog"
+	"bufio"
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	config "github.com/johnny1110/evva/configs"
-	"github.com/johnny1110/evva/internal/greeter"
-	"github.com/johnny1110/evva/internal/logger"
-	"github.com/johnny1110/evva/pkg/common"
+	"github.com/johnny1110/evva/internal/agent"
+	"github.com/johnny1110/evva/internal/agent/profiles"
+	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/internal/llm/claude"
+	"github.com/johnny1110/evva/internal/llm/deepseek"
+	"github.com/johnny1110/evva/internal/llm/ollama"
 	"github.com/joho/godotenv"
 )
 
+// LLM smoke-test CLI.
+//
+// Usage:
+//
+//	evva [-provider deepseek|claude|ollama] [-model id] [-system "..."] [-temp 0.7] [prompt ...]
+//
+// If no positional prompt is given, the program reads from stdin so you can
+// pipe a file or a heredoc. Ctrl+C cancels the in-flight call and exits with
+// code 130 — the same cancellation path the TUI will drive with ESC.
 func main() {
-	// load param from .env
 	_ = godotenv.Load()
 
-	// setup log
-	mainAgentID := common.GenUUID()
-	logAgent1, _ := logger.OfAgent("", mainAgentID)
-	slog.SetDefault(logAgent1)
+	provider := flag.String("provider", "deepseek", "LLM provider: claude | deepseek | ollama")
+	model := flag.String("model", "", "model id (empty → provider default)")
+	profile := flag.String("profile", "main", "agent profile: main | explore | general")
+	system := flag.String("system", "", "override the profile's system prompt")
+	temp := flag.Float64("temp", -1, "sampling temperature (-1 → leave unset)")
+	maxTokens := flag.Int("max-tokens", 1024, "max output tokens (0 → provider default)")
+	flag.Parse()
 
-	name := "World"
-	if len(os.Args) > 1 {
-		name = os.Args[1]
+	prompt, err := readPrompt(flag.Args())
+	if err != nil {
+		exitf(2, "evva: %v", err)
+	}
+	if prompt == "" {
+		exitf(2, "usage: evva [-provider X] [-model Y] [-system ...] [-temp 0.7] <prompt>")
 	}
 
-	logAgent1.Debug("preparing greeting", "name", name)
-	greeting := greeter.Greet(name)
-	logAgent1.Info("greeting ready", "greeting", greeting)
+	cfg := config.Get()
+	client, err := buildClient(cfg, *provider, *model, buildOptions(*temp, *maxTokens)...)
+	if err != nil {
+		exitf(1, "evva: %v", err)
+	}
 
-	logAgent2, _ := logger.OfAgent(mainAgentID, common.GenUUID())
-	logAgent2.Debug("sub agent greeting", "name", name)
-	logAgent2.Info("sub agent greeting", "name", name)
+	prof, err := pickProfile(*profile)
+	if err != nil {
+		exitf(2, "evva: %v", err)
+	}
+	if *system != "" {
+		prof.SystemPrompt = *system
+	}
 
-	print(config.Get().LogFormat)
+	// Ctrl+C / SIGTERM cancels ctx, which the client converts to llm.ErrInterrupted.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	ag, err := agent.New(client, prof)
+	if err != nil {
+		exitf(1, "evva: %v", err)
+	}
+	resp, err := ag.Send(ctx, prompt)
+	if err != nil {
+		if errors.Is(err, llm.ErrInterrupted) {
+			fmt.Fprintln(os.Stderr, "interrupted")
+			os.Exit(130)
+		}
+		exitf(1, "evva: %v", err)
+	}
+
+	if resp.Thinking != "" {
+		fmt.Println("=== thinking ===")
+		fmt.Println(resp.Thinking)
+		fmt.Println("=== answer ===")
+	}
+	fmt.Println(resp.Content)
+}
+
+// readPrompt joins positional args, or falls back to stdin if none were given
+// and stdin is a pipe / file. Returns "" only when both sources are empty.
+func readPrompt(args []string) (string, error) {
+	if joined := strings.TrimSpace(strings.Join(args, " ")); joined != "" {
+		return joined, nil
+	}
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return "", err
+	}
+	// No piped input — don't block on the terminal.
+	if info.Mode()&os.ModeCharDevice != 0 {
+		return "", nil
+	}
+	raw, err := io.ReadAll(bufio.NewReader(os.Stdin))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
+func buildOptions(temp float64, maxTokens int) []llm.Option {
+	var out []llm.Option
+	if temp >= 0 {
+		out = append(out, llm.WithTemperature(temp))
+	}
+	if maxTokens > 0 {
+		out = append(out, llm.WithMaxTokens(maxTokens))
+	}
+	return out
+}
+
+func pickProfile(name string) (agent.Profile, error) {
+	switch strings.ToLower(name) {
+	case "main":
+		return profiles.Main(), nil
+	case "explore":
+		return profiles.Explore(), nil
+	case "general":
+		return profiles.General(), nil
+	default:
+		return agent.Profile{}, fmt.Errorf("unknown profile %q (want main | explore | general)", name)
+	}
+}
+
+func buildClient(cfg *config.AppConfig, provider, model string, opts ...llm.Option) (llm.Client, error) {
+	switch strings.ToLower(provider) {
+	case "claude", "anthropic":
+		api, ok := cfg.LLMProviderConfig[config.Anthropic]
+		if !ok {
+			return nil, fmt.Errorf("claude: ANTHROPIC_API_KEY not set")
+		}
+		return claude.New(api, model, opts...), nil
+	case "deepseek":
+		api, ok := cfg.LLMProviderConfig[config.Deepseek]
+		if !ok {
+			return nil, fmt.Errorf("deepseek: DEEPSEEK_API_KEY not set")
+		}
+		return deepseek.New(api, model, opts...), nil
+	case "ollama":
+		api, ok := cfg.LLMProviderConfig[config.Ollama]
+		if !ok {
+			return nil, fmt.Errorf("ollama: provider not configured")
+		}
+		return ollama.New(api, model, opts...), nil
+	default:
+		return nil, fmt.Errorf("unknown provider %q (want claude | deepseek | ollama)", provider)
+	}
+}
+
+func exitf(code int, format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(code)
 }

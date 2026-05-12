@@ -35,6 +35,9 @@ type AppConfig struct {
 	WorkDir          string
 	WorkDirSkillsDir string
 
+	// llm providers(from .env) key: provider name, value: provider config
+	LLMProviderConfig map[LLMProvider]LLMProviderAPIConfig
+
 	// Loaded metadata
 	LoadedAt time.Time
 }
@@ -90,6 +93,7 @@ func load() *AppConfig {
 
 	setupGlobalParam(cfg)
 	setupWorkDirParam(cfg)
+	setupLLMProviderConfig(cfg)
 
 	return cfg
 }

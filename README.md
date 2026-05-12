@@ -8,4 +8,4 @@
 
 ## What is EVVAgent?
 
-A coding agent.
+A ReAct coding agent.

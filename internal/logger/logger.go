@@ -40,13 +40,13 @@ func New(cfg Config) (*slog.Logger, error) {
 	if strings.EqualFold(cfg.Format, "json") {
 		handler = slog.NewJSONHandler(writer, opts)
 	} else {
-		handler = slog.NewTextHandler(writer, opts)
+		handler = newPretty(writer, opts)
 	}
 
 	// Bind agentId as a permanent attribute on every log record.
 	// slog.Logger.With() returns a child logger that prepends the
 	// given attrs to every Handle() call — zero overhead at call sites.
-	return slog.New(handler).With("agentId", cfg.AgentID), nil
+	return slog.New(handler).With("AGENT_ID", cfg.AgentID), nil
 }
 
 // OfAgent constructs a logger from environment variables.
@@ -112,10 +112,10 @@ func resolveWriter(cfg Config) (io.Writer, error) {
 		return nil, fmt.Errorf("open log file %q: %w", path, err)
 	}
 
-	// Fan-out: write to both file and stdout simultaneously.
-	// io.MultiWriter delegates Write() to each writer in sequence;
-	// if one fails the error is returned immediately.
-	return io.MultiWriter(f, os.Stdout), nil
+	// File-only when LOG_DIR is set: stdout is reserved for user-facing output
+	// (e.g. the final answer from the CLI) so per-agent log files actually stay
+	// separated. Drop LOG_DIR to get noisy stdout-only behavior during dev.
+	return f, nil
 }
 
 // buildFilename produces "{agentId}+{timestamp}.log".
