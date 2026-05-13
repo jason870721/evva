@@ -28,7 +28,7 @@ type Agent struct {
 	// configuration
 	profile Profile
 
-	// llm + history
+	// llm + context (history)
 	llm     llm.Client
 	session *session.Session
 
