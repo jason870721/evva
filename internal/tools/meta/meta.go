@@ -2,19 +2,12 @@
 // (load deferred-tool schemas), Skill (invoke a user-installed skill), and
 // ScheduleWakeup (self-pace /loop iterations).
 //
-// All singletons for stubbing. When implemented these will require deeper
-// agent-side hooks (sub-agent runner, schema registry, skill loader,
-// scheduler), supplied via constructor injection.
+// Stubs today. When implemented these will need agent-side hooks (sub-agent
+// runner, schema registry, skill loader, scheduler) supplied via constructor
+// injection from the toolset Builders.
 package meta
 
 import "github.com/johnny1110/evva/internal/tools"
-
-func init() {
-	tools.Register(tools.AGENT, Agent)
-	tools.Register(tools.TOOL_SEARCH, ToolSearch)
-	tools.Register(tools.SKILL, Skill)
-	tools.Register(tools.SCHEDULE_WAKEUP, Wakeup)
-}
 
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName {

@@ -33,21 +33,30 @@ func (t AgentType) String() string {
 
 // Profile is the configuration an Agent runs under: which kind of agent it
 // is, what system prompt it presents, and which tool *names* are exposed to
-// the model. Two agents with the same Profile behave identically — the loop,
-// dispatch, and lifecycle are shared in the Agent type; only configuration
-// varies.
+// the model.
 //
-// Resolution from name → instance happens once at agent init, via tools.build.
-// Stateful tool groups (e.g. the six task tools sharing one *Store) get fresh
-// state per build call, so two agents constructed from the same Profile end
-// up with isolated state. See internal/agent/profiles for preset builders.
+// Tool policy is split into two lists — this split is purely an agent-level
+// scheduling decision; the tool packages themselves know nothing about it:
+//
+//   - ActiveTools are constructed at agent.New() and exposed to the LLM in
+//     every Complete call. The model can invoke them with no preamble.
+//
+//   - DeferredTools are advertised to the model by name only. They are
+//     materialized on demand via agent.LoadDeferred (driven by TOOL_SEARCH).
+//     Listing a name here is the agent's allowlist for what may be lazily
+//     loaded; a profile that omits a name forbids it entirely.
+//
+// Two agents with the same Profile behave identically — the loop, dispatch,
+// and lifecycle are shared in the Agent type; only configuration varies.
 type Profile struct {
-	// about agent
 	Type         AgentType
 	SystemPrompt string
-	Tools        []tools.ToolName
 
-	// about llm core
+	// Tool policy
+	ActiveTools   []tools.ToolName
+	DeferredTools []tools.ToolName
+
+	// LLM core
 	LLMProvider constant.LLMProvider
 	LLMModel    constant.Model
 	LLMOptions  []llm.Option

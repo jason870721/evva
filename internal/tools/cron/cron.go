@@ -7,13 +7,6 @@ package cron
 
 import "github.com/johnny1110/evva/internal/tools"
 
-func init() {
-	tools.Register(tools.CRON_CREATE, Create)
-	tools.Register(tools.CRON_LIST, List)
-	tools.Register(tools.CRON_DELETE, Delete)
-	tools.Register(tools.REMOTE_TRIGGER, Trigger)
-}
-
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName {
 	return []tools.ToolName{

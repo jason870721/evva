@@ -7,11 +7,6 @@ package ux
 
 import "github.com/johnny1110/evva/internal/tools"
 
-func init() {
-	tools.Register(tools.ASK_USER_QUESTION, AskQuestion)
-	tools.Register(tools.PUSH_NOTIFICATION, Notify)
-}
-
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName {
 	return []tools.ToolName{tools.ASK_USER_QUESTION, tools.PUSH_NOTIFICATION}

@@ -8,13 +8,6 @@ package mode
 
 import "github.com/johnny1110/evva/internal/tools"
 
-func init() {
-	tools.Register(tools.ENTER_PLAN_MODE, EnterPlan)
-	tools.Register(tools.EXIT_PLAN_MODE, ExitPlan)
-	tools.Register(tools.ENTER_WORKTREE, EnterWorktree)
-	tools.Register(tools.EXIT_WORKTREE, ExitWorktree)
-}
-
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName {
 	return []tools.ToolName{

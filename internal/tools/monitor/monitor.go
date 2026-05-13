@@ -4,8 +4,6 @@ package monitor
 
 import "github.com/johnny1110/evva/internal/tools"
 
-func init() { tools.Register(tools.MONITOR, Monitor) }
-
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName { return []tools.ToolName{tools.MONITOR} }
 

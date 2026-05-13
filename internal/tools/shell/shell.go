@@ -1,13 +1,10 @@
 // Package shell hosts the active Bash tool. Process-monitoring lives under
-// deferred/monitor instead — see docs/claude-tool/claude-code-tool-summary.md.
+// the monitor package — see docs/claude-tool/claude-code-tool-summary.md.
 package shell
 
 import "github.com/johnny1110/evva/internal/tools"
 
-func init() { tools.Register(tools.BASH, Bash) }
-
 // Names lists every tool name this package contributes.
-// Monitor is intentionally elsewhere — under deferred/monitor.
 func Names() []tools.ToolName { return []tools.ToolName{tools.BASH} }
 
 var Bash tools.Tool = tools.NewStub(

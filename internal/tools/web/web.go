@@ -6,11 +6,6 @@ package web
 
 import "github.com/johnny1110/evva/internal/tools"
 
-func init() {
-	tools.Register(tools.WEB_FETCH, Fetch)
-	tools.Register(tools.WEB_SEARCH, Search)
-}
-
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName {
 	return []tools.ToolName{tools.WEB_FETCH, tools.WEB_SEARCH}

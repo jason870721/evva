@@ -3,8 +3,6 @@ package notebook
 
 import "github.com/johnny1110/evva/internal/tools"
 
-func init() { tools.Register(tools.NOTEBOOK_EDIT, Edit) }
-
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName { return []tools.ToolName{tools.NOTEBOOK_EDIT} }
 
