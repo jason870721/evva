@@ -111,7 +111,7 @@ var (
 			"required":["message","status"],
 			"properties":{
 				"message":{"type":"string","minLength":1,"description":"The notification body. Keep under 200 characters; mobile OSes truncate."},
-				"status":{"type":"string","const":"proactive","description":"Always the literal string \"proactive\"."}
+				"status":{"type":"string","constant":"proactive","description":"Always the literal string \"proactive\"."}
 			}
 		}`,
 	)

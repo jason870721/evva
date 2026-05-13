@@ -36,7 +36,7 @@ type AppConfig struct {
 	WorkDirSkillsDir string
 
 	// llm providers(from .env) key: provider name, value: provider config
-	LLMProviderConfig map[LLMProvider]LLMProviderAPIConfig
+	LLMProviderConfig map[string]LLMProviderAPIConfig
 
 	// Loaded metadata
 	LoadedAt time.Time

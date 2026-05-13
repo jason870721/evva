@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/johnny1110/evva/internal/constant"
 	"io"
 	"net/http"
 	"strings"
@@ -23,6 +24,7 @@ const (
 
 // Client implements llm.Client backed by the Anthropic Messages API.
 type Client struct {
+	name   string
 	apiURL string
 	apiKey string
 	model  string
@@ -36,6 +38,7 @@ func New(cfg config.LLMProviderAPIConfig, model string, opts ...llm.Option) *Cli
 		model = DefaultModel
 	}
 	c := &Client{
+		name:   constant.ANTHROPIC.Name,
 		apiURL: strings.TrimRight(cfg.ApiURL, "/"),
 		apiKey: cfg.ApiSecret,
 		model:  model,
@@ -50,6 +53,11 @@ func (c *Client) Apply(opts ...llm.Option) { c.params.Apply(opts...) }
 
 // Model returns the model the client is currently bound to.
 func (c *Client) Model() string { return c.model }
+
+// Name provider name
+func (c *Client) Name() string {
+	return c.name
+}
 
 // SetModel swaps the active model id.
 func (c *Client) SetModel(m string) { c.model = m }

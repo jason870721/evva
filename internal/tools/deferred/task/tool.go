@@ -130,7 +130,7 @@ func (t *UpdateTool) Schema() json.RawMessage {
 		"required":["taskId"],
 		"properties":{
 			"taskId":{"type":"string","description":"The ID of the task to update"},
-			"status":{"description":"New status for the task","anyOf":[{"type":"string","enum":["pending","in_progress","completed"]},{"type":"string","const":"deleted"}]},
+			"status":{"description":"New status for the task","anyOf":[{"type":"string","enum":["pending","in_progress","completed"]},{"type":"string","constant":"deleted"}]},
 			"subject":{"type":"string","description":"New subject for the task"},
 			"description":{"type":"string","description":"New description for the task"},
 			"activeForm":{"type":"string","description":"Present continuous form shown in spinner when in_progress"},

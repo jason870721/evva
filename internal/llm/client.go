@@ -72,8 +72,9 @@ type Response struct {
 // an error matching ErrInterrupted (via errors.Is). The TUI binds ESC to ctx
 // cancellation, so this contract is what makes user interrupts work end-to-end.
 type Client interface {
-	Complete(ctx context.Context, messages []Message, tools []tools.Tool) (Response, error)
+	Name() string
 	Model() string
+	Complete(ctx context.Context, messages []Message, tools []tools.Tool) (Response, error)
 	// Apply tunes request parameters at runtime. Same options accepted by
 	// NewXxx — see WithSystem, WithTemperature, etc.
 	Apply(opts ...Option)

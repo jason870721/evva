@@ -13,8 +13,6 @@ import (
 
 	"github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/internal/tools"
-	"github.com/johnny1110/evva/internal/tools/active"
-	"github.com/johnny1110/evva/internal/tools/deferred"
 )
 
 const mainSystemPrompt = `You are evva, a helpful coding assistant operating
@@ -34,7 +32,7 @@ func Main(extras ...tools.ToolName) agent.Profile {
 	return agent.Profile{
 		Type:         agent.MAIN,
 		SystemPrompt: mainSystemPrompt,
-		Tools:        slices.Concat(active.Names(), deferred.Names(), extras),
+		Tools:        slices.Concat(tools.All(), extras),
 	}
 }
 
@@ -44,7 +42,7 @@ func Explore() agent.Profile {
 	return agent.Profile{
 		Type:         agent.EXPLORE,
 		SystemPrompt: exploreSystemPrompt,
-		Tools:        []tools.ToolName{tools.READ_FILE, tools.WEB_SEARCH, tools.GREP, tools.LS},
+		Tools:        tools.ReadOnly(),
 	}
 }
 

@@ -16,9 +16,6 @@ import (
 	"github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/internal/agent/profiles"
 	"github.com/johnny1110/evva/internal/llm"
-	"github.com/johnny1110/evva/internal/llm/claude"
-	"github.com/johnny1110/evva/internal/llm/deepseek"
-	"github.com/johnny1110/evva/internal/llm/ollama"
 	"github.com/joho/godotenv"
 )
 
@@ -131,31 +128,6 @@ func pickProfile(name string) (agent.Profile, error) {
 		return profiles.General(), nil
 	default:
 		return agent.Profile{}, fmt.Errorf("unknown profile %q (want main | explore | general)", name)
-	}
-}
-
-func buildClient(cfg *config.AppConfig, provider, model string, opts ...llm.Option) (llm.Client, error) {
-	switch strings.ToLower(provider) {
-	case "claude", "anthropic":
-		api, ok := cfg.LLMProviderConfig[config.Anthropic]
-		if !ok {
-			return nil, fmt.Errorf("claude: ANTHROPIC_API_KEY not set")
-		}
-		return claude.New(api, model, opts...), nil
-	case "deepseek":
-		api, ok := cfg.LLMProviderConfig[config.Deepseek]
-		if !ok {
-			return nil, fmt.Errorf("deepseek: DEEPSEEK_API_KEY not set")
-		}
-		return deepseek.New(api, model, opts...), nil
-	case "ollama":
-		api, ok := cfg.LLMProviderConfig[config.Ollama]
-		if !ok {
-			return nil, fmt.Errorf("ollama: provider not configured")
-		}
-		return ollama.New(api, model, opts...), nil
-	default:
-		return nil, fmt.Errorf("unknown provider %q (want claude | deepseek | ollama)", provider)
 	}
 }
 

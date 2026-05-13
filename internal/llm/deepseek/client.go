@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/johnny1110/evva/internal/constant"
 	"io"
 	"net/http"
 	"strings"
@@ -21,6 +22,7 @@ const (
 
 // Client implements llm.Client backed by DeepSeek's OpenAI-compatible chat API.
 type Client struct {
+	name   string
 	apiURL string
 	apiKey string
 	model  string
@@ -34,6 +36,7 @@ func New(cfg config.LLMProviderAPIConfig, model string, opts ...llm.Option) *Cli
 		model = DefaultModel
 	}
 	c := &Client{
+		name:   constant.DEEPSEEK.Name,
 		apiURL: strings.TrimRight(cfg.ApiURL, "/"),
 		apiKey: cfg.ApiSecret,
 		model:  model,
@@ -43,8 +46,14 @@ func New(cfg config.LLMProviderAPIConfig, model string, opts ...llm.Option) *Cli
 }
 
 func (c *Client) Apply(opts ...llm.Option) { c.params.Apply(opts...) }
-func (c *Client) Model() string            { return c.model }
-func (c *Client) SetModel(m string)        { c.model = m }
+
+// Name provider name
+func (c *Client) Name() string {
+	return c.name
+}
+
+func (c *Client) Model() string     { return c.model }
+func (c *Client) SetModel(m string) { c.model = m }
 
 // --- API wire types -------------------------------------------------------
 

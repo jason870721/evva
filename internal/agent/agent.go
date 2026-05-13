@@ -45,27 +45,38 @@ type Agent struct {
 // If profile.SystemPrompt is set, it is applied to the client via llm.WithSystem.
 // An empty SystemPrompt leaves whatever the caller already configured on the
 // client untouched — useful when the caller wants full control over the client.
-func New(client llm.Client, profile Profile) (*Agent, error) {
-	id := common.GenUUID()
-	lgr, err := logger.OfAgent("", id)
+func New(profile Profile) (*Agent, error) {
+	// init sessionID(agentID) and logger
+	ID := common.GenUUID()
+	lgr, err := logger.OfAgent("", ID)
 	if err != nil {
 		return nil, fmt.Errorf("agent: init logger: %w", err)
 	}
 
-	if profile.SystemPrompt != "" {
-		client.Apply(llm.WithSystem(profile.SystemPrompt))
-	}
-
+	// init tools
 	toolRegistry, err := tools.NewRegistry(profile.Tools...)
 	if err != nil {
+		lgr.Error("agent: init tools registry failed", "error", err)
 		return nil, fmt.Errorf("agent: init tools: %w", err)
 	}
 
+	// init llm
+	llmClient, err := llm.Of(
+		profile.LLMProvider,
+		profile.LLMModel,
+		profile.LLMOptions,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("agent: init llm client failed: %w", err)
+	}
+	lgr.Info("agent: init llm client success.", "provider", llmClient.Name(), "model", llmClient.Model())
+
+	// build & return agent
 	return &Agent{
-		ID:      id,
+		ID:      ID,
 		logger:  lgr,
 		profile: profile,
-		llm:     client,
+		llm:     llmClient,
 		session: session.New(),
 		tools:   toolRegistry,
 	}, nil
