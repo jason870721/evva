@@ -5,21 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
-	config "github.com/johnny1110/evva/configs"
-	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools"
 )
 
 // ReadTool reads a file and returns it in cat -n format.
 type ReadTool struct {
-	tracker *session.ReadTracker
+	tracker *ReadTracker
 }
 
 // NewRead creates a ReadTool that records reads in the given tracker.
-func NewRead(tracker *session.ReadTracker) *ReadTool {
+func NewRead(tracker *ReadTracker) *ReadTool {
 	return &ReadTool{tracker: tracker}
 }
 
@@ -46,7 +43,6 @@ func (t *ReadTool) Schema() json.RawMessage {
 		"required":["file_path"],
 		"properties":{
 			"file_path":{"type":"string","description":"Absolute or relative path to the file to read."},
-			"encoding":{"type":"string","description":"Text encoding to decode the file with. Defaults to utf-8."},
 			"offset":{"type":"integer","description":"1-based line number to start reading from. Defaults to 1."},
 			"limit":{"type":"integer","exclusiveMinimum":0,"description":"Maximum number of lines to return. Defaults to all lines."}
 		}
@@ -154,17 +150,4 @@ func formatLines(lines []string, startLine int) string {
 		fmt.Fprintf(&b, "%6d\t%s", startLine+i, line)
 	}
 	return b.String()
-}
-
-// resolvePath resolves a relative path against the workdir and returns the
-// absolute path.
-func resolvePath(pathStr string) (string, error) {
-	cfg := config.Get()
-	workdir := cfg.WorkDir
-
-	p := pathStr
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(workdir, p)
-	}
-	return filepath.Abs(p)
 }

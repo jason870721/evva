@@ -22,7 +22,6 @@ package toolset
 import (
 	"fmt"
 
-	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/tools/cron"
 	"github.com/johnny1110/evva/internal/tools/fs"
@@ -48,7 +47,7 @@ type ToolState struct {
 	taskStore       *task.Store
 	subagentSpawner meta.SubagentSpawner
 	deferredLookup  meta.DeferredLookup
-	readTracker     *session.ReadTracker
+	readTracker     *fs.ReadTracker
 	// Future: monitorBus, cronService, skillLoader, ...
 }
 
@@ -91,9 +90,9 @@ func (s *ToolState) SetDeferredLookup(d meta.DeferredLookup) {
 
 // ReadTracker returns the session read-tracker shared by all fs tools,
 // allocating one on first use.
-func (s *ToolState) ReadTracker() *session.ReadTracker {
+func (s *ToolState) ReadTracker() *fs.ReadTracker {
 	if s.readTracker == nil {
-		s.readTracker = &session.ReadTracker{}
+		s.readTracker = fs.NewReadTracker()
 	}
 	return s.readTracker
 }

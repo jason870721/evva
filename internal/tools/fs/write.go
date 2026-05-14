@@ -8,18 +8,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools"
 )
 
 // WriteTool creates or overwrites a file.
 type WriteTool struct {
-	tracker *session.ReadTracker
+	tracker *ReadTracker
 }
 
 // NewWrite creates a WriteTool that enforces the read-before-overwrite guard
 // via the given tracker.
-func NewWrite(tracker *session.ReadTracker) *WriteTool {
+func NewWrite(tracker *ReadTracker) *WriteTool {
 	return &WriteTool{tracker: tracker}
 }
 
@@ -47,8 +46,7 @@ func (t *WriteTool) Schema() json.RawMessage {
 		"required":["file_path","content"],
 		"properties":{
 			"file_path":{"type":"string","description":"Absolute or relative path to the file to write."},
-			"content":{"type":"string","description":"Full text content to write to the file."},
-			"encoding":{"type":"string","description":"Text encoding to write with. Defaults to utf-8."}
+			"content":{"type":"string","description":"Full text content to write to the file."}
 		}
 	}`)
 }
@@ -75,6 +73,7 @@ func (t *WriteTool) Execute(_ context.Context, input json.RawMessage) (tools.Res
 
 	existedBefore := fileExists(resolved)
 
+	// check read when overwrite case.
 	if existedBefore && t.tracker != nil && !t.tracker.WasRead(resolved) {
 		return tools.Result{
 			IsError: true,
@@ -105,11 +104,6 @@ func (t *WriteTool) Execute(_ context.Context, input json.RawMessage) (tools.Res
 		return tools.Result{Content: renderNewFileDiff(in.FilePath, in.Content)}, nil
 	}
 	return tools.Result{Content: fmt.Sprintf("wrote %d bytes to %s", len(in.Content), in.FilePath)}, nil
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // renderNewFileDiff synthesizes a unified diff for a new file.

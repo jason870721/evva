@@ -7,18 +7,17 @@ import (
 	"os"
 	"strings"
 
-	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools"
 )
 
 // EditTool performs exact string replacements in existing files.
 type EditTool struct {
-	tracker *session.ReadTracker
+	tracker *ReadTracker
 }
 
 // NewEdit creates an EditTool that enforces the read-before-edit guard
 // via the given tracker.
-func NewEdit(tracker *session.ReadTracker) *EditTool {
+func NewEdit(tracker *ReadTracker) *EditTool {
 	return &EditTool{tracker: tracker}
 }
 
@@ -52,8 +51,7 @@ func (t *EditTool) Schema() json.RawMessage {
 			"file_path":{"type":"string","description":"Absolute or relative path to the file to edit."},
 			"old_string":{"type":"string","description":"Exact text to find. Must match byte-for-byte including whitespace and newlines. Include enough surrounding context to make it unique unless replace_all is true."},
 			"new_string":{"type":"string","description":"Replacement text. Must differ from old_string."},
-			"replace_all":{"type":"boolean","description":"Replace every occurrence of old_string. Defaults to false (require a unique match)."},
-			"encoding":{"type":"string","description":"Text encoding. Defaults to utf-8."}
+			"replace_all":{"type":"boolean","description":"Replace every occurrence of old_string. Defaults to false (require a unique match)."}
 		}
 	}`)
 }
