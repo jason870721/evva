@@ -248,9 +248,8 @@ func (t *AgentTool) Description() string {
 		"Use for parallel/independent work, exploration that would dump a lot of context, " +
 		"or any task where you want a clean conversation thread. " +
 		"The sub-agent inherits the parent's LLM provider; pick model tier via `level`: " +
-		"level=1 (default) for routine work (Sonnet-class), level=2 for hard reasoning (Opus-class). " +
+		"level=1 (default) for routine, level=2 for hard reasoning. " +
 		"Level=2 is more expensive — only use it when the task is complex. " +
-		"Level=3 is extra expensive — only use it when the task need high effort" +
 		"Sub-agents cannot themselves call this tool — the hierarchy is exactly one layer deep."
 }
 
@@ -258,13 +257,13 @@ func (t *AgentTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"type":"object",
 		"additionalProperties":false,
-		"required":["description","prompt"],
+		"required":["name", "description","prompt"],
 		"properties":{
-			"name":{"type":"string","description":"short nickname"},
+			"name":{"type":"string","description":"A short nickname"},
 			"description":{"type":"string","description":"A short (3-5 word) description of the task"},
 			"prompt":{"type":"string","description":"The full task prompt for the sub-agent"},
 			"subagent_type":{"type":"string","enum":["explore","general-purpose"],"description":"Which preset profile to use. Defaults to general-purpose. \"explore\" is read-only and good for codebase inspection."},
-			"level":{"type":"integer","enum":[1,2,3],"default":1,"description":"Model tier within the parent's provider. 1 = normal (Sonnet / DeepSeek-Flash / equivalent), 2 = big (Opus / DeepSeek-Pro / equivalent). 3 = (level + hard effort mode) Defaults to 1. Use 2 only when the task genuinely needs deeper reasoning."},
+			"level":{"type":"integer","enum":[1,2],"default":1,"description":"Model tier within the parent's provider. 1=general, 2=thinking Defaults to 1. Use 2 only when the task genuinely needs deeper reasoning."},
 			"async_mode":{"type":"boolean","default":false,"description":"Let the subagent run in the background; the spawner returns an ack immediately and the eventual summary is injected into the parent's next turn."}
 		}
 	}`)

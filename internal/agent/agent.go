@@ -42,13 +42,14 @@ import (
 // stateful tool constructors. The TUI and session-persist layer read state
 // through it (e.g. agent.ToolState().TaskStore().List()).
 //
-// sink is the event consumer (nil => Discard). parent is empty for the root
+// sink is the event consumer (nil => Discard). ParentID is empty for the root
 // agent and the root's AgentID for subagents — see Option AsSubagent.
 type Agent struct {
-	ID     string
-	Name   string
-	logger *slog.Logger
-	status constant.AgentStatus
+	ParentID string
+	ID       string
+	Name     string
+	logger   *slog.Logger
+	status   constant.AgentStatus
 
 	profile Profile
 
@@ -60,8 +61,8 @@ type Agent struct {
 	deferredAllowlist map[tools.ToolName]struct{}
 	exposeTools       []tools.Tool // this is used for the llm call params(sys prompt) only.
 
-	sink     event.Sink // event to ui
-	parent   string
+	sink event.Sink // event to ui
+
 	maxIters int //agent loop max iters
 
 	asyncMode bool
@@ -81,9 +82,9 @@ type Agent struct {
 //
 // Options run after the agent struct is populated from the profile and before
 // the LLM client is constructed, so they can influence either layer.
-func New(profile Profile, opts ...Option) (*Agent, error) {
+func New(parentID string, profile Profile, opts ...Option) (*Agent, error) {
 	ID := common.GenUUID()
-	lgr, err := logger.OfAgent("", ID)
+	lgr, err := logger.OfAgent(parentID, ID)
 	if err != nil {
 		return nil, fmt.Errorf("agent: init logger: %w", err)
 	}
@@ -109,6 +110,7 @@ func New(profile Profile, opts ...Option) (*Agent, error) {
 	cfg := config.Get()
 
 	a := &Agent{
+		ParentID:          parentID,
 		ID:                ID,
 		logger:            lgr,
 		status:            constant.INIT,
@@ -148,7 +150,7 @@ func New(profile Profile, opts ...Option) (*Agent, error) {
 	lgr.Info("agent: init llm client success.",
 		"provider", llmClient.Name(),
 		"model", llmClient.Model(),
-		"is_subagent", a.parent != "",
+		"ParentID", a.ParentID,
 		"max_iters", a.maxIters,
 	)
 	return a, nil
@@ -157,7 +159,7 @@ func New(profile Profile, opts ...Option) (*Agent, error) {
 // IsSubagent reports whether this agent was constructed with AsSubagent.
 // The AGENT tool checks this to enforce the "subagents cannot spawn
 // subagents" invariant.
-func (a *Agent) IsSubagent() bool { return a.parent != "" }
+func (a *Agent) IsSubagent() bool { return a.ParentID != "" }
 
 func (a *Agent) Status() constant.AgentStatus { return a.status }
 
@@ -201,7 +203,7 @@ func (a *Agent) emit(kind event.Kind, build func(*event.Event)) {
 	e := event.Event{
 		Kind:     kind,
 		AgentID:  a.ID,
-		ParentID: a.parent,
+		ParentID: a.ParentID,
 		Time:     time.Now(),
 	}
 	if build != nil {

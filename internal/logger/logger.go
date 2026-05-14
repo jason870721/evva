@@ -63,7 +63,9 @@ func OfAgent(parentID, agentID string) (*slog.Logger, error) {
 	logDir := ""
 
 	if cfg.LogDir != nil {
+
 		isMain := parentID == ""
+
 		innerDir := parentID
 		if isMain {
 			innerDir = agentID

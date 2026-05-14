@@ -16,21 +16,21 @@ import (
 //
 // Spawn:
 //  1. Rejects calls from a subagent (the "main only" invariant).
-//  2. Picks a Profile via subagentProfile, inheriting the parent's
+//  2. Picks a Profile via subagentProfile, inheriting the ParentID's
 //     provider, options, and any baseline preferences.
 //  3. Overrides the model based on req.Level via
 //     LLMProvider.ModelForLevel — 1 is the normal tier, 2 is the big tier.
 //  4. Constructs a child agent with event.BubbleUp routing its events back
-//     to the parent's Sink, tagged with the parent's AgentID.
-//  5. Registers the child in the parent's SpawnGroup panel — every
+//     to the ParentID's Sink, tagged with the ParentID's AgentID.
+//  5. Registers the child in the ParentID's SpawnGroup panel — every
 //     mutation is observable through the unified ToolState change stream.
 //  6. Runs the child:
 //     - Sync mode: blocks until child.Run completes, removes from panel
-//       on return, and propagates the child's text through the tool result.
+//     on return, and propagates the child's text through the tool result.
 //     - Async mode: spawns a goroutine that runs the child and marks the
-//       panel entry Done / Crushed on exit. Returns immediately with an
-//       ack message; the parent loop will pick up the eventual result via
-//       AgentGroupPanel.DrainCompleted between turns.
+//     panel entry Done / Crushed on exit. Returns immediately with an
+//     ack message; the ParentID loop will pick up the eventual result via
+//     AgentGroupPanel.DrainCompleted between turns.
 func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error) {
 	if a.IsSubagent() {
 		return "", meta.ErrSubagentForbidden
@@ -48,10 +48,9 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 	subProfile.LLMModel = a.profile.LLMProvider.ModelForLevel(req.Level)
 
 	childSink := event.BubbleUp{Parent: a.Sink(), ParentID: a.ID}
-	child, err := New(subProfile,
+	child, err := New(a.ID, subProfile,
 		WithName(req.Name),
 		WithSink(childSink),
-		AsSubagent(a.ID),
 		WithMaxIterations(a.maxIters),
 		WithAsync(req.AsyncMode),
 	)
@@ -65,8 +64,8 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 
 	if req.AsyncMode {
 		// Detach: run the child in a goroutine, mark the panel entry on
-		// exit. The parent's main loop picks the result up via
-		// DrainCompleted between turns. We deliberately pass the parent's
+		// exit. The ParentID's main loop picks the result up via
+		// DrainCompleted between turns. We deliberately pass the ParentID's
 		// ctx so a top-level cancel reaches the child.
 		go func() {
 			resp, runErr := child.Run(ctx, req.Prompt)
@@ -102,7 +101,7 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 }
 
 // subagentProfile builds a Profile for a subagent of the given kind,
-// inheriting the parent's LLM provider/model/options. Subagent profiles
+// inheriting the ParentID's LLM provider/model/options. Subagent profiles
 // deliberately do NOT include the AGENT tool — the "subagents cannot
 // spawn subagents" invariant is enforced both here (no AGENT in tool list)
 // and in Spawn itself (IsSubagent check).

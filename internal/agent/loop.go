@@ -35,7 +35,8 @@ func (a *Agent) Run(ctx context.Context, prompt string) (llm.Response, error) {
 	a.emit(event.KindRunStart, func(e *event.Event) {
 		e.RunStart = &event.RunStartPayload{Prompt: prompt}
 	})
-	a.logger.Debug("run.start", "prompt_bytes", len(prompt), "messages", len(a.session.Messages))
+	a.logger.Debug("run.start", "name", a.Name, "prompt_bytes", len(prompt),
+		"messages", len(a.session.Messages), "prompt", prompt)
 	return a.runLoop(ctx) // core agent loop.
 }
 
@@ -225,7 +226,7 @@ func (a *Agent) dispatchToolCalls(ctx context.Context, calls []*tools.Call) ([]*
 	}
 
 	results := make([]*llm.ToolResult, len(calls))
-	errs := make([]error, len(calls))
+	errs := make([]error, len(calls)) // system level error not tool result error.
 
 	var wg sync.WaitGroup
 	for i := range preps {
@@ -327,9 +328,9 @@ func (a *Agent) drainAsyncSubagents() {
 	for _, s := range completed {
 		switch s.Phase {
 		case meta.PhaseCrushed:
-			fmt.Fprintf(&b, "- subagent %s (%s) failed: %s\n", s.ID, s.Type, s.Err)
+			fmt.Fprintf(&b, "- subagent %s (%s) failed: %s\n", s.Name, s.Type, s.Err)
 		default:
-			fmt.Fprintf(&b, "- subagent %s (%s) done:\n%s\n", s.ID, s.Type, s.RSummary)
+			fmt.Fprintf(&b, "- subagent %s (%s) done:\n%s\n", s.Name, s.Type, s.RSummary)
 		}
 	}
 
