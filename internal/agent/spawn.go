@@ -58,14 +58,18 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 
 	summary := truncateSummary(req.Prompt, 100)
 
-	a.ToolState().AgentGroupPanel().Add()
-
 	// ------------------------------------------------------------
+	a.ToolState().AgentGroupPanel().Add(child.Name, child.ID, subProfile.Type.String(), summary)
 	emitSubagent(child, req.Kind, summary, event.SubagentInit)
 	// TODO: In evva v2.0 support sync/async agent mode as new feature, if req.AsyncMode = true
 	// update subagent status in toolState
 	resp, runErr := child.Run(ctx, req.Prompt)
 	emitSubagent(child, req.Kind, summary, event.SubagentEnded)
+	if runErr != nil {
+		a.ToolState().AgentGroupPanel().Crush(child.ID, runErr)
+	} else {
+		a.ToolState().AgentGroupPanel().Done(child.ID, resp.Content)
+	}
 	// ------------------------------------------------------------
 
 	if runErr != nil {

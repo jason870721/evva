@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/johnny1110/evva/internal/agent/event"
+	"github.com/johnny1110/evva/internal/constant"
 
 	"github.com/johnny1110/evva/internal/tools"
 )
@@ -18,12 +19,12 @@ import (
 type SpawnerLookup func() SubagentSpawner
 
 type Agent struct {
-	Name     string // random UUID 6 digits
-	ID       string // agent ID
-	JobTitle string // form prompt
-	Phase    int    // init, thinking, tool_use, summary, shutdown(remove from panel)
-	PSummary string // prompt summary
-	RSummary string // Exec result summary
+	Name     string               // random UUID 6 digits
+	ID       string               // agent ID
+	JobTitle string               // form prompt
+	Status   constant.AgentStatus // init, thinking, tool_using...
+	PSummary string               // prompt summary
+	RSummary string               // Exec result summary
 }
 
 type SpawnGroup struct {
@@ -37,15 +38,22 @@ func NewSpawnGroup() *SpawnGroup {
 	}
 }
 
-func (g *SpawnGroup) Add(name, id, title, agtype, summary string) {
+func (g *SpawnGroup) Add(name, id, agtype, summary string) {
 	g.SpawnAgents = append(g.SpawnAgents, &Agent{
 		Name:     name,
 		ID:       id,
-		JobTitle: title,
-		Phase:    int(event.SubagentInit),
+		Status:   constant.INIT,
 		PSummary: summary,
 	})
 	g.OnChange(id, agtype, summary, "", int(event.SubagentInit))
+}
+
+func (g *SpawnGroup) Crush(id string, err error) {
+	// TODO
+}
+
+func (g *SpawnGroup) Done(id string, rSummary string) {
+	// TODO
 }
 
 // AgentTool is the LLM-facing handle for spawning subagents. The actual
@@ -81,7 +89,7 @@ func (t *AgentTool) Schema() json.RawMessage {
 		"additionalProperties":false,
 		"required":["description","prompt"],
 		"properties":{
-			"name":{"type":"string","description":"One word name"},
+			"name":{"type":"string","description":"short nickname"},
 			"description":{"type":"string","description":"A short (3-5 word) description of the task"},
 			"prompt":{"type":"string","description":"The full task prompt for the sub-agent"},
 			"subagent_type":{"type":"string","enum":["explore","general-purpose"],"description":"Which preset profile to use. Defaults to general-purpose. \"explore\" is read-only and good for codebase inspection."},
