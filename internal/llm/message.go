@@ -21,11 +21,10 @@ const (
 // reasoning_content). The TUI may render it, and providers that require it
 // (e.g. DeepSeek in thinking mode) MUST echo it back in subsequent requests.
 type Message struct {
-	Role     Role
-	Content  string
-	Thinking string
-	ToolCall *tools.Call
-	ToolID   string
+	Role      Role
+	Content   string
+	Thinking  string
+	ToolCalls []*tools.Call
 }
 
 // Response is what the LLM returns on each completion turn.
@@ -34,8 +33,7 @@ type Message struct {
 // Thinking carries any provider-specific reasoning trace; empty for providers
 // that don't expose one. See Message.Thinking for the round-trip caveat.
 type Response struct {
-	Content  string
-	Thinking string
-	ToolCall *tools.Call
-	ToolID   string
+	Content   string
+	Thinking  string
+	ToolCalls []*tools.Call
 }

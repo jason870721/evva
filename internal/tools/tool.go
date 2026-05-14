@@ -23,6 +23,7 @@ type Result struct {
 
 // Call is what the LLM emits when it wants to invoke a tool.
 type Call struct {
+	ID    string
 	Name  string
 	Input json.RawMessage
 }

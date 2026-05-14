@@ -169,15 +169,18 @@ func (c *Client) Complete(ctx context.Context, messages []llm.Message, toolSet [
 		out  llm.Response
 		text strings.Builder
 	)
+
+	out.ToolCalls = []*tools.Call{}
 	for _, b := range parsed.Content {
 		switch b.Type {
 		case "text":
 			text.WriteString(b.Text)
 		case "tool_use":
-			out.ToolCall = &tools.Call{Name: b.Name, Input: b.Input} // TODO: Why only 1 tool call ?
-			out.ToolID = b.ID
+			tc := &tools.Call{ID: b.ID, Name: b.Name, Input: b.Input}
+			out.ToolCalls = append(out.ToolCalls, tc)
 		}
 	}
+
 	out.Content = text.String()
 	return out, nil
 }
@@ -194,28 +197,36 @@ func toAPIMessages(msgs []llm.Message) []apiMessage {
 				Content: []block{{Type: "text", Text: m.Content}},
 			})
 		case llm.RoleAssistant:
-			blocks := make([]block, 0, 2)
+			blocks := []block{}
 			if m.Content != "" {
 				blocks = append(blocks, block{Type: "text", Text: m.Content})
 			}
-			if m.ToolCall != nil {
-				blocks = append(blocks, block{
-					Type:  "tool_use",
-					ID:    m.ToolID,
-					Name:  m.ToolCall.Name,
-					Input: m.ToolCall.Input,
-				})
+			if m.ToolCalls != nil {
+				for _, tc := range m.ToolCalls {
+					blocks = append(blocks, block{
+						Type:  "tool_use",
+						ID:    tc.ID,
+						Name:  tc.Name,
+						Input: tc.Input,
+					})
+				}
 			}
 			out = append(out, apiMessage{Role: "assistant", Content: blocks})
 		case llm.RoleTool:
-			out = append(out, apiMessage{
-				Role: "user",
-				Content: []block{{
-					Type:      "tool_result",
-					ToolUseID: m.ToolID,
-					Content:   m.Content,
-				}},
-			})
+			blocks := []block{}
+
+			if m.ToolCalls != nil {
+				for _, tc := range m.ToolCalls {
+					blocks = append(blocks, block{
+						Type:      "tool_result",
+						ToolUseID: tc.ID,
+						Content:   m.Content,
+						Input:     tc.Input,
+					})
+				}
+			}
+
+			out = append(out, apiMessage{Role: "tool", Content: blocks})
 		}
 	}
 	return out
