@@ -31,7 +31,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (llm.Response, error) {
 		e.RunStart = &event.RunStartPayload{Prompt: prompt}
 	})
 	a.logger.Debug("run.start", "prompt_bytes", len(prompt), "messages", len(a.session.Messages))
-	return a.runLoop(ctx)
+	return a.runLoop(ctx) // core agent loop.
 }
 
 // Continue resumes a paused agent without appending a new user message.
@@ -59,6 +59,8 @@ func (a *Agent) runLoop(ctx context.Context) (llm.Response, error) {
 			e.Turn = &event.TurnPayload{Iteration: iter}
 		})
 		a.logger.Debug("turn.start", "iter", iter, "messages", len(a.session.Messages))
+
+		// TODO: in v2.0 version add compact logic here, token threshold > 80% (microcompact) > 80% sec time(fullcompact)
 
 		resp, err := a.llmCall(ctx)
 		if err != nil {
@@ -98,7 +100,7 @@ func (a *Agent) runLoop(ctx context.Context) (llm.Response, error) {
 				"content_bytes", len(resp.Content),
 				"thinking_bytes", len(resp.Thinking),
 			)
-			return resp, nil
+			return resp, nil // break loop.
 		}
 
 		// Dispatch the tool call.
@@ -106,6 +108,12 @@ func (a *Agent) runLoop(ctx context.Context) (llm.Response, error) {
 		a.emit(event.KindTurnEnd, func(e *event.Event) {
 			e.Turn = &event.TurnPayload{Iteration: iter}
 		})
+		a.logger.Debug("turn.end",
+			"iter", iter,
+			"content_bytes", len(resp.Content),
+			"thinking_bytes", len(resp.Thinking),
+		)
+		
 		if toolErr != nil {
 			// Go-level tool failures abort (panics, IO, etc.). Result.IsError
 			// from a tool is already handled inside dispatchToolCall —

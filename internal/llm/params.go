@@ -12,6 +12,7 @@ type LLMParams struct {
 	MaxTokens     int
 	StopSequences []string
 	System        string
+	Effort        int // from 1~n (every model provider should adapt their own impl)
 
 	// HTTPClient overrides the transport used to talk to the provider.
 	// nil → http.DefaultClient.
@@ -30,6 +31,7 @@ func WithStopSequences(seqs ...string) Option {
 	return func(p *LLMParams) { p.StopSequences = append([]string(nil), seqs...) }
 }
 func WithSystem(s string) Option           { return func(p *LLMParams) { p.System = s } }
+func WithEffort(e int) Option              { return func(p *LLMParams) { p.Effort = e } }
 func WithHTTPClient(c *http.Client) Option { return func(p *LLMParams) { p.HTTPClient = c } }
 
 // Apply runs every option against p in order. Later options override earlier ones.

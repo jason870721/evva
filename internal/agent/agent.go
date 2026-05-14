@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/johnny1110/evva/internal/logger"
 	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools"
-	"github.com/johnny1110/evva/internal/tools/task"
 	"github.com/johnny1110/evva/internal/toolset"
 	"github.com/johnny1110/evva/pkg/common"
 )
@@ -42,7 +40,7 @@ import (
 // through it (e.g. agent.ToolState().TaskStore().List()).
 //
 // sink is the event consumer (nil => Discard). parent is empty for the root
-// agent and the root's AgentID for subagents — see Option asSubagent.
+// agent and the root's AgentID for subagents — see Option AsSubagent.
 type Agent struct {
 	ID     string
 	logger *slog.Logger
@@ -55,11 +53,11 @@ type Agent struct {
 	toolState         *toolset.ToolState
 	active            map[string]tools.Tool
 	deferredAllowlist map[tools.ToolName]struct{}
-	exposeTools       []tools.Tool // for the llm call params
+	exposeTools       []tools.Tool // this is used for the llm call params(sys prompt) only.
 
-	sink     event.Sink
+	sink     event.Sink // event to ui
 	parent   string
-	maxIters int
+	maxIters int //agent loop max iters
 }
 
 // New constructs an agent with a fresh ID, a per-agent logger, and the given
@@ -107,34 +105,21 @@ func New(profile Profile, opts ...Option) (*Agent, error) {
 		maxIters:          cfg.DefaultMaxIterations,
 	}
 
-	// adapt options params
+	// adapt options params (e.g. sink, maxIters, asSubAgent)
 	for _, opt := range opts {
 		opt(a)
 	}
 
-	// Wire task store mutations to the event stream. Done after options so
-	// the closure captures the final sink. TaskStore() lazy-allocates on
-	// first call; this also forces that allocation when tasks are in scope.
-	if a.hasAnyTaskTool() {
-		// mount event with toolState.TaskStore()
-		a.toolState.TaskStore().OnChange = func(id, status, subject string) {
-			a.emit(event.KindTaskUpdate, func(e *event.Event) {
-				e.TaskUpdate = &event.TaskUpdatePayload{
-					TaskID:  id,
-					Status:  status,
-					Subject: subject,
-				}
-			})
-		}
-	}
+	// bind tool state onchange event.
+	toolStateOnchangeEventBinding(a)
 
 	// Install ourselves as the subagent spawner and the deferred-tool
 	// lookup. Only the root agent does this — subagents leave the slots
 	// nil, so the corresponding tools (AGENT, TOOL_SEARCH) surface clear
 	// errors instead of recursing or exposing the wrong agent's allowlist.
 	if !a.IsSubagent() {
-		a.toolState.SetSubagentSpawner(a)
-		a.toolState.SetDeferredLookup(a)
+		a.toolState.SetSubagentSpawner(a) // only main agent can have spawner.
+		a.toolState.SetDeferredLookup(a)  // only main agent can have deferred tool lookup.
 	}
 
 	llmClient, err := llmfactory.Of(profile.LLMProvider, profile.LLMModel, profile.LLMOptions)
@@ -151,102 +136,10 @@ func New(profile Profile, opts ...Option) (*Agent, error) {
 	return a, nil
 }
 
-// Send issues a single user turn and returns the assistant response.
-// This is the primitive used by smoke tests; production code should call
-// Run or Continue (see loop.go).
-func (a *Agent) Send(ctx context.Context, prompt string) (llm.Response, error) {
-	a.session.Append(llm.Message{Role: llm.RoleUser, Content: prompt})
-
-	exposed := a.exposeTools
-	a.logger.Debug("llm call",
-		"profile", a.profile.Type.String(),
-		"messages", len(a.session.Messages),
-		"tools", len(exposed),
-		"prompt_bytes", len(prompt),
-	)
-
-	resp, err := a.llm.Complete(ctx, a.session.Messages, exposed)
-	if err != nil {
-		a.logger.Error("llm call failed", "err", err)
-		return llm.Response{}, err
-	}
-
-	a.logger.Debug("llm call ok",
-		"content_bytes", len(resp.Content),
-		"thinking_bytes", len(resp.Thinking),
-		"tool_call", resp.ToolCall != nil,
-	)
-
-	a.session.Append(llm.Message{
-		Role:     llm.RoleAssistant,
-		Content:  resp.Content,
-		Thinking: resp.Thinking,
-	})
-	return resp, nil
-}
-
-// ResolveTool returns the runnable instance for a tool name, building it on
-// the fly if it's a still-unmaterialized deferred tool. This is the path the
-// tool-call dispatcher takes whenever the LLM invokes a tool by name:
-//
-//   - If the name is already in the active map (either built at New() or
-//     resolved on a previous turn), the cached instance is returned.
-//   - Otherwise, if the name is in the deferred allowlist, the tool is built
-//     via toolset.Build, cached in active, and returned. Its schema will be
-//     advertised to the LLM from the next turn forward.
-//   - Otherwise, the name is rejected — the agent never silently expands
-//     beyond the profile's declared authority.
-//
-// Note: TOOL_SEARCH should NOT call this — it only fetches descriptors via
-// toolset.Describe. The build is triggered by the first actual invocation.
-func (a *Agent) ResolveTool(name tools.ToolName) (tools.Tool, error) {
-	if t, ok := a.active[string(name)]; ok {
-		return t, nil
-	}
-	if _, ok := a.deferredAllowlist[name]; !ok {
-		return nil, fmt.Errorf("agent: tool %q not in active set or deferred allowlist", name)
-	}
-	built, err := toolset.Build([]tools.ToolName{name}, a.toolState)
-	if err != nil {
-		return nil, err
-	}
-	a.active[built[0].Name()] = built[0]
-	return built[0], nil
-}
-
-// Tool returns the runnable instance for an already-built tool. Returns
-// ok=false for deferred names that have not been resolved yet — call
-// ResolveTool when you intend to execute.
-func (a *Agent) Tool(name string) (tools.Tool, bool) {
-	t, ok := a.active[name]
-	return t, ok
-}
-
-// DeferredNames returns the canonical list of tool names the profile allows
-// to be lazy-loaded. TOOL_SEARCH uses this to know which names it may
-// describe (and the system-prompt builder uses it to advertise them).
-//
-// Part of the meta.DeferredLookup interface; the agent installs itself
-// as the lookup target via toolState.SetDeferredLookup in New().
-func (a *Agent) DeferredNames() []tools.ToolName {
-	out := make([]tools.ToolName, 0, len(a.deferredAllowlist))
-	for n := range a.deferredAllowlist {
-		out = append(out, n)
-	}
-	return out
-}
-
-// Describe returns the metadata for a deferred tool by name. Delegates to
-// toolset.Describe, which constructs a throwaway instance to read its
-// static fields — no agent state is mutated and no tool is "loaded".
-//
-// Part of the meta.DeferredLookup interface, used by TOOL_SEARCH.
-func (a *Agent) Describe(name tools.ToolName) (tools.Descriptor, error) {
-	if _, ok := a.deferredAllowlist[name]; !ok {
-		return tools.Descriptor{}, fmt.Errorf("agent: %q is not in the deferred allowlist", name)
-	}
-	return toolset.Describe(name)
-}
+// IsSubagent reports whether this agent was constructed with AsSubagent.
+// The AGENT tool checks this to enforce the "subagents cannot spawn
+// subagents" invariant.
+func (a *Agent) IsSubagent() bool { return a.parent != "" }
 
 // Session exposes the conversation history for inspection or TUI rendering.
 func (a *Agent) Session() *session.Session { return a.session }
@@ -272,11 +165,6 @@ func (a *Agent) Sink() event.Sink {
 	return a.sink
 }
 
-// IsSubagent reports whether this agent was constructed with asSubagent.
-// The AGENT tool checks this to enforce the "subagents cannot spawn
-// subagents" invariant.
-func (a *Agent) IsSubagent() bool { return a.parent != "" }
-
 // emit sends an event to the agent's sink (no-op if none installed). The
 // envelope's AgentID, ParentID, and Time are filled in here so call sites
 // only carry the kind-specific payload.
@@ -294,22 +182,4 @@ func (a *Agent) emit(kind event.Kind, build func(*event.Event)) {
 		build(&e)
 	}
 	a.sink.Emit(e)
-}
-
-// hasAnyTaskTool reports whether the profile mentions any task tool —
-// either active or deferred. Used to decide whether wiring the task store's
-// OnChange hook is worth it. Agents with no task tools never need the
-// emit-bridge and skip the lazy TaskStore allocation entirely.
-func (a *Agent) hasAnyTaskTool() bool {
-	for _, n := range a.profile.ActiveTools {
-		if task.IsTaskToolName(n) {
-			return true
-		}
-	}
-	for n := range a.deferredAllowlist {
-		if task.IsTaskToolName(n) {
-			return true
-		}
-	}
-	return false
 }

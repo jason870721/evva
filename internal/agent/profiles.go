@@ -27,6 +27,31 @@ import (
 	"github.com/johnny1110/evva/internal/tools/web"
 )
 
+// AgentType enumerates the kinds of agent we know how to bootstrap.
+// Profiles in agent/profiles are keyed off these values; the value also
+// appears in logs to identify which kind of agent emitted a record.
+type AgentType int
+
+const (
+	MAIN AgentType = iota
+	EXPLORE
+	GENERAL_PURPOSE
+)
+
+// String returns a short human label suitable for logs and the system prompt.
+func (t AgentType) String() string {
+	switch t {
+	case MAIN:
+		return "main"
+	case EXPLORE:
+		return "explore"
+	case GENERAL_PURPOSE:
+		return "general"
+	default:
+		return "unknown"
+	}
+}
+
 // Profile is the configuration an Agent runs under: which kind of agent it
 // is, what system prompt it presents, and which tool *names* are exposed to
 // the model.
@@ -110,7 +135,7 @@ func Explore(provider constant.LLMProvider, model constant.Model, options []llm.
 func General(provider constant.LLMProvider, model constant.Model, options []llm.Option, toolset ...tools.ToolName) Profile {
 	return Profile{
 		Type:         GENERAL_PURPOSE,
-		SystemPrompt: exploreSystemPrompt,
+		SystemPrompt: generalSystemPrompt,
 		ActiveTools:  toolset,
 		LLMProvider:  provider,
 		LLMModel:     model,

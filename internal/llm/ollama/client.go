@@ -147,7 +147,7 @@ func (c *Client) Complete(ctx context.Context, messages []llm.Message, toolSet [
 
 	out := llm.Response{Content: parsed.Message.Content}
 	if len(parsed.Message.ToolCalls) > 0 {
-		tc := parsed.Message.ToolCalls[0]
+		tc := parsed.Message.ToolCalls[0] // TODO: Why only 1 tool call ?
 		out.ToolCall = &tools.Call{Name: tc.Function.Name, Input: tc.Function.Arguments}
 		// Ollama doesn't issue tool-call ids; synthesize one so the agent can pair
 		// the eventual tool reply with this request when echoing back.

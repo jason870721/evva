@@ -44,19 +44,20 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 	subProfile.LLMModel = a.profile.LLMProvider.ModelForLevel(req.Level)
 
 	childSink := event.BubbleUp{Parent: a.Sink(), ParentID: a.ID}
-	child, err := New(subProfile,
-		WithSink(childSink),
-		asSubagent(a.ID),
-		WithMaxIterations(a.maxIters),
-	)
+	// new agent
+	child, err := New(subProfile, WithSink(childSink), AsSubagent(a.ID), WithMaxIterations(a.maxIters))
 	if err != nil {
 		return "", fmt.Errorf("spawn: new agent: %w", err)
 	}
 
 	summary := truncateSummary(req.Prompt, 100)
+
+	// ------------------------------------------------------------
 	emitSubagent(child, req.Kind, summary, event.SubagentStarted)
+	// TODO: In evva v2.0 support sync/async agent mode as new feature.
 	resp, runErr := child.Run(ctx, req.Prompt)
 	emitSubagent(child, req.Kind, summary, event.SubagentEnded)
+	// ------------------------------------------------------------
 
 	if runErr != nil {
 		// Subagent paused at iter limit — return the partial so the parent
@@ -66,6 +67,7 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 		}
 		return "", runErr
 	}
+
 	return resp.Content, nil
 }
 
@@ -80,6 +82,7 @@ func subagentProfile(parent Profile, kind string) (Profile, error) {
 
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "explore":
+		// read-only
 		return Explore(parent.LLMProvider, parent.LLMModel, parent.LLMOptions), nil
 	case "general-purpose", "general", "":
 		toolNames := []tools.ToolName{
@@ -87,6 +90,9 @@ func subagentProfile(parent Profile, kind string) (Profile, error) {
 			tools.BASH, tools.WEB_SEARCH, tools.WEB_FETCH,
 		}
 		return General(parent.LLMProvider, parent.LLMModel, parent.LLMOptions, toolNames...), nil
+	case "teammate":
+		// TODO: a strong agent, not a typical subagent. It have same permission as main agent, and free to do his own job in async mode.
+		return Profile{}, fmt.Errorf("not support subagent_type in current version %q (want \"explore\" or \"general-purpose\")", kind)
 	default:
 		return Profile{}, fmt.Errorf("unknown subagent_type %q (want \"explore\" or \"general-purpose\")", kind)
 	}

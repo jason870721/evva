@@ -168,7 +168,7 @@ func (c *Client) Complete(ctx context.Context, messages []llm.Message, toolSet [
 		Thinking: msg.ReasoningContent,
 	}
 	if len(msg.ToolCalls) > 0 {
-		call := msg.ToolCalls[0]
+		call := msg.ToolCalls[0] // TODO: Why only 1 tool call ?
 		out.ToolCall = &tools.Call{
 			Name:  call.Function.Name,
 			Input: json.RawMessage(call.Function.Arguments),

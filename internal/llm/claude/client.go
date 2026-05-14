@@ -174,7 +174,7 @@ func (c *Client) Complete(ctx context.Context, messages []llm.Message, toolSet [
 		case "text":
 			text.WriteString(b.Text)
 		case "tool_use":
-			out.ToolCall = &tools.Call{Name: b.Name, Input: b.Input}
+			out.ToolCall = &tools.Call{Name: b.Name, Input: b.Input} // TODO: Why only 1 tool call ?
 			out.ToolID = b.ID
 		}
 	}

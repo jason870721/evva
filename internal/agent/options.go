@@ -35,12 +35,12 @@ func WithMaxIterations(n int) Option {
 	}
 }
 
-// asSubagent marks the agent as a subagent of parentID. Subagents:
+// AsSubagent marks the agent as a subagent of parentID. Subagents:
 //   - cannot spawn further subagents (meta.Agent rejects from a subagent),
 //   - have their events tagged with ParentID=parentID via event.BubbleUp.
 //
 // Unexported on purpose — only the AGENT tool's Execute should set this.
-func asSubagent(parentID string) Option {
+func AsSubagent(parentID string) Option {
 	return func(a *Agent) {
 		a.parent = parentID
 	}
