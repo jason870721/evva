@@ -3,11 +3,17 @@ package constant
 type AgentStatus string
 
 const (
-	INIT       AgentStatus = "init"
-	THINKING   AgentStatus = "thinking"
-	TOOL_USING AgentStatus = "tool_using"
-	IDLE       AgentStatus = "idle"
-	SAVING     AgentStatus = "saving"
-	COMPACTING AgentStatus = "compacting"
-	SHUTDOWN   AgentStatus = "shutdown"
+	INIT         AgentStatus = "init"
+	THINKING     AgentStatus = "thinking"
+	EXECUTING    AgentStatus = "executing"
+	IDLE         AgentStatus = "idle"
+	SAVING       AgentStatus = "saving"
+	COMPACTING   AgentStatus = "compacting"
+	READY_REPORT AgentStatus = "ready_report"
+	SHUTDOWN     AgentStatus = "shutdown"
+	CRUSHED      AgentStatus = "crushed"
 )
+
+func (a AgentStatus) String() string {
+	return string(a)
+}

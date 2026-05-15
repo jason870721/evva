@@ -208,7 +208,7 @@ func (s cliSink) printStoreUpdate(p *event.StoreUpdatePayload) {
 		}
 	case meta.SpawnGroupDomain:
 		if sn, ok := p.Payload.(meta.SubagentSnapshot); ok {
-			fmt.Fprintf(s.out, "[subagent:%s] %s (%s) phase=%s\n", p.Op, sn.ID, sn.Type, sn.Phase)
+			fmt.Fprintf(s.out, "[subagent:%s] %s (%s) phase=%s\n", p.Op, sn.ID, sn.Type, sn.Status)
 		}
 	default:
 		fmt.Fprintf(s.out, "[%s:%s] %s\n", p.Domain, p.Op, p.ID)

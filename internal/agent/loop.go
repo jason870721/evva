@@ -318,7 +318,7 @@ func (a *Agent) drainAsyncSubagents() {
 	if !a.toolState.HasAgentGroupPanel() {
 		return
 	}
-	completed := a.toolState.AgentGroupPanel().DrainCompleted()
+	completed := a.toolState.AgentGroup().DrainCompleted()
 	if len(completed) == 0 {
 		return
 	}
@@ -326,7 +326,7 @@ func (a *Agent) drainAsyncSubagents() {
 	var b strings.Builder
 	b.WriteString("[Async subagent results]\n")
 	for _, s := range completed {
-		switch s.Phase {
+		switch s.Status {
 		case meta.PhaseCrushed:
 			fmt.Fprintf(&b, "- subagent %s (%s) failed: %s\n", s.Name, s.Type, s.Err)
 		default:

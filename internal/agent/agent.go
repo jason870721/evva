@@ -90,7 +90,7 @@ func New(parentID string, profile Profile, opts ...Option) (*Agent, error) {
 	}
 
 	toolState := &toolset.ToolState{}
-
+	// expose tools in llm api call, also init at first.
 	exposeTools, err := toolset.Build(profile.ActiveTools, toolState)
 	if err != nil {
 		lgr.Error("agent: build active tools failed", "error", err)
@@ -123,7 +123,7 @@ func New(parentID string, profile Profile, opts ...Option) (*Agent, error) {
 		maxIters:          cfg.DefaultMaxIterations,
 	}
 
-	// adapt options params (e.g. name, sink, maxIters, asSubAgent)
+	// adapt options params (e.g. name, sink, maxIters..)
 	for _, opt := range opts {
 		opt(a)
 	}

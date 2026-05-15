@@ -11,8 +11,8 @@ import (
 )
 
 // The task tools are stateful: all six (Create, Get, List, Update, Output,
-// Stop) share one *Store per agent. The profile builder constructs one
-// Store and threads it through each NewXxx constructor.
+// Stop) share one *TaskGroup per agent. The profile builder constructs one
+// TaskGroup and threads it through each NewXxx constructor.
 //
 // Output and Stop are reserved for background-process tasks (Bash
 // run_in_background, future Monitor); until those land they return a clear
@@ -21,10 +21,10 @@ import (
 // --- TaskCreate -----------------------------------------------------------
 
 type CreateTool struct {
-	store *Store
+	store *TaskGroup
 }
 
-func NewCreate(s *Store) *CreateTool { return &CreateTool{store: s} }
+func NewCreate(s *TaskGroup) *CreateTool { return &CreateTool{store: s} }
 
 func (t *CreateTool) Name() string { return string(tools.TASK_CREATE) }
 
@@ -69,16 +69,16 @@ func (t *CreateTool) Execute(_ context.Context, input json.RawMessage) (tools.Re
 		ActiveForm:  in.ActiveForm,
 		Metadata:    in.Metadata,
 	})
-	return tools.Result{Content: fmt.Sprintf("created task %s (pending): %s", created.ID, created.Subject)}, nil
+	return tools.Result{Content: fmt.Sprintf("created task, ID: %s, status: pending, subject: %s", created.ID, created.Subject)}, nil
 }
 
 // --- TaskGet --------------------------------------------------------------
 
 type GetTool struct {
-	store *Store
+	store *TaskGroup
 }
 
-func NewGet(s *Store) *GetTool { return &GetTool{store: s} }
+func NewGet(s *TaskGroup) *GetTool { return &GetTool{store: s} }
 
 func (t *GetTool) Name() string { return string(tools.TASK_GET) }
 
@@ -118,10 +118,10 @@ func (t *GetTool) Execute(_ context.Context, input json.RawMessage) (tools.Resul
 // --- TaskList -------------------------------------------------------------
 
 type ListTool struct {
-	store *Store
+	store *TaskGroup
 }
 
-func NewList(s *Store) *ListTool { return &ListTool{store: s} }
+func NewList(s *TaskGroup) *ListTool { return &ListTool{store: s} }
 
 func (t *ListTool) Name() string { return string(tools.TASK_LIST) }
 
@@ -167,10 +167,10 @@ func (t *ListTool) Execute(_ context.Context, _ json.RawMessage) (tools.Result, 
 // --- TaskUpdate -----------------------------------------------------------
 
 type UpdateTool struct {
-	store *Store
+	store *TaskGroup
 }
 
-func NewUpdate(s *Store) *UpdateTool { return &UpdateTool{store: s} }
+func NewUpdate(s *TaskGroup) *UpdateTool { return &UpdateTool{store: s} }
 
 func (t *UpdateTool) Name() string { return string(tools.TASK_UPDATE) }
 
@@ -243,10 +243,10 @@ func (t *UpdateTool) Execute(_ context.Context, input json.RawMessage) (tools.Re
 // --- TaskOutput -----------------------------------------------------------
 
 type OutputTool struct {
-	store *Store
+	store *TaskGroup
 }
 
-func NewOutput(s *Store) *OutputTool { return &OutputTool{store: s} }
+func NewOutput(s *TaskGroup) *OutputTool { return &OutputTool{store: s} }
 
 func (t *OutputTool) Name() string { return string(tools.TASK_OUTPUT) }
 
@@ -278,10 +278,10 @@ func (t *OutputTool) Execute(_ context.Context, _ json.RawMessage) (tools.Result
 // --- TaskStop -------------------------------------------------------------
 
 type StopTool struct {
-	store *Store
+	store *TaskGroup
 }
 
-func NewStop(s *Store) *StopTool { return &StopTool{store: s} }
+func NewStop(s *TaskGroup) *StopTool { return &StopTool{store: s} }
 
 func (t *StopTool) Name() string { return string(tools.TASK_STOP) }
 

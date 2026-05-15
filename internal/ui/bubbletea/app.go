@@ -81,7 +81,7 @@ func (u *UI) Attach(c ui.Controller) {
 // ctx cancellation triggers a clean shutdown.
 func (u *UI) Run(ctx context.Context) error {
 	// Forward ctx cancellation into the bubbletea program so external
-	// signals (SIGINT in the parent, parent ctx.Done(), ...) wind us
+	// signals (SIGINT in the parent, parent ctx.Report(), ...) wind us
 	// down cleanly.
 	done := make(chan struct{})
 	go func() {
@@ -391,4 +391,3 @@ func lineCount(s string) int {
 	}
 	return strings.Count(s, "\n") + 1
 }
-

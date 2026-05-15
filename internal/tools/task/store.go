@@ -62,13 +62,13 @@ type Summary struct {
 	Subject string
 }
 
-// Store is the per-agent backing store for the task tools. All six task
-// tools (Create, Get, List, Update, Output, Stop) share one Store via
+// TaskGroup is the per-agent backing store for the task tools. All six task
+// tools (Create, Get, List, Update, Output, Stop) share one TaskGroup via
 // constructor injection, so they cooperate without any global state.
 //
 // Safe for concurrent access. Mutations call Notify after releasing the
 // lock so observers may freely call back into the store.
-type Store struct {
+type TaskGroup struct {
 	observable.Observable
 
 	mu      sync.Mutex
@@ -77,19 +77,19 @@ type Store struct {
 	counter int
 }
 
-// NewStore returns an empty Store ready for use.
-func NewStore() *Store {
-	return &Store{tasks: make(map[string]*Task)}
+// NewTaskGroup returns an empty TaskGroup ready for use.
+func NewTaskGroup() *TaskGroup {
+	return &TaskGroup{tasks: make(map[string]*Task)}
 }
 
 // Domain identifies this store on the change stream. Required by the
 // observable.Store interface.
-func (s *Store) Domain() string { return Domain }
+func (s *TaskGroup) Domain() string { return Domain }
 
 // Create inserts a new task. The store assigns the ID (monotonic per-store,
 // "t1", "t2", …) and timestamps; the caller supplies the other fields.
 // Returns the inserted task with its assigned ID populated.
-func (s *Store) Create(in Task) Task {
+func (s *TaskGroup) Create(in Task) Task {
 	s.mu.Lock()
 	s.counter++
 	now := time.Now()
@@ -114,7 +114,7 @@ func (s *Store) Create(in Task) Task {
 // Get returns a copy of the task with the given ID. Not-found returns the
 // zero Task and ok=false; callers should treat that as a recoverable error
 // (surface to the model as IsError, not abort the loop).
-func (s *Store) Get(id string) (Task, bool) {
+func (s *TaskGroup) Get(id string) (Task, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.tasks[id]
@@ -127,7 +127,7 @@ func (s *Store) Get(id string) (Task, bool) {
 // List returns every task in insertion order, including deleted ones (so
 // callers can audit the lifecycle). Callers that only want active tasks
 // should filter by Status != StatusDeleted.
-func (s *Store) List() []Task {
+func (s *TaskGroup) List() []Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]Task, 0, len(s.order))
@@ -156,7 +156,7 @@ type UpdatePatch struct {
 // Update applies the patch to the task with the given ID. Returns the
 // post-update task or ok=false if no task with that ID exists. An unknown
 // status value returns an error (and the task is left unchanged).
-func (s *Store) Update(id string, p UpdatePatch) (Task, bool, error) {
+func (s *TaskGroup) Update(id string, p UpdatePatch) (Task, bool, error) {
 	s.mu.Lock()
 	t, ok := s.tasks[id]
 	if !ok {

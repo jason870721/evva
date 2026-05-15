@@ -85,7 +85,7 @@ func (a *Agent) Describe(name tools.ToolName) (tools.Descriptor, error) {
 // auto-registers via its lazy accessor on ToolState and the subscription
 // below picks up its changes automatically.
 func bindToolStateEvents(a *Agent) {
-	a.toolState.Subscribe(func(c observable.Change) {
+	a.toolState.Subscribe(func(c observable.Change) { // Agent.emit is the final subscribe!! each store can push  emit by Notify()
 		a.emit(event.KindStoreUpdate, func(e *event.Event) {
 			e.StoreUpdate = &event.StoreUpdatePayload{
 				Domain:  c.Domain,

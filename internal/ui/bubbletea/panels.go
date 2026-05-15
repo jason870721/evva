@@ -48,7 +48,7 @@ func renderSubagentPanel(ts *toolset.ToolState) string {
 	if !ts.HasAgentGroupPanel() {
 		return ""
 	}
-	rows := ts.AgentGroupPanel().Snapshot()
+	rows := ts.AgentGroup().Snapshot()
 	if len(rows) == 0 {
 		return ""
 	}
@@ -62,12 +62,12 @@ func renderSubagentPanel(ts *toolset.ToolState) string {
 			marker = " (async)"
 		}
 		summary := r.PSummary
-		if r.Phase == meta.PhaseDone && r.RSummary != "" {
+		if r.Status == meta.PhaseDone && r.RSummary != "" {
 			summary = "→ " + truncate(r.RSummary, 80)
-		} else if r.Phase == meta.PhaseCrushed && r.Err != "" {
+		} else if r.Status == meta.PhaseCrushed && r.Err != "" {
 			summary = "✗ " + truncate(r.Err, 80)
 		}
-		b.WriteString(styles.PanelRow.Render(fmt.Sprintf("  [%s] %s%s  %s", r.Phase, r.ID, marker, summary)))
+		b.WriteString(styles.PanelRow.Render(fmt.Sprintf("  [%s] %s%s  %s", r.Status, r.ID, marker, summary)))
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")

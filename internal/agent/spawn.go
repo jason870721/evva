@@ -28,9 +28,9 @@ import (
 //     - Sync mode: blocks until child.Run completes, removes from panel
 //     on return, and propagates the child's text through the tool result.
 //     - Async mode: spawns a goroutine that runs the child and marks the
-//     panel entry Done / Crushed on exit. Returns immediately with an
+//     panel entry Report / Crushed on exit. Returns immediately with an
 //     ack message; the ParentID loop will pick up the eventual result via
-//     AgentGroupPanel.DrainCompleted between turns.
+//     AgentGroup.DrainCompleted between turns.
 func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error) {
 	if a.IsSubagent() {
 		return "", meta.ErrSubagentForbidden
@@ -59,7 +59,7 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 	}
 
 	summary := truncateSummary(req.Prompt, 100)
-	panel := a.ToolState().AgentGroupPanel()
+	panel := a.ToolState().AgentGroup()
 	panel.Add(child.Name, child.ID, subProfile.Type.String(), summary, req.AsyncMode)
 
 	if req.AsyncMode {
@@ -71,11 +71,11 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 			resp, runErr := child.Run(ctx, req.Prompt)
 			switch {
 			case runErr != nil && errors.Is(runErr, ErrIterLimit):
-				panel.Done(child.ID, resp.Content+"\n[subagent paused at iteration limit]")
+				panel.Report(child.ID, resp.Content+"\n[subagent paused at iteration limit]")
 			case runErr != nil:
 				panel.Crush(child.ID, runErr)
 			default:
-				panel.Done(child.ID, resp.Content)
+				panel.Report(child.ID, resp.Content)
 			}
 		}()
 		return fmt.Sprintf("subagent %s spawned in background; its summary will be delivered on a later turn (do not assume any result here).", child.ID), nil
@@ -90,13 +90,13 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 
 	if runErr != nil {
 		if errors.Is(runErr, ErrIterLimit) {
-			panel.Done(child.ID, resp.Content)
+			panel.Report(child.ID, resp.Content)
 			return resp.Content + "\n[subagent paused at iteration limit]", nil
 		}
 		panel.Crush(child.ID, runErr)
 		return "", runErr
 	}
-	panel.Done(child.ID, resp.Content)
+	panel.Report(child.ID, resp.Content)
 	return resp.Content, nil
 }
 

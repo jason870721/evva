@@ -9,7 +9,7 @@
 //   - toolset.Build is the single name → instance resolver. One switch lists
 //     every tool the agent supports; auditing the surface = reading this file.
 //
-//   - toolset.ToolState holds per-agent shared state (e.g. *task.Store) so
+//   - toolset.ToolState holds per-agent shared state (e.g. *task.TaskGroup) so
 //     stateful tool families can be constructed with the right backing data.
 //     The agent constructs one ToolState per agent instance, so two agents
 //     built from the same profile get isolated state.
@@ -46,23 +46,23 @@ import (
 // agent (via agent.ToolState()) and read state through the typed accessors
 // rather than peeking into tool internals.
 type ToolState struct {
-	taskStore       *task.Store
+	taskStore       *task.TaskGroup
 	subagentSpawner meta.SubagentSpawner
 	deferredLookup  meta.DeferredLookup
 	readTracker     *fs.ReadTracker
 	subAgentGroup   *meta.SpawnGroup
 	// Future: monitorBus, cronService, skillLoader, ...
 
-	// Store registry — every observable.Store registered here fans its
+	// TaskGroup registry — every observable.Store registered here fans its
 	// changes into the ToolState's observers. The agent subscribes once
 	// in New() and re-emits every change as an event.KindStoreUpdate, so
 	// adding a new panel never requires touching the agent layer.
 	storesMu  sync.Mutex
-	stores    []observable.Store
-	observers []observable.Observer
+	stores    []observable.Store    // store 必可被觀察
+	observers []observable.Observer // 觀察者
 }
 
-// RegisterStore plugs a Store into the unified change stream. ToolState
+// RegisterStore plugs a TaskGroup into the unified change stream. ToolState
 // subscribes to store and re-publishes every Change to its own observers.
 // Lazy accessors below call this on first allocation, so callers that just
 // use the typed accessors get registration for free.
@@ -71,13 +71,13 @@ func (s *ToolState) RegisterStore(store observable.Store) {
 		return
 	}
 	s.storesMu.Lock()
-	s.stores = append(s.stores, store)
+	s.stores = append(s.stores, store) // add into ToolState.stores
 	s.storesMu.Unlock()
-	store.Subscribe(s.fanout)
+	store.Subscribe(s.fanout) // s.fanout 是觀察者
 }
 
 // Subscribe registers an observer that receives every Change from every
-// registered Store. The agent uses this to bridge into its event sink.
+// registered TaskGroup. The agent uses this to bridge into its event sink.
 func (s *ToolState) Subscribe(fn observable.Observer) {
 	if fn == nil {
 		return
@@ -89,10 +89,10 @@ func (s *ToolState) Subscribe(fn observable.Observer) {
 
 func (s *ToolState) fanout(c observable.Change) {
 	s.storesMu.Lock()
-	snapshot := append([]observable.Observer(nil), s.observers...)
+	obsSnapshot := append([]observable.Observer(nil), s.observers...)
 	s.storesMu.Unlock()
-	for _, fn := range snapshot {
-		fn(c)
+	for _, fn := range obsSnapshot {
+		fn(c) // 將 Change 散給所有觀察 ToolState 的訂閱者
 	}
 }
 
@@ -106,9 +106,9 @@ func (s *ToolState) HasAgentGroupPanel() bool { return s.subAgentGroup != nil }
 // first use. All six task tools constructed against the same ToolState share it.
 // First-use also registers the store on the change stream so the agent's
 // event bridge picks up every task mutation without per-store wiring.
-func (s *ToolState) TaskStore() *task.Store {
+func (s *ToolState) TaskStore() *task.TaskGroup {
 	if s.taskStore == nil {
-		s.taskStore = task.NewStore()
+		s.taskStore = task.NewTaskGroup()
 		s.RegisterStore(s.taskStore)
 	}
 	return s.taskStore
@@ -151,7 +151,7 @@ func (s *ToolState) ReadTracker() *fs.ReadTracker {
 	return s.readTracker
 }
 
-func (s *ToolState) AgentGroupPanel() *meta.SpawnGroup {
+func (s *ToolState) AgentGroup() *meta.SpawnGroup {
 	if s.subAgentGroup == nil {
 		s.subAgentGroup = meta.NewSpawnGroup()
 		s.RegisterStore(s.subAgentGroup)
@@ -221,7 +221,7 @@ func buildOne(name tools.ToolName, s *ToolState) (tools.Tool, error) {
 		// Lookup is late-bound: the agent installs itself via
 		// SetSubagentSpawner after construction, and meta.AgentTool reads
 		// through s.SubagentSpawner at Execute time.
-		return meta.NewAgent(s.SubagentSpawner, s.AgentGroupPanel()), nil
+		return meta.NewAgent(s.SubagentSpawner, s.AgentGroup()), nil
 	case tools.TOOL_SEARCH:
 		// Same late-binding pattern as AGENT — the agent installs itself
 		// as the deferred lookup via SetDeferredLookup after construction.
@@ -231,7 +231,7 @@ func buildOne(name tools.ToolName, s *ToolState) (tools.Tool, error) {
 	case tools.SCHEDULE_WAKEUP:
 		return meta.Wakeup, nil
 
-	// --- task (stateful — all six share one *Store via ToolState) ---
+	// --- task (stateful — all six share one *TaskGroup via ToolState) ---
 	case tools.TASK_CREATE:
 		return task.NewCreate(s.TaskStore()), nil
 	case tools.TASK_GET:

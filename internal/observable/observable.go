@@ -34,7 +34,7 @@ type Change struct {
 	Time    time.Time
 }
 
-// Observer is the callback shape Subscribe accepts. Observers run on the
+// Observer(觀察者) is the callback shape Subscribe accepts. Observers run on the
 // goroutine that called Notify and must not block — slow consumers buffer
 // internally.
 type Observer func(Change)
@@ -44,24 +44,25 @@ type Observer func(Change)
 // store typically only needs to declare Domain().
 type Store interface {
 	Domain() string
-	Subscribe(Observer)
+	Subscribe(Observer) // Store 必須可被觀察
 }
 
-// Observable is the embeddable pub/sub primitive. Zero value is ready to
+// Observable(被觀察者) is the embeddable pub/sub primitive. Zero value is ready to
 // use; safe for concurrent Subscribe and Notify from any goroutine.
 type Observable struct {
 	mu        sync.RWMutex
-	observers []Observer
+	observers []Observer // func
 }
 
-// Subscribe appends fn to the observer list. nil fns are ignored.
+// Subscribe appends fn to the observer list. nil fns are ignored. (被訂閱)
 func (o *Observable) Subscribe(fn Observer) {
 	if fn == nil {
 		return
 	}
 	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	o.observers = append(o.observers, fn)
-	o.mu.Unlock()
 }
 
 // Notify fans c out to every subscriber. Time is filled in when zero. The
@@ -72,9 +73,10 @@ func (o *Observable) Notify(c Change) {
 		c.Time = time.Now()
 	}
 	o.mu.RLock()
-	snapshot := append([]Observer(nil), o.observers...)
+	snapshotObservers := append([]Observer(nil), o.observers...)
 	o.mu.RUnlock()
-	for _, fn := range snapshot {
-		fn(c)
+	// send change to observers
+	for _, fn := range snapshotObservers {
+		fn(c) // func(Change)
 	}
 }

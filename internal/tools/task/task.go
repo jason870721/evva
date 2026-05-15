@@ -1,6 +1,6 @@
 // Package task exposes the six task tools (Create, Get, List, Update, Output,
-// Stop). They are stateful and share one *Store per agent — the agent's
-// toolset.Builders provides the Store and threads it through each constructor.
+// Stop). They are stateful and share one *TaskGroup per agent — the agent's
+// toolset.Builders provides the TaskGroup and threads it through each constructor.
 package task
 
 import "github.com/johnny1110/evva/internal/tools"
