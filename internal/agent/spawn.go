@@ -61,7 +61,7 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 	group := a.ToolState().AgentGroup()
 	group.Add(child.Name, child.ID, subProfile.Type.String(), req.Desc, req.AsyncMode)
 
-	if req.AsyncMode {
+	if child.IsAsync() {
 		// Detach: run the child in a goroutine, mark the group entry on
 		// exit. The ParentID's main loop picks the result up via
 		// DrainCompleted between turns. We deliberately pass the ParentID's
