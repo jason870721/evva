@@ -62,6 +62,10 @@ type ToolState struct {
 	observers []observable.Observer // 觀察者
 }
 
+func NewToolState() *ToolState {
+	return &ToolState{}
+}
+
 // RegisterStore plugs a TaskGroup into the unified change stream. ToolState
 // subscribes to store and re-publishes every Change to its own observers.
 // Lazy accessors below call this on first allocation, so callers that just
@@ -185,7 +189,7 @@ func Describe(name tools.ToolName) (tools.Descriptor, error) {
 // Unknown names return an error — there is no silent fallback.
 func Build(names []tools.ToolName, s *ToolState) ([]tools.Tool, error) {
 	if s == nil {
-		s = &ToolState{}
+		s = NewToolState()
 	}
 	out := make([]tools.Tool, 0, len(names))
 	for _, n := range names {

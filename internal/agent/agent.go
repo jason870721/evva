@@ -45,11 +45,12 @@ import (
 // sink is the event consumer (nil => Discard). ParentID is empty for the root
 // agent and the root's AgentID for subagents — see Option AsSubagent.
 type Agent struct {
-	ParentID string
-	ID       string
-	Name     string
-	logger   *slog.Logger
-	status   constant.AgentStatus
+	Parent *Agent
+
+	ID     string
+	Name   string
+	logger *slog.Logger
+	status constant.AgentStatus
 
 	profile Profile
 
@@ -82,14 +83,19 @@ type Agent struct {
 //
 // Options run after the agent struct is populated from the profile and before
 // the LLM client is constructed, so they can influence either layer.
-func New(parentID string, profile Profile, opts ...Option) (*Agent, error) {
+func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	ID := common.GenUUID()
+	parentID := ""
+	if parent != nil {
+		parentID = parent.ID
+	}
+	// init logger
 	lgr, err := logger.OfAgent(parentID, ID)
 	if err != nil {
 		return nil, fmt.Errorf("agent: init logger: %w", err)
 	}
 
-	toolState := &toolset.ToolState{}
+	toolState := toolset.NewToolState() // per agent per toolState.
 	// expose tools in llm api call, also init at first.
 	exposeTools, err := toolset.Build(profile.ActiveTools, toolState)
 	if err != nil {
@@ -110,7 +116,7 @@ func New(parentID string, profile Profile, opts ...Option) (*Agent, error) {
 	cfg := config.Get()
 
 	a := &Agent{
-		ParentID:          parentID,
+		Parent:            parent,
 		ID:                ID,
 		logger:            lgr,
 		status:            constant.INIT,
@@ -147,19 +153,36 @@ func New(parentID string, profile Profile, opts ...Option) (*Agent, error) {
 		return nil, fmt.Errorf("agent: init llm client: %w", err)
 	}
 	a.llm = llmClient
-	lgr.Info("agent: init llm client success.",
+
+	lgr.Info("agent: init success.",
+		"parent_id", a.ParentID(),
+		"id", a.ID,
+		"name", a.Name,
+		"profile", a.profile.Type.String(),
 		"provider", llmClient.Name(),
 		"model", llmClient.Model(),
-		"ParentID", a.ParentID,
+		"expose_tools", len(exposeTools),
 		"max_iters", a.maxIters,
 	)
 	return a, nil
 }
 
+// UpdateStatus
+func (a *Agent) UpdateStatus(status constant.AgentStatus) {
+	a.status = status
+}
+
+func (a *Agent) ParentID() string {
+	if a.Parent != nil {
+		return a.ID
+	}
+	return ""
+}
+
 // IsSubagent reports whether this agent was constructed with AsSubagent.
 // The AGENT tool checks this to enforce the "subagents cannot spawn
 // subagents" invariant.
-func (a *Agent) IsSubagent() bool { return a.ParentID != "" }
+func (a *Agent) IsSubagent() bool { return a.Parent != nil }
 
 func (a *Agent) Status() constant.AgentStatus { return a.status }
 
@@ -203,7 +226,7 @@ func (a *Agent) emit(kind event.Kind, build func(*event.Event)) {
 	e := event.Event{
 		Kind:     kind,
 		AgentID:  a.ID,
-		ParentID: a.ParentID,
+		ParentID: a.ParentID(),
 		Time:     time.Now(),
 	}
 	if build != nil {

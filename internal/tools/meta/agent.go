@@ -34,14 +34,14 @@ const SpawnGroupDomain = "subagent"
 // are Remove'd as soon as the spawner finishes, so they never sit in
 // DrainCompleted's queue.
 type SubagentSnapshot struct {
-	Name     string
-	ID       string
-	Type     string // "explore", "general-purpose", ...
-	Status   string
-	Async    bool
-	PSummary string // prompt summary
-	RSummary string // result summary (set on Report)
-	Err      string // error message (set on Crush)
+	Name    string
+	ID      string
+	Type    string // "explore", "general-purpose", ...
+	Status  string
+	Async   bool
+	JobDesc string // prompt summary
+	Summary string // result summary (set on Report)
+	Err     string // error message (set on Crush)
 }
 
 type spawnedAgent struct {
@@ -75,14 +75,14 @@ func (g *SpawnGroup) Domain() string { return SpawnGroupDomain }
 // Add records a new subagent in the init phase. async marks subagents
 // whose result will be delivered through DrainCompleted instead of the
 // usual tool-return path.
-func (g *SpawnGroup) Add(name, id, agentType, psummary string, async bool) {
+func (g *SpawnGroup) Add(name, id, agentType, jobDesc string, async bool) {
 	snap := SubagentSnapshot{
-		Name:     name,
-		ID:       id,
-		Type:     agentType,
-		Status:   constant.INIT.String(),
-		Async:    async,
-		PSummary: psummary,
+		Name:    name,
+		ID:      id,
+		Type:    agentType,
+		Status:  constant.INIT.String(),
+		Async:   async,
+		JobDesc: jobDesc,
 	}
 	g.mu.Lock()
 	g.agents[id] = &spawnedAgent{snap: snap}
@@ -119,7 +119,7 @@ func (g *SpawnGroup) Report(id, rsummary string) {
 		return
 	}
 	a.snap.Status = constant.READY_REPORT.String()
-	a.snap.RSummary = rsummary
+	a.snap.Summary = rsummary
 	a.done = true
 	snap := a.snap
 	g.mu.Unlock()
@@ -202,6 +202,7 @@ func (g *SpawnGroup) DrainCompleted() []SubagentSnapshot {
 		if !ok {
 			continue
 		}
+		// collect async agent which is done(crushed or ready_report)
 		if a.done && a.snap.Async {
 			out = append(out, a.snap)
 			delete(g.agents, id)
@@ -294,6 +295,7 @@ func (t *AgentTool) Execute(ctx context.Context, input json.RawMessage) (tools.R
 	out, err := spawner.Spawn(ctx, SpawnRequest{
 		Name:      in.Name,
 		Kind:      kind,
+		Desc:      in.Description,
 		Prompt:    in.Prompt,
 		Level:     in.Level,
 		AsyncMode: false,

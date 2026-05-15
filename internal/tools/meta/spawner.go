@@ -14,6 +14,9 @@ type SpawnRequest struct {
 	// Empty/unknown values are the spawner's responsibility (return an error).
 	Kind string
 
+	// 3~5 words desc
+	Desc string
+
 	// Prompt is the task the subagent should accomplish. Must be non-empty.
 	Prompt string
 

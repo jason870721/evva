@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/johnny1110/evva/internal/constant"
 	"strings"
 	"sync"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/internal/llm"
 	"github.com/johnny1110/evva/internal/tools"
-	"github.com/johnny1110/evva/internal/tools/meta"
 )
 
 // ErrIterLimit is returned by Run / Continue when the loop hits maxIters
@@ -318,6 +318,8 @@ func (a *Agent) drainAsyncSubagents() {
 	if !a.toolState.HasAgentGroupPanel() {
 		return
 	}
+
+	// completed = async agent done reports.
 	completed := a.toolState.AgentGroup().DrainCompleted()
 	if len(completed) == 0 {
 		return
@@ -327,10 +329,12 @@ func (a *Agent) drainAsyncSubagents() {
 	b.WriteString("[Async subagent results]\n")
 	for _, s := range completed {
 		switch s.Status {
-		case meta.PhaseCrushed:
-			fmt.Fprintf(&b, "- subagent %s (%s) failed: %s\n", s.Name, s.Type, s.Err)
+		case constant.CRUSHED.String():
+			fmt.Fprintf(&b, "- subagent %s (%s) failed: %s\n", s.Name, s.JobDesc, s.Err)
+		case constant.MAX_ITERS.String():
+			fmt.Fprintf(&b, "- subagent %s (%s) reached max iters: %s\n", s.Name, s.Type, s.Err)
 		default:
-			fmt.Fprintf(&b, "- subagent %s (%s) done:\n%s\n", s.Name, s.Type, s.RSummary)
+			fmt.Fprintf(&b, "- subagent %s (%s) done:\n%s\n", s.Name, s.Type, s.Summary)
 		}
 	}
 

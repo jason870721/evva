@@ -2,9 +2,9 @@ package bubbletea
 
 import (
 	"fmt"
+	"github.com/johnny1110/evva/internal/constant"
 	"strings"
 
-	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/task"
 	"github.com/johnny1110/evva/internal/toolset"
 )
@@ -61,10 +61,10 @@ func renderSubagentPanel(ts *toolset.ToolState) string {
 		if r.Async {
 			marker = " (async)"
 		}
-		summary := r.PSummary
-		if r.Status == meta.PhaseDone && r.RSummary != "" {
-			summary = "→ " + truncate(r.RSummary, 80)
-		} else if r.Status == meta.PhaseCrushed && r.Err != "" {
+		summary := r.JobDesc
+		if r.Status == constant.READY_REPORT.String() && r.Summary != "" {
+			summary = "→ " + truncate(r.Summary, 80)
+		} else if r.Status == constant.CRUSHED.String() && r.Err != "" {
 			summary = "✗ " + truncate(r.Err, 80)
 		}
 		b.WriteString(styles.PanelRow.Render(fmt.Sprintf("  [%s] %s%s  %s", r.Status, r.ID, marker, summary)))

@@ -7,6 +7,7 @@ const (
 	THINKING     AgentStatus = "thinking"
 	EXECUTING    AgentStatus = "executing"
 	IDLE         AgentStatus = "idle"
+	MAX_ITERS    AgentStatus = "max_iters"
 	SAVING       AgentStatus = "saving"
 	COMPACTING   AgentStatus = "compacting"
 	READY_REPORT AgentStatus = "ready_report"

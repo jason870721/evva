@@ -64,7 +64,7 @@ func main() {
 // agent emits events into it; the user drives prompts from the textarea.
 func runTUI(ctx context.Context, prof agent.Profile, maxIters int, name string) {
 	tui := bubbletea.New()
-	ag, err := agent.New("", prof,
+	ag, err := agent.New(nil, prof,
 		agent.WithName(name),
 		agent.WithSink(tui),
 		agent.WithMaxIterations(maxIters),
@@ -91,7 +91,7 @@ func runCLI(ctx context.Context, prof agent.Profile, maxIters int, name string) 
 		exitf(2, "usage: evva [-temp 0.7] [-max-tokens N] [-max-iters N] [-no-tui] <prompt>")
 	}
 
-	ag, err := agent.New("", prof,
+	ag, err := agent.New(nil, prof,
 		agent.WithName(name),
 		agent.WithSink(cliSink{out: os.Stdout}),
 		agent.WithMaxIterations(maxIters),

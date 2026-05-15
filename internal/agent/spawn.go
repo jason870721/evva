@@ -48,22 +48,21 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 	subProfile.LLMModel = a.profile.LLMProvider.ModelForLevel(req.Level)
 
 	childSink := event.BubbleUp{Parent: a.Sink(), ParentID: a.ID}
-	child, err := New(a.ID, subProfile,
+	child, err := New(a, subProfile,
 		WithName(req.Name),
 		WithSink(childSink),
-		WithMaxIterations(a.maxIters),
+		WithMaxIterations(a.maxIters), // share iters with child
 		WithAsync(req.AsyncMode),
 	)
 	if err != nil {
 		return "", fmt.Errorf("spawn: new agent: %w", err)
 	}
 
-	summary := truncateSummary(req.Prompt, 100)
-	panel := a.ToolState().AgentGroup()
-	panel.Add(child.Name, child.ID, subProfile.Type.String(), summary, req.AsyncMode)
+	group := a.ToolState().AgentGroup()
+	group.Add(child.Name, child.ID, subProfile.Type.String(), req.Desc, req.AsyncMode)
 
 	if req.AsyncMode {
-		// Detach: run the child in a goroutine, mark the panel entry on
+		// Detach: run the child in a goroutine, mark the group entry on
 		// exit. The ParentID's main loop picks the result up via
 		// DrainCompleted between turns. We deliberately pass the ParentID's
 		// ctx so a top-level cancel reaches the child.
@@ -71,32 +70,37 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 			resp, runErr := child.Run(ctx, req.Prompt)
 			switch {
 			case runErr != nil && errors.Is(runErr, ErrIterLimit):
-				panel.Report(child.ID, resp.Content+"\n[subagent paused at iteration limit]")
+				group.Report(child.ID, resp.Content+"\n[subagent paused at iteration limit]")
 			case runErr != nil:
-				panel.Crush(child.ID, runErr)
+				group.Crush(child.ID, runErr)
 			default:
-				panel.Report(child.ID, resp.Content)
+				group.Report(child.ID, resp.Content)
 			}
 		}()
-		return fmt.Sprintf("subagent %s spawned in background; its summary will be delivered on a later turn (do not assume any result here).", child.ID), nil
+		return fmt.Sprintf("subagent %s(%s) spawned in background; its summary will be delivered on a later turn (do not assume any result here).", child.Name, child.ID), nil
 	}
 
 	// Sync path: block on the child. Result is delivered via this return
 	// value (which the tool dispatcher hands back to the model as the
-	// AGENT tool_result). The panel entry is short-lived — we update the
+	// AGENT tool_result). The group entry is short-lived — we update the
 	// phase, then Remove so DrainCompleted never sees a sync entry.
 	resp, runErr := child.Run(ctx, req.Prompt)
-	defer panel.Remove(child.ID)
 
 	if runErr != nil {
 		if errors.Is(runErr, ErrIterLimit) {
-			panel.Report(child.ID, resp.Content)
+			// iters max
+			group.Report(child.ID, resp.Content)
+			group.Remove(child.ID)
 			return resp.Content + "\n[subagent paused at iteration limit]", nil
 		}
-		panel.Crush(child.ID, runErr)
-		return "", runErr
+		// sys crush
+		group.Crush(child.ID, runErr)
+		group.Remove(child.ID)
+		return "[subagent crushed due to system error]", runErr
 	}
-	panel.Report(child.ID, resp.Content)
+	// success report
+	group.Report(child.ID, resp.Content)
+	group.Remove(child.ID)
 	return resp.Content, nil
 }
 
