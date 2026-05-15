@@ -363,23 +363,18 @@ func (m *rootModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input.InsertString("\n")
 		return m, nil
 	case tea.KeyEnter:
-		// Plain Enter submits. Alt+Enter (Option+Enter on macOS)
-		// breaks through to the textarea which inserts a newline.
-		// Shift+Enter portability is terminal-dependent (the byte
-		// sequence is not distinguishable from Enter by default);
-		// users can configure their terminal to send \n on Shift+
-		// Enter and it will route via the KeyCtrlJ branch above.
+		// shift + Enter
 		if msg.Alt {
-			break
+			m.input.InsertString("\n")
+			return m, nil
 		}
-		// Some terminal configurations deliver a "fake paste" or a
-		// rune buffer that contains an embedded \n on Shift+Enter.
-		// If we see one in Runes, prefer newline insertion over
-		// submission so the user's intent is respected.
+
+		// Handle fake paste case
 		if len(msg.Runes) == 1 && msg.Runes[0] == '\n' {
 			m.input.InsertString("\n")
 			return m, nil
 		}
+
 		return m.submit()
 	}
 
