@@ -10,22 +10,30 @@ import (
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/internal/constant"
 	"github.com/johnny1110/evva/internal/llm"
-	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/tools/meta"
 )
 
-// INIT         AgentStatus = "init"
-// THINKING     AgentStatus = "thinking"
-// EXECUTING    AgentStatus = "executing"
-// INTERRUPTED  AgentStatus = "interrupted"
-// IDLE         AgentStatus = "idle"
-// MAX_ITERS    AgentStatus = "max_iters"
-// SAVING       AgentStatus = "saving"
-// COMPACTING   AgentStatus = "compacting"
-// READY_REPORT AgentStatus = "ready_report"
-// SHUTDOWN     AgentStatus = "shutdown"
-// CRUSHED      AgentStatus = "crushed"
+// Each function below maps to one transition of constant.AgentStatus. They
+// are the only sites in the agent layer that mutate a.status, so the file
+// reads as a state-by-state reference:
+//
+//   INIT         AgentStatus = "init"
+//   THINKING     AgentStatus = "thinking"      — thinking()
+//   EXECUTING    AgentStatus = "executing"     — execTool()
+//   DRAINING     AgentStatus = "draining"      — drainAsyncSubagents()
+//   COMPACTING   AgentStatus = "compacting"    — compact() (compact.go)
+//   TEXTING      AgentStatus = "texting"       — text()
+//   IDLE         AgentStatus = "idle"          — turnOver(), done() (loop.go)
+//   INTERRUPTED  AgentStatus = "interrupted"   — interrupted()
+//   CRUSHED      AgentStatus = "crushed"       — crush()
+//   MAX_ITERS    AgentStatus = "max_iters"     — limitBreak() (agent.go)
+//   READY_REPORT AgentStatus = "ready_report"  — done() (loop.go)
+//
+// Each method sets a.status, emits the appropriate event for the main agent
+// (or pushes the equivalent update through the parent's SpawnGroup for a
+// subagent), and either returns the state-machine's outcome or hands off to
+// the next step in the loop.
 
 // interrupted converts a raw ctx error into the llm.ErrInterrupted contract
 // the rest of the codebase agrees on, and emits the cancellation event.
@@ -89,13 +97,15 @@ func (a *Agent) drainAsyncSubagents() {
 
 	a.session.Append(llm.Message{Role: llm.RoleUser, Content: b.String()})
 	a.logger.Debug("subagents.drained", "count", len(completed))
-	a.status = constant.DRAINING
 }
 
+// thinking opens an LLM call to advance the conversation. The actual
+// transport work (Complete vs Stream branching, chunk routing) lives in
+// llmCall; this method exists only to set the status and emit the
+// turn-start event so the UI shows a heartbeat before the LLM responds.
 func (a *Agent) thinking(ctx context.Context, iter int) (llm.Response, error) {
 	a.status = constant.THINKING
 
-	// UI render
 	if a.IsSubagent() {
 		a.getParentSpawnGroup().Status(a.ID, constant.THINKING)
 	} else {
@@ -104,47 +114,13 @@ func (a *Agent) thinking(ctx context.Context, iter int) (llm.Response, error) {
 		})
 	}
 
-	// llm call is real thinking part.
 	return a.llmCall(ctx)
 }
 
-func (a *Agent) compact(ctx context.Context, s *session.Session) {
-	cfg := config.Get()
-
-	if a.IsSubagent() {
-		// no compacting for subagents.
-		return
-	}
-
-	modelStr := constant.Model(a.llm.Model())
-	maxContextSize := constant.MODEL_CONTEXT_SIZE[modelStr]
-	currentUsage := a.Session().Usage.Total()
-	usageRatio := float64(currentUsage) / float64(maxContextSize)
-	if usageRatio < cfg.AutoCompactThreshold {
-		return // safe.
-	}
-
-	a.status = constant.COMPACTING
-
-	if s.IsMicroCompacted() {
-		a.emit(event.KindCompacting, func(e *event.Event) {
-			e.Compacting = &event.CompactingPayload{Type: "full", UsageRatio: usageRatio}
-		})
-
-		// TODO: call llm do full compact. write summary prompt here.
-		// a.llm.Complete(ctx, ?, a.exposeTools)
-		s.FullCompact(s.Messages) // set full compacted message.
-	} else {
-		a.emit(event.KindCompacting, func(e *event.Event) {
-			e.Compacting = &event.CompactingPayload{Type: "micro", UsageRatio: usageRatio}
-		})
-
-		// TODO do microcompact compact all tool use result block and keep recent 8 blocks.
-		s.MicroCompact(s.Messages) // set micro compacted message.
-	}
-
-}
-
+// crush is the terminal transition for Go-level failures the loop can't
+// recover from — LLM transport errors, tool panics, etc. Subagent crashes
+// surface to the parent via SpawnGroup; root-agent crashes emit
+// KindError so the TUI can show a banner.
 func (a *Agent) crush(stage string, err error) error {
 	a.status = constant.CRUSHED
 
@@ -161,12 +137,16 @@ func (a *Agent) crush(stage string, err error) error {
 	return err
 }
 
+// text records the LLM's reply on the session and broadcasts it to the
+// UI. Always emits KindUsage; emits whole-block KindThinking and KindText
+// only in non-streaming mode (in streaming mode the chunk events already
+// painted those blocks progressively — see internal/agent/stream.go).
+// Subagents skip all emissions; the parent SpawnGroup carries their state.
 func (a *Agent) text(usage llm.Usage, thinking string, content string) {
-	a.session.AddUsage(usage)
+	a.session.RecordTurn(usage)
 	a.status = constant.TEXTING
 
 	if a.IsSubagent() {
-		// subagent don't need sync text to ui.
 		return
 	}
 
@@ -179,10 +159,6 @@ func (a *Agent) text(usage llm.Usage, thinking string, content string) {
 		}
 	})
 
-	// Streaming mode already painted thinking + text into the transcript
-	// as deltas via KindTextChunk / KindThinkingChunk. Re-emitting the
-	// whole blocks here would duplicate the rendered output, so we stop
-	// at usage and let the chunk events stand as the user-facing record.
 	if a.profile.Stream {
 		return
 	}
@@ -199,6 +175,8 @@ func (a *Agent) text(usage llm.Usage, thinking string, content string) {
 	}
 }
 
+// turnOver marks the end of one tool-using iteration. Distinct from done()
+// (loop.go) which marks the end of an entire run.
 func (a *Agent) turnOver(iter int) {
 	a.status = constant.IDLE
 
@@ -219,7 +197,6 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 	a.status = constant.EXECUTING
 	a.logger.Debug("tool.dispatch", "name", call.Name, "tool_id", call.ID)
 
-	// UI render execute tool name and input.
 	if a.IsSubagent() {
 		a.getParentSpawnGroup().Status(a.ID, constant.EXECUTING)
 	} else {
@@ -232,13 +209,11 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 		})
 	}
 
-	// UI render tool error.
 	if resolveToolErr != nil {
 		msg := resolveToolErr.Error()
 		a.logger.Warn("tool.reject", "name", call.Name, "err", resolveToolErr)
 
 		if !a.IsSubagent() {
-			// only main agent can emit tool error.
 			a.emit(event.KindToolUseResult, func(e *event.Event) {
 				e.ToolUseResult = &event.ToolUseResultPayload{
 					ToolID:  call.ID,
@@ -253,7 +228,7 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 
 	result, err := tool.Execute(ctx, call.Input)
 	if err != nil {
-		// system level error, not tool error.
+		// Go-level failure, not a tool-reported error.
 		a.logger.Error("tool.exec.fail", "name", call.Name, "err", err)
 		return nil, err
 	}
@@ -265,7 +240,6 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 	)
 
 	if !a.IsSubagent() {
-		// only main agent can emit tool result.
 		a.emit(event.KindToolUseResult, func(e *event.Event) {
 			e.ToolUseResult = &event.ToolUseResultPayload{
 				ToolID:   call.ID,
@@ -279,12 +253,13 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 	return &llm.ToolResult{ID: call.ID, Content: result.Content, IsError: result.IsError}, nil
 }
 
-// private methods ======================================
-
+// getParentSpawnGroup is the subagent-only handle on the root agent's
+// SpawnGroup panel — the channel through which a subagent's status,
+// final report, and crashes propagate up to the parent without going
+// through the event sink.
 func (a *Agent) getParentSpawnGroup() *meta.SpawnGroup {
 	if a.Parent == nil {
 		return nil
 	}
-
 	return a.Parent.ToolState().AgentGroup()
 }

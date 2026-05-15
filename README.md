@@ -139,7 +139,6 @@ OLLAMA_URL=http://localhost:11434
 
 ### In progress / next up
 - Streaming completions (chunked text + thinking).
-- Session persistence — `/resume <id>` reloads a snapshot, `Run` continues.
 - 2-level compaction:
   - micro: compress tool-result blocks when context budget approaches threshold.
   - full: summarize the whole session into a single assistant brief.
@@ -161,6 +160,7 @@ OLLAMA_URL=http://localhost:11434
   identical event stream, different render target.
 - **Skill / plugin system**: user-installed slash-commands and skills
   loaded from a known directory.
+- **Session persistence**: `/resume` show session list order by create time, reloads a snapshot and continues.
 
 ### Known limitations
 - Sub-agent hierarchy is exactly two layers (no nested spawning).
