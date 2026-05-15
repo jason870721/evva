@@ -167,11 +167,6 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	return a, nil
 }
 
-// UpdateStatus
-func (a *Agent) UpdateStatus(status constant.AgentStatus) {
-	a.status = status
-}
-
 func (a *Agent) ParentID() string {
 	if a.Parent != nil {
 		return a.ID
@@ -235,4 +230,18 @@ func (a *Agent) emit(kind event.Kind, build func(*event.Event)) {
 	a.emitMu.Lock()
 	a.sink.Emit(e)
 	a.emitMu.Unlock()
+}
+
+func (a *Agent) limitBreak() error {
+	a.status = constant.MAX_ITERS
+	if a.IsSubagent() {
+		a.getParentSpawnGroup().Crush(a.ID, ErrIterLimit)
+		return ErrIterLimit
+	}
+
+	a.emit(event.KindIterLimit, func(e *event.Event) {
+		e.IterLimit = &event.IterLimitPayload{Reached: a.maxIters}
+	})
+
+	return ErrIterLimit
 }

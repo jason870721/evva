@@ -4,8 +4,11 @@ type AgentStatus string
 
 const (
 	INIT         AgentStatus = "init"
+	DRAINING     AgentStatus = "draining"
 	THINKING     AgentStatus = "thinking"
+	TEXTING      AgentStatus = "texting"
 	EXECUTING    AgentStatus = "executing"
+	INTERRUPTED  AgentStatus = "interrupted"
 	IDLE         AgentStatus = "idle"
 	MAX_ITERS    AgentStatus = "max_iters"
 	SAVING       AgentStatus = "saving"

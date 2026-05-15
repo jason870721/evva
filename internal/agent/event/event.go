@@ -37,8 +37,9 @@ const (
 	KindTurnStart Kind = "turn_start"
 	KindTurnEnd   Kind = "turn_end"
 
-	KindThinking Kind = "thinking" // assistant reasoning text
-	KindText     Kind = "text"     // assistant final text
+	KindDrainingInfo      = "draining_info" // agent is draining info from subagent or bg bash
+	KindThinking     Kind = "thinking"      // assistant reasoning text
+	KindText         Kind = "text"          // assistant final text
 
 	KindToolUseStart  Kind = "tool_use_start"
 	KindToolUseResult Kind = "tool_use_result"
@@ -91,7 +92,9 @@ type RunResumePayload struct {
 }
 
 type RunEndPayload struct {
-	Final llm.Response
+	Iters    int
+	Content  string
+	Thinking string
 }
 
 // IterLimitPayload is emitted when the loop hits Agent.maxIters. The UI

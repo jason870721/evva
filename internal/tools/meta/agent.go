@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/johnny1110/evva/internal/constant"
 	"sync"
+
+	"github.com/johnny1110/evva/internal/constant"
 
 	"github.com/johnny1110/evva/internal/observable"
 	"github.com/johnny1110/evva/internal/tools"
@@ -111,7 +112,7 @@ func (g *SpawnGroup) Status(id string, status constant.AgentStatus) {
 // Report marks a subagent as completed and records its result summary.
 // Async subagents in this state are picked up by DrainCompleted; sync
 // subagents are immediately Remove'd by the spawner.
-func (g *SpawnGroup) Report(id, rsummary string) {
+func (g *SpawnGroup) Report(id, summary string) {
 	g.mu.Lock()
 	a, ok := g.agents[id]
 	if !ok {
@@ -119,7 +120,7 @@ func (g *SpawnGroup) Report(id, rsummary string) {
 		return
 	}
 	a.snap.Status = constant.READY_REPORT.String()
-	a.snap.Summary = rsummary
+	a.snap.Summary = summary
 	a.done = true
 	snap := a.snap
 	g.mu.Unlock()

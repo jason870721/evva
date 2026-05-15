@@ -70,14 +70,14 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 			resp, runErr := child.Run(ctx, req.Prompt)
 			switch {
 			case runErr != nil && errors.Is(runErr, ErrIterLimit):
-				group.Report(child.ID, resp.Content+"\n[subagent paused at iteration limit]")
+				group.Report(child.ID, resp+"\n[subagent paused at iteration limit]")
 			case runErr != nil:
 				group.Crush(child.ID, runErr)
 			default:
-				group.Report(child.ID, resp.Content)
+				group.Report(child.ID, resp)
 			}
 		}()
-		return fmt.Sprintf("subagent %s(%s) spawned in background; its summary will be delivered on a later turn (do not assume any result here).", child.Name, child.ID), nil
+		return fmt.Sprintf("subagent %s(%s) spawned in background; its done will be delivered on a later turn (do not assume any result here).", child.Name, child.ID), nil
 	}
 
 	// Sync path: block on the child. Result is delivered via this return
@@ -89,9 +89,9 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 	if runErr != nil {
 		if errors.Is(runErr, ErrIterLimit) {
 			// iters max
-			group.Report(child.ID, resp.Content)
+			group.Report(child.ID, resp)
 			group.Remove(child.ID)
-			return resp.Content + "\n[subagent paused at iteration limit]", nil
+			return resp + "\n[subagent paused at iteration limit]", nil
 		}
 		// sys crush
 		group.Crush(child.ID, runErr)
@@ -99,9 +99,9 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 		return "[subagent crushed due to system error]", runErr
 	}
 	// success report
-	group.Report(child.ID, resp.Content)
+	group.Report(child.ID, resp)
 	group.Remove(child.ID)
-	return resp.Content, nil
+	return resp, nil
 }
 
 // subagentProfile builds a Profile for a subagent of the given kind,

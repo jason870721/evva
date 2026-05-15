@@ -21,7 +21,6 @@ import (
 	"log/slog"
 
 	"github.com/johnny1110/evva/internal/agent/event"
-	"github.com/johnny1110/evva/internal/llm"
 	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/toolset"
 )
@@ -57,11 +56,11 @@ type Controller interface {
 	// Run drives the agent for a single user turn. The UI typically
 	// launches this in a goroutine so its main loop stays responsive,
 	// and ctx-cancels to honor user interrupts.
-	Run(ctx context.Context, prompt string) (llm.Response, error)
+	Run(ctx context.Context, prompt string) (string, error)
 
 	// Continue resumes an iter-limit-paused run without appending a new
 	// user message.
-	Continue(ctx context.Context) (llm.Response, error)
+	Continue(ctx context.Context) (string, error)
 
 	// Session exposes the conversation history. The UI reads cumulative
 	// usage from Session().Usage and replays Session().Messages on

@@ -92,7 +92,7 @@ read-only — you may inspect files but never modify them. Answer questions
 about the codebase concisely and cite file paths when relevant.`
 
 const generalSystemPrompt = `You are a focused sub-agent. Complete the task
-described in the user prompt and return a short summary. Stay in scope.`
+described in the user prompt and return a short done. Stay in scope.`
 
 // Main returns the full-kit profile: fs/shell/meta are active; the rest are
 // deferred (loaded on demand via TOOL_SEARCH).
