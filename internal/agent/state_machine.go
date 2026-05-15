@@ -108,14 +108,41 @@ func (a *Agent) thinking(ctx context.Context, iter int) (llm.Response, error) {
 	return a.llmCall(ctx)
 }
 
-func (a *Agent) compact(s *session.Session) {
+func (a *Agent) compact(ctx context.Context, s *session.Session) {
+	cfg := config.Get()
+
 	if a.IsSubagent() {
 		// no compacting for subagents.
 		return
 	}
 
-	// TODO: add compact logic here, token threshold > 80% (microcompact), > 80% sec time(fullcompact)
-	// a.status = constant.COMPACTING
+	modelStr := constant.Model(a.llm.Model())
+	maxContextSize := constant.MODEL_CONTEXT_SIZE[modelStr]
+	currentUsage := a.Session().Usage.Total()
+	usageRatio := float64(currentUsage) / float64(maxContextSize)
+	if usageRatio < cfg.AutoCompactThreshold {
+		return // safe.
+	}
+
+	a.status = constant.COMPACTING
+
+	if s.IsMicroCompacted() {
+		a.emit(event.KindCompacting, func(e *event.Event) {
+			e.Compacting = &event.CompactingPayload{Type: "full", UsageRatio: usageRatio}
+		})
+
+		// TODO: call llm do full compact. write summary prompt here.
+		// a.llm.Complete(ctx, ?, a.exposeTools)
+		s.FullCompact(s.Messages) // set full compacted message.
+	} else {
+		a.emit(event.KindCompacting, func(e *event.Event) {
+			e.Compacting = &event.CompactingPayload{Type: "micro", UsageRatio: usageRatio}
+		})
+
+		// TODO do microcompact compact all tool use result block and keep recent 8 blocks.
+		s.MicroCompact(s.Messages) // set micro compacted message.
+	}
+
 }
 
 func (a *Agent) crush(stage string, err error) error {

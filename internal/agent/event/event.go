@@ -44,6 +44,8 @@ const (
 	KindToolUseStart  Kind = "tool_use_start"
 	KindToolUseResult Kind = "tool_use_result"
 
+	KindCompacting Kind = "compacting"
+
 	KindError Kind = "error"
 
 	// KindStoreUpdate carries every state change emitted by an
@@ -79,6 +81,7 @@ type Event struct {
 	Error         *ErrorPayload         `json:",omitempty"`
 	StoreUpdate   *StoreUpdatePayload   `json:",omitempty"`
 	Usage         *UsagePayload         `json:",omitempty"`
+	Compacting    *CompactingPayload    `json:",omitempty"`
 }
 
 // --- payload types ---
@@ -140,6 +143,11 @@ type ToolUseResultPayload struct {
 type ErrorPayload struct {
 	Stage string // "llm" | "tool:<name>" | "loop"
 	Err   error
+}
+
+type CompactingPayload struct {
+	Type       string
+	UsageRatio float64
 }
 
 // StoreUpdatePayload is the bridge between observable.Change and the event

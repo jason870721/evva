@@ -28,6 +28,15 @@ func getEnvDefaultInt(key, fallback string) int {
 	return num
 }
 
+func getEnvDefaultFloat(key, fallback string) float64 {
+	val := getEnvDefault(key, fallback)
+	num, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		panic(fmt.Errorf("cannot parse %s as float: %v", key, err))
+	}
+	return num
+}
+
 func getEnvDefaultBool(key, fallback string) bool {
 	val := getEnvDefault(key, fallback)
 	b, err := strconv.ParseBool(val)

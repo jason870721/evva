@@ -27,9 +27,10 @@ type AppConfig struct {
 	AppName string // default: "app"
 
 	// Global config dir
-	EvvaHome            string
-	EvvaHomeSkillsDir   string
-	EvvaHomeUserProfile string
+	EvvaHome             string
+	EvvaHomeSkillsDir    string
+	EvvaHomeUserProfile  string
+	AutoCompactThreshold float64
 
 	// Work dir
 	WorkDir          string
@@ -96,6 +97,7 @@ func load() *AppConfig {
 		EvvaHomeUserProfile: EVVA_HOME + "/" + getEnvDefault("USER_PROFILE", "user_profile.md"),
 
 		DefaultMaxIterations: getEnvDefaultInt("DEFAULT_MAX_ITERATIONS", "25"),
+		AutoCompactThreshold: getEnvDefaultFloat("AUTO_COMPACT_THRESHOLD", "0.8"),
 
 		LoadedAt: time.Now(),
 	}

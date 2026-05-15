@@ -66,3 +66,13 @@ func (p LLMProvider) ModelForLevel(level int) Model {
 	}
 	return p.Models[0]
 }
+
+// for completion
+var MODEL_CONTEXT_SIZE = map[Model]int{
+	QWEN_3_6:          262_144,
+	SONNET_4_6:        500_000,
+	OPUS_4_7:          500_000,
+	DEEPSEEK_V4_FLASH: 1_000_000,
+	DEEPSEEK_V4_PRO:   1_000_000,
+	GPT_5_5:           500_000,
+}

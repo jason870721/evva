@@ -55,7 +55,7 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 		}
 
 		// 2 levels of compacting: micro, full.
-		a.compact(a.session)
+		a.compact(ctx, a.session)
 
 		// Drain any completed async subagents. This is the only delivery
 		// channel for async work — results that arrived during the
