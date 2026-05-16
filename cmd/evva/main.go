@@ -16,6 +16,7 @@ import (
 	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/internal/agent/event"
+	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/constant"
 	"github.com/johnny1110/evva/internal/llm"
 	"github.com/johnny1110/evva/internal/tools/fs"
@@ -42,12 +43,14 @@ func main() {
 	cfg := config.Get()
 
 	temp := flag.Float64("temp", -1, "sampling temperature (-1 → leave unset)")
-	maxTokens := flag.Int("max-tokens", 1024, "max output tokens (0 → provider default)")
+	maxTokens := flag.Int("max-tokens", 4096, "max output tokens (0 → provider default)")
 	maxIters := flag.Int("max-iters", cfg.DefaultMaxIterations, "max loop iterations before pausing for Continue")
 	noTUI := flag.Bool("no-tui", false, "disable the bubbletea TUI; read a prompt and run once with plain CLI output")
 	flag.Parse()
 
-	prof := agent.Main(constant.DEEPSEEK, constant.DEEPSEEK_V4_FLASH, buildOptions(*temp, *maxTokens))
+	prof := agent.Main(constant.DEEPSEEK, constant.DEEPSEEK_V4_FLASH,
+		sysprompt.Build(sysprompt.Default(cfg.AppName, cfg.EvvaHome)),
+		buildOptions(*temp, *maxTokens))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -312,9 +315,6 @@ func buildOptions(temp float64, maxTokens int) []llm.Option {
 	if maxTokens > 0 {
 		out = append(out, llm.WithMaxTokens(maxTokens))
 	}
-
-	out = append(out, llm.WithSystem("You are a helpful coding agent operating in a terminal. Use tools when they help."))
-
 	return out
 }
 

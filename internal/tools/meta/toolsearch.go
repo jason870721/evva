@@ -39,8 +39,8 @@ func (t *ToolSearchTool) Description() string {
 		"Deferred tools are advertised by name in the system prompt; their schemas are loaded on demand.\n" +
 		"Query forms:\n" +
 		"- \"select:Foo,Bar\" — fetch these exact tool names.\n" +
-		"- \"notebook jupyter\" — keyword match; ranked by tag (×2), name, then description hits.\n" +
-		"- \"+slack send\" — require the +-prefixed term in name/desc/tags; rank the rest.\n\n" +
+		"- \"notebook jupyter\" — fuzzy match over tags (exact/substring/typo/subsequence) plus substring on name and description.\n" +
+		"- \"+slack send\" — require the +-prefixed term (fuzzy-on-tags or substring elsewhere); rank the rest.\n\n" +
 		"Returns a <functions> block with one <function>{...}</function> entry per matched tool. " +
 		"After TOOL_SEARCH the model may call the tool directly; the agent builds it on first use."
 }
@@ -219,17 +219,12 @@ func selectByName(list string, all []tools.Descriptor) []tools.Descriptor {
 	return out
 }
 
-// scoreTok grants weighted credit for a token appearing in tags (×2), name
-// (×1), or description (×1). Hits use lowercase substring match for
-// simplicity — name boundaries / stemming aren't worth the complexity at
-// this catalog size.
+// scoreTok grants weighted credit for a token. Tags use the layered fuzzy
+// match (exact +4, substring +2, single-typo +2, subsequence/two-typo +1 —
+// see fuzzyTagScore); name and description fall back to substring (+1 each)
+// since they're long-form text where fuzzy matching would over-match.
 func scoreTok(d tools.Descriptor, tok string) int {
-	s := 0
-	for _, tag := range d.Tags {
-		if strings.Contains(strings.ToLower(tag), tok) {
-			s += 2
-		}
-	}
+	s := fuzzyTagScore(d.Tags, tok)
 	if strings.Contains(strings.ToLower(d.Name), tok) {
 		s++
 	}
@@ -240,6 +235,8 @@ func scoreTok(d tools.Descriptor, tok string) int {
 }
 
 // hits is the binary version of scoreTok — does this token appear at all?
+// Tags use fuzzy match (so required +tokens tolerate typos); name and
+// description use plain substring.
 func hits(d tools.Descriptor, tok string) bool {
 	if strings.Contains(strings.ToLower(d.Name), tok) {
 		return true
@@ -247,12 +244,7 @@ func hits(d tools.Descriptor, tok string) bool {
 	if strings.Contains(strings.ToLower(d.Description), tok) {
 		return true
 	}
-	for _, tag := range d.Tags {
-		if strings.Contains(strings.ToLower(tag), tok) {
-			return true
-		}
-	}
-	return false
+	return fuzzyTagHit(d.Tags, tok)
 }
 
 // funcEntry mirrors the Claude Code <function> JSON shape so models that
