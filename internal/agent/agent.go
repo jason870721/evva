@@ -245,17 +245,3 @@ func (a *Agent) emit(kind event.Kind, build func(*event.Event)) {
 	a.sink.Emit(e)
 	a.emitMu.Unlock()
 }
-
-func (a *Agent) limitBreak() error {
-	a.status = constant.MAX_ITERS
-	if a.IsSubagent() {
-		a.getParentSpawnGroup().Crush(a.ID, ErrIterLimit)
-		return ErrIterLimit
-	}
-
-	a.emit(event.KindIterLimit, func(e *event.Event) {
-		e.IterLimit = &event.IterLimitPayload{Reached: a.maxIters}
-	})
-
-	return ErrIterLimit
-}

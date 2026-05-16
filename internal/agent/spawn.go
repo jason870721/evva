@@ -68,14 +68,11 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 		// ctx so a top-level cancel reaches the child.
 		go func() {
 			resp, runErr := child.Run(ctx, req.Prompt)
-			switch {
-			case runErr != nil && errors.Is(runErr, ErrIterLimit):
-				group.Report(child.ID, resp+"\n[subagent paused at iteration limit]")
-			case runErr != nil:
-				group.Crush(child.ID, runErr)
-			default:
-				group.Report(child.ID, resp)
+			if runErr != nil {
+				a.logger.Error("subagent crashed", "name", child.Name, "err", runErr)
+				return
 			}
+			a.logger.Debug("subagent done", "name", child.Name, "resp", truncateSummary(resp, 100))
 		}()
 		return fmt.Sprintf("subagent %s(%s) spawned in background; its done will be delivered on a later turn (do not assume any result here).", child.Name, child.ID), nil
 	}
@@ -89,15 +86,16 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 	if runErr != nil {
 		if errors.Is(runErr, ErrIterLimit) {
 			// iters max
-			group.Report(child.ID, resp)
+			group.Crush(child.ID, "[subagent paused at iteration limit]", runErr)
 			group.Remove(child.ID)
-			return resp + "\n[subagent paused at iteration limit]", nil
+			return resp + "\n [subagent paused at iteration limit]", nil
 		}
 		// sys crush
-		group.Crush(child.ID, runErr)
+		group.Crush(child.ID, "[subagent crushed]", runErr)
 		group.Remove(child.ID)
 		return "[subagent crushed due to system error]", runErr
 	}
+	a.logger.Debug("subagent done", "name", child.Name, "resp", truncateSummary(resp, 100))
 	// success report
 	group.Report(child.ID, resp)
 	group.Remove(child.ID)

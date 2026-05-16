@@ -41,7 +41,7 @@ func (a *Agent) interrupted(err error) error {
 	a.status = constant.INTERRUPTED
 	if a.IsSubagent() {
 		// subagent using spawnGroup to sync info.
-		a.getParentSpawnGroup().Crush(a.ID, err)
+		a.getParentSpawnGroup().Crush(a.ID, "[subagent loop interrupted]", err)
 		return err
 	}
 
@@ -125,7 +125,7 @@ func (a *Agent) crush(stage string, err error) error {
 	a.status = constant.CRUSHED
 
 	if a.IsSubagent() {
-		a.getParentSpawnGroup().Crush(a.ID, err)
+		a.getParentSpawnGroup().Crush(a.ID, "[subagent crushed]", err)
 		return err
 	}
 
@@ -187,6 +187,20 @@ func (a *Agent) turnOver(iter int) {
 	a.emit(event.KindTurnEnd, func(e *event.Event) {
 		e.Turn = &event.TurnPayload{Iteration: iter}
 	})
+}
+
+func (a *Agent) limitBreak() error {
+	a.status = constant.MAX_ITERS
+	if a.IsSubagent() {
+		a.getParentSpawnGroup().Crush(a.ID, "[subagent paused at iteration limit]", ErrIterLimit)
+		return ErrIterLimit
+	}
+
+	a.emit(event.KindIterLimit, func(e *event.Event) {
+		e.IterLimit = &event.IterLimitPayload{Reached: a.maxIters}
+	})
+
+	return ErrIterLimit
 }
 
 // execTool executes a single tool call and emits its lifecycle events.

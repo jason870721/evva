@@ -129,7 +129,7 @@ func (g *SpawnGroup) Report(id, summary string) {
 }
 
 // Crush marks a subagent as failed.
-func (g *SpawnGroup) Crush(id string, err error) {
+func (g *SpawnGroup) Crush(id string, summary string, err error) {
 	msg := "subagent crushed"
 	if err != nil {
 		msg = err.Error()
@@ -142,6 +142,7 @@ func (g *SpawnGroup) Crush(id string, err error) {
 	}
 	a.snap.Status = constant.CRUSHED.String()
 	a.snap.Err = msg
+	a.snap.Summary = summary
 	a.done = true
 	snap := a.snap
 	g.mu.Unlock()
@@ -299,17 +300,17 @@ func (t *AgentTool) Execute(ctx context.Context, input json.RawMessage) (tools.R
 		Desc:      in.Description,
 		Prompt:    in.Prompt,
 		Level:     in.Level,
-		AsyncMode: false,
+		AsyncMode: in.AsyncMode, // turn this off in dev mode.
 	})
 
 	if err != nil {
 		if errors.Is(err, ErrSubagentForbidden) {
 			// Recoverable — model can ditch the subagent plan and try something else.
-			return tools.Result{IsError: true, Content: err.Error()}, nil
+			return tools.Result{IsError: true, Content: fmt.Sprintf("%s \n [%s]", out, err.Error())}, nil
 		}
 		// Other errors abort the parent loop — they are Go-level failures
 		// (LLM transport, tool panics) the model can't recover from.
-		return tools.Result{IsError: true, Content: fmt.Sprintf("agent: %v", err)}, err
+		return tools.Result{IsError: true, Content: fmt.Sprintf("agent: %s %v", out, err)}, err
 	}
 	// If this is a async mode agent, output will be like "subagent running in background."
 	return tools.Result{Content: out}, nil
