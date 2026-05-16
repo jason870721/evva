@@ -88,14 +88,15 @@ type UI struct {
 // config directory (typically ~/.evva); the constructor uses it to
 // resolve banner.txt with an embedded fallback.
 //
-// WithMouseCellMotion enables mouse-wheel scrolling on the transcript
-// viewport (the viewport bubble handles wheel events itself once mouse
-// reporting is on).
+// Mouse reporting is intentionally NOT enabled: with it on, the terminal
+// hands mouse events to the program and native text selection breaks
+// (users can't drag-select to copy transcript content). The trade is
+// losing mouse-wheel scroll on the viewport; PgUp/PgDown/Home/End cover
+// keyboard scrolling.
 func New(evvaHome string) *UI {
 	u := &UI{model: newRootModel(evvaHome)}
 	u.program = tea.NewProgram(u.model,
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
 	)
 	u.model.program = u.program
 	return u
@@ -163,6 +164,19 @@ type rootModel struct {
 	// in-order from this slice. Cleared once the prompt is sent.
 	pastedBuf []string
 
+	// promptHistory stores raw user prompts (pre-paste-expansion) in
+	// submission order. Up/Down navigate it from the input box, bash
+	// style. Consecutive duplicates are deduped on append.
+	promptHistory []string
+	// historyIdx is the active index into promptHistory while the user
+	// is navigating. -1 means "not navigating; whatever is in the input
+	// is the user's live draft".
+	historyIdx int
+	// historyDraft preserves the in-progress input the user had typed
+	// when they entered history nav, so Down past the newest entry can
+	// restore it.
+	historyDraft string
+
 	// spinnerFrameIdx is the current braille-dot frame for the
 	// status-bar state pill and any animated subagent rows. Advances
 	// on spinnerTickMsg.
@@ -210,6 +224,7 @@ func newRootModel(evvaHome string) *rootModel {
 		state:      stateIdle,
 		transcript: t,
 		startedAt:  time.Now(),
+		historyIdx: -1,
 	}
 }
 
@@ -356,14 +371,20 @@ func (m *rootModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
-	case tea.KeyUp, tea.KeyDown:
-		// When the input is empty, treat arrow keys as scroll. As
-		// soon as the user starts typing arrow keys revert to
-		// textarea cursor movement.
-		if strings.TrimSpace(m.input.Value()) == "" {
-			var cmd tea.Cmd
-			m.viewport, cmd = m.viewport.Update(msg)
-			return m, cmd
+	case tea.KeyUp:
+		// Up walks back through prompt history when the input is
+		// empty or the user is already mid-navigation. With typed
+		// text and no active nav, falls through to textarea cursor
+		// movement so multi-line editing still works.
+		if m.historyPrev() {
+			return m, nil
+		}
+	case tea.KeyDown:
+		// Down only consumes the key while history nav is active —
+		// it walks forward and eventually restores the user's saved
+		// draft. Otherwise falls through to textarea cursor.
+		if m.historyNext() {
+			return m, nil
 		}
 	case tea.KeyCtrlJ:
 		// Ctrl+J is line-feed (\n). On many terminals, Shift+Enter is
@@ -415,6 +436,7 @@ func (m *rootModel) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	m.appendHistory(text)
 	switch m.state {
 	case stateIterLimit:
 		m.input.SetValue("")
@@ -436,6 +458,66 @@ func (m *rootModel) submit() (tea.Model, tea.Cmd) {
 	}
 	m.refreshViewport()
 	return m, nil
+}
+
+// appendHistory records a submitted prompt and resets nav state so the
+// next Up arrow starts from the newest entry. Consecutive duplicates
+// are skipped — repeatedly running the same prompt shouldn't pad the
+// history with copies.
+func (m *rootModel) appendHistory(text string) {
+	if text == "" {
+		return
+	}
+	if n := len(m.promptHistory); n == 0 || m.promptHistory[n-1] != text {
+		m.promptHistory = append(m.promptHistory, text)
+	}
+	m.historyIdx = -1
+	m.historyDraft = ""
+}
+
+// historyPrev walks one step back through promptHistory. Returns true
+// when the key was consumed (handler should stop propagation); false
+// when the caller should fall through to the textarea so multi-line
+// editing keeps working.
+//
+// Entry rules: nav engages when the input is empty or nav is already
+// active. With unrelated typed text and no active nav, Up belongs to
+// the textarea.
+func (m *rootModel) historyPrev() bool {
+	if len(m.promptHistory) == 0 {
+		return false
+	}
+	inNav := m.historyIdx != -1
+	if !inNav && strings.TrimSpace(m.input.Value()) != "" {
+		return false
+	}
+	if !inNav {
+		m.historyDraft = m.input.Value()
+		m.historyIdx = len(m.promptHistory) - 1
+	} else if m.historyIdx > 0 {
+		m.historyIdx--
+	}
+	m.input.SetValue(m.promptHistory[m.historyIdx])
+	return true
+}
+
+// historyNext walks one step forward through promptHistory. Past the
+// newest entry it restores the saved draft and exits nav. Returns true
+// only while nav is active; outside of nav Down stays with the textarea.
+func (m *rootModel) historyNext() bool {
+	if m.historyIdx == -1 {
+		return false
+	}
+	m.historyIdx++
+	if m.historyIdx >= len(m.promptHistory) {
+		m.historyIdx = -1
+		draft := m.historyDraft
+		m.historyDraft = ""
+		m.input.SetValue(draft)
+		return true
+	}
+	m.input.SetValue(m.promptHistory[m.historyIdx])
+	return true
 }
 
 func (m *rootModel) startRun(prompt string) {
