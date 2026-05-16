@@ -43,7 +43,7 @@ func main() {
 	cfg := config.Get()
 
 	temp := flag.Float64("temp", -1, "sampling temperature (-1 → leave unset)")
-	maxTokens := flag.Int("max-tokens", 4096, "max output tokens (0 → provider default)")
+	maxTokens := flag.Int("max-tokens", cfg.DefaultMaxTokens, "max output tokens (0 → provider default)")
 	maxIters := flag.Int("max-iters", cfg.DefaultMaxIterations, "max loop iterations before pausing for Continue")
 	noTUI := flag.Bool("no-tui", false, "disable the bubbletea TUI; read a prompt and run once with plain CLI output")
 	flag.Parse()

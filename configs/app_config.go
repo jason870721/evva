@@ -45,6 +45,9 @@ type AppConfig struct {
 	// KindIterLimit event and pauses the agent; the caller may invoke
 	// Continue(ctx) to keep going.
 	DefaultMaxIterations int
+	// DefaultMaxTokens is the per-completion output-token cap passed to
+	// the LLM. 0 → let the provider apply its own default.
+	DefaultMaxTokens int
 
 	// UI
 	DisplayThinking bool
@@ -100,7 +103,8 @@ func load() *AppConfig {
 		EvvaHomeSkillsDir:   EVVA_HOME + "/" + getEnvDefault("SKILLS_DIR", "skills"),
 		EvvaHomeUserProfile: EVVA_HOME + "/" + getEnvDefault("USER_PROFILE", "user_profile.md"),
 
-		DefaultMaxIterations: getEnvDefaultInt("DEFAULT_MAX_ITERATIONS", "25"),
+		DefaultMaxIterations: getEnvDefaultInt("DEFAULT_MAX_ITERATIONS", "30"),
+		DefaultMaxTokens:     getEnvDefaultInt("DEFAULT_MAX_TOKENS", "4096"),
 		AutoCompactThreshold: getEnvDefaultFloat("AUTO_COMPACT_THRESHOLD", "0.8"),
 
 		LoadedAt: time.Now(),

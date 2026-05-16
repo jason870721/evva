@@ -86,7 +86,11 @@ Query forms:
 Rules:
 - Don't ` + "`tool_search`" + ` speculatively. Load schemas on demand for the work you're about to do.
 - Don't re-search a tool you already loaded — once a deferred tool's schema is in context it stays callable for the rest of the session.
-- If a deferred-tool call fails with "schema not loaded" or similar, that means you skipped ` + "`tool_search`" + ` — load it, then retry.`
+- If a deferred-tool call fails with "schema not loaded" or similar, that means you skipped ` + "`tool_search`" + ` — load it, then retry.
+
+## Web tools (` + "`web_search`" + ` / ` + "`web_fetch`" + `)
+Reach for these when the answer depends on info past your training cutoff: latest financial news, library versions, new APIs, current events, or a verbatim error-message lookup.
+`
 }
 
 // taskPlanning instructs the model on when to use the task_* family. Three
