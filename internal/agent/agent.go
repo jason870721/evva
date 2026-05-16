@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/johnny1110/evva/internal/constant"
@@ -75,6 +76,13 @@ type Agent struct {
 	// Parallel tool dispatch resolves up front in the caller's goroutine but
 	// subagents may also reach in, so the lock is cheap insurance.
 	resolveMu sync.Mutex
+	// running is the re-entrancy guard for Run / Continue. CAS-set on
+	// entry, cleared on exit. A second caller that finds it already set
+	// returns ErrRunInProgress instead of appending another user message
+	// — concurrent Run's would corrupt session.Messages (an unanswered
+	// assistant tool_calls turn followed by a new user message is an
+	// invalid request shape every provider rejects).
+	running atomic.Bool
 }
 
 // New constructs an agent with a fresh ID, a per-agent logger, and the given

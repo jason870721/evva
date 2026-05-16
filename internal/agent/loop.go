@@ -17,6 +17,13 @@ import (
 // paused, not failed — call Continue(ctx) to resume from the same session.
 var ErrIterLimit = errors.New("agent: iteration limit reached")
 
+// ErrRunInProgress is returned by Run / Continue when another goroutine
+// is already executing the loop for this agent. Concurrent runs would
+// race on session.Messages and corrupt the assistant-toolcall →
+// tool-result invariant the LLM providers require, so the second caller
+// fails fast instead.
+var ErrRunInProgress = errors.New("agent: run already in progress")
+
 // Run drives the agent to completion for a single user turn.
 //
 // It appends a RoleUser{prompt} message to the session and then loops:
@@ -29,6 +36,17 @@ var ErrIterLimit = errors.New("agent: iteration limit reached")
 // Events flow to the agent's Sink. The returned llm.Response is the final
 // assistant turn — or the zero value when the loop ended without one.
 func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
+	if !a.running.CompareAndSwap(false, true) {
+		// Another goroutine owns the loop. Refuse fast — appending the
+		// user message here would orphan the in-flight assistant turn's
+		// tool_calls (no matching tool_result yet) and every subsequent
+		// provider call would 400. Don't read a.session here: the owning
+		// goroutine is mutating it concurrently.
+		a.logger.Warn("run.rejected", "reason", "already running")
+		return "", ErrRunInProgress
+	}
+	defer a.running.Store(false)
+
 	a.session.Append(llm.Message{Role: llm.RoleUser, Content: prompt})
 	a.logger.Debug("run.start", "name", a.Name, "prompt_bytes", len(prompt),
 		"messages", len(a.session.Messages), "prompt", prompt)
@@ -39,6 +57,12 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 // Used after ErrIterLimit (the "press enter to keep going" path) and after
 // /resume reloads a session snapshot.
 func (a *Agent) Continue(ctx context.Context) (string, error) {
+	if !a.running.CompareAndSwap(false, true) {
+		a.logger.Warn("continue.rejected", "reason", "already running")
+		return "", ErrRunInProgress
+	}
+	defer a.running.Store(false)
+
 	a.logger.Debug("run.continue", "name", a.Name, "messages", len(a.session.Messages))
 	return a.runLoop(ctx)
 }

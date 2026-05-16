@@ -408,6 +408,15 @@ func (m *rootModel) layoutSizes() {
 	}
 	bodyWidth := m.bodyWidth()
 
+	// Snapshot "user was following the bottom" BEFORE we touch
+	// viewport.Height. When a panel appears (task panel growing from 0
+	// to N lines), vpHeight shrinks → maxYOffset grows → AtBottom()
+	// flips to false even though the user was logically at the tail.
+	// Reading the flag here keeps follow-mode sticky across layout
+	// changes — the exact bug behind "transcript freezes after task
+	// tool runs but everything else keeps updating".
+	wasAtBottom := m.viewport.AtBottom()
+
 	taskHeight := lineCount(m.taskPanel(bodyWidth))
 	stripHeight := lineCount(m.agentStrip(bodyWidth))
 	approvalHeight := lineCount(m.approvalPanel(bodyWidth))
@@ -425,15 +434,22 @@ func (m *rootModel) layoutSizes() {
 	// renderer whenever the body width changes so code blocks and
 	// paragraph wrap line up with the viewport.
 	m.transcript.setWidth(bodyWidth - 2)
-	m.refreshViewport()
+	m.refreshViewportFollow(wasAtBottom)
 }
 
 // refreshViewport pushes the transcript content into the viewport and
 // auto-scrolls to the bottom only when the user was already at the
 // bottom. This is the "follow the conversation" UX: if the user has
 // scrolled up to read history, new events don't yank them back.
+//
+// Callers that have already mutated viewport.Height (e.g. layoutSizes)
+// must use refreshViewportFollow with the pre-mutation snapshot —
+// otherwise the AtBottom probe will lie.
 func (m *rootModel) refreshViewport() {
-	wasAtBottom := m.viewport.AtBottom()
+	m.refreshViewportFollow(m.viewport.AtBottom())
+}
+
+func (m *rootModel) refreshViewportFollow(wasAtBottom bool) {
 	m.viewport.SetContent(m.transcript.String())
 	if wasAtBottom {
 		m.viewport.GotoBottom()
@@ -545,6 +561,17 @@ func (m *rootModel) submit() (tea.Model, tea.Cmd) {
 	}
 	if m.controller == nil {
 		m.hintText = "no controller attached"
+		return m, nil
+	}
+
+	// Reject re-entrant submits. A second Run while one is in flight
+	// would append a User message between an unanswered tool_calls
+	// assistant turn and its pending tool_result — every provider 400s
+	// on that shape and the session never recovers. Keep the input
+	// intact so the user doesn't lose what they typed, and prompt them
+	// to interrupt the active run first.
+	if m.state.isActive() {
+		m.hintText = "agent is running — press Ctrl+C or Esc to interrupt first"
 		return m, nil
 	}
 

@@ -110,6 +110,40 @@ type transcript struct {
 	expandTools bool
 }
 
+// sanitizeForTranscript scrubs control bytes that would corrupt the
+// terminal when written through to the renderer. The dangerous ones are
+// `\r` (cursor → column 0, overwriting prior cells), `\f` (form feed,
+// some terminals clear screen), `\b` (backspace), and `\x07` (BEL).
+//
+// Embedded `\r` was the root cause of the "TUI frozen after tasks
+// created" report: a pasted user prompt contained `python f  \rile`,
+// and every subsequent redraw replayed that `\r` and clobbered the
+// visible row. The Update goroutine was fine — the screen just looked
+// stuck.
+//
+// We preserve `\n`, `\t`, and ESC (0x1b — the leader for ANSI/CSI
+// escapes that lipgloss emits for styling).
+func sanitizeForTranscript(s string) string {
+	if !strings.ContainsAny(s, "\r\b\f\x07") {
+		return s
+	}
+	// Normalize CRLF → LF first so we don't lose a legitimate newline
+	// when stripping the leading \r.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case '\r', '\b', '\f', '\x07':
+			// Drop — these wreck terminal layout from inside a
+			// scrollback buffer the renderer can't escape from.
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // foldToolThreshold and foldToolPreviewLines control when and how a
 // long tool result gets folded:
 //   - results with more than `foldToolThreshold` rendered lines fold
@@ -468,7 +502,7 @@ func (t *transcript) appendUserPrompt(text string) {
 	t.toolBlocks = nil
 	t.blocks = append(t.blocks, transcriptBlock{
 		kind:    blockUserPrompt,
-		content: styleUserPromptLines(text),
+		content: styleUserPromptLines(sanitizeForTranscript(text)),
 	})
 }
 
@@ -526,7 +560,7 @@ func (t *transcript) foldEvent(e event.Event) bool {
 		if e.Thinking != nil && e.Thinking.Text != "" {
 			t.blocks = append(t.blocks, transcriptBlock{
 				kind:    blockThinking,
-				content: styles.Thinking.Render("· " + e.Thinking.Text),
+				content: styles.Thinking.Render("· " + sanitizeForTranscript(e.Thinking.Text)),
 			})
 			return true
 		}
@@ -535,7 +569,7 @@ func (t *transcript) foldEvent(e event.Event) bool {
 		if e.Text != nil && e.Text.Text != "" {
 			t.blocks = append(t.blocks, transcriptBlock{
 				kind:    blockText,
-				content: t.renderAssistant(e.Text.Text),
+				content: t.renderAssistant(sanitizeForTranscript(e.Text.Text)),
 			})
 			return true
 		}
@@ -543,7 +577,7 @@ func (t *transcript) foldEvent(e event.Event) bool {
 		if e.Thinking == nil || e.Thinking.Text == "" {
 			return false
 		}
-		t.rawThinking += e.Thinking.Text
+		t.rawThinking += sanitizeForTranscript(e.Thinking.Text)
 		rendered := styles.Thinking.Render("· " + t.rawThinking)
 		if t.thinkingInflightIdx >= 0 && t.thinkingInflightIdx < len(t.blocks) {
 			t.blocks[t.thinkingInflightIdx].content = rendered
@@ -556,7 +590,7 @@ func (t *transcript) foldEvent(e event.Event) bool {
 		if e.Text == nil || e.Text.Text == "" {
 			return false
 		}
-		t.rawText += e.Text.Text
+		t.rawText += sanitizeForTranscript(e.Text.Text)
 		rendered := t.renderAssistant(t.rawText)
 		if t.textInflightIdx >= 0 && t.textInflightIdx < len(t.blocks) {
 			t.blocks[t.textInflightIdx].content = rendered
@@ -648,7 +682,7 @@ func (t *transcript) foldEvent(e event.Event) bool {
 //     status line with its own +/− colored hunks; bundled into the
 //     same toolResult so fold/expand applies uniformly
 func (t *transcript) attachToolResult(r *event.ToolUseResultPayload) bool {
-	body := strings.TrimRight(r.Content, "\n")
+	body := strings.TrimRight(sanitizeForTranscript(r.Content), "\n")
 	var resultBody string
 	if r.IsError {
 		resultBody = styles.ToolErr.Render("  ✘ ") + styles.ToolErr.Render(body)

@@ -184,3 +184,49 @@ func TestRenderUserPromptPreservesPaste(t *testing.T) {
 		t.Fatalf("indented code lost leading spaces\n out=\n%s", out)
 	}
 }
+
+// TestSanitizeStripsTerminalControlBytes locks in the fix for the
+// "TUI looks frozen after task creation" bug: a pasted prompt
+// contained an embedded `\r`, and every redraw replayed that CR so the
+// terminal cursor kept jumping back to column 0 and overwriting cells.
+// The Update goroutine was alive — the screen just looked stuck.
+// Sanitizing at the transcript ingest points keeps the renderer
+// terminal-safe.
+func TestSanitizeStripsTerminalControlBytes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain", "hello world", "hello world"},
+		{"lone CR", "python f  \rile", "python f  ile"},
+		{"CRLF normalized", "line1\r\nline2", "line1\nline2"},
+		{"BEL stripped", "alert\x07now", "alertnow"},
+		{"FF stripped", "page\fbreak", "pagebreak"},
+		{"BS stripped", "a\bbc", "abc"},
+		{"preserves tab and newline", "a\tb\nc", "a\tb\nc"},
+		{"preserves ANSI escape", "\x1b[31mred\x1b[0m", "\x1b[31mred\x1b[0m"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeForTranscript(tc.in)
+			if got != tc.want {
+				t.Errorf("sanitizeForTranscript(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestUserPromptDoesNotEmitCR asserts that appendUserPrompt scrubs
+// embedded CR bytes — the original repro path for the "frozen TUI"
+// report. Without sanitization the transcript string would contain
+// \r, and writing it through bubbletea's renderer would reset the
+// cursor to column 0 on every redraw.
+func TestUserPromptDoesNotEmitCR(t *testing.T) {
+	tr := transcript{width: 60, textInflightIdx: -1, thinkingInflightIdx: -1, bannerIdx: -1}
+	tr.appendUserPrompt("Test Case - 2: prompt with embedded \rcarriage return")
+	out := tr.String()
+	if strings.ContainsRune(out, '\r') {
+		t.Fatalf("transcript still contains \\r after appendUserPrompt:\n%q", out)
+	}
+}
