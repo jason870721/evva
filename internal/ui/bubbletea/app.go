@@ -90,15 +90,18 @@ type UI struct {
 // config directory (typically ~/.evva); the constructor uses it to
 // resolve banner.txt with an embedded fallback.
 //
-// Mouse reporting is intentionally NOT enabled: with it on, the terminal
-// hands mouse events to the program and native text selection breaks
-// (users can't drag-select to copy transcript content). The trade is
-// losing mouse-wheel scroll on the viewport; PgUp/PgDown/Home/End cover
-// keyboard scrolling.
+// Mouse cell-motion is enabled so wheel-up / wheel-down scrolls the
+// transcript viewport. The cost: the terminal hands mouse events to the
+// program, so plain drag-select no longer flows through to the
+// terminal's native selection. Modern terminals (iTerm2, kitty,
+// Wezterm, Terminal.app) keep working — hold Shift (or Option/Alt on
+// macOS) while dragging to bypass the program and use native selection.
+// PgUp/PgDown/Home/End remain the keyboard scroll path.
 func New(evvaHome string) *UI {
 	u := &UI{model: newRootModel(evvaHome)}
 	u.program = tea.NewProgram(u.model,
 		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
 	)
 	u.model.program = u.program
 	return u
@@ -338,6 +341,16 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handlePaste(string(msg.Runes))
 		}
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		// Wheel events scroll the transcript viewport. The viewport's
+		// own Update handles ButtonWheelUp/Down via its MouseWheel
+		// bindings. Other mouse events (clicks, drags) are ignored —
+		// the program is keyboard-driven; mouse capture only exists
+		// to make wheel-scroll usable.
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 
 	case eventMsg:
 		return m.handleAgentEvent(msg.Event)
