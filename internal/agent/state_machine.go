@@ -122,6 +122,31 @@ func (a *Agent) drainWakeupPrompts() {
 	a.logger.Debug("wakeup.drained", "count", len(prompts))
 }
 
+// drainUserPrompts pulls every prompt the user typed while a Run was
+// already in flight and appends each one as a fresh RoleUser message.
+// Mirror of drainAsyncSubagents and drainWakeupPrompts — the agent
+// loop reads from a side-channel between iterations, so the prompt
+// lands AFTER the previous turn's tool_results and the conversation
+// stays well-formed for the next LLM call.
+//
+// Subagents are skipped: they have no user-facing input channel, so
+// the queue on their per-agent ToolState is always empty in practice.
+// We gate explicitly for clarity (and to avoid the lazy allocation
+// when the tool was never built).
+func (a *Agent) drainUserPrompts() {
+	if a.IsSubagent() || !a.toolState.HasUserPromptQueue() {
+		return
+	}
+	prompts := a.toolState.UserPromptQueue().Drain()
+	if len(prompts) == 0 {
+		return
+	}
+	for _, p := range prompts {
+		a.session.Append(llm.Message{Role: llm.RoleUser, Content: p})
+	}
+	a.logger.Debug("user_prompts.drained", "count", len(prompts))
+}
+
 // thinking opens an LLM call to advance the conversation. The actual
 // transport work (Complete vs Stream branching, chunk routing) lives in
 // llmCall; this method exists only to set the status and emit the

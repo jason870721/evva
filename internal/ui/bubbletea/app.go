@@ -564,18 +564,27 @@ func (m *rootModel) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Reject re-entrant submits. A second Run while one is in flight
-	// would append a User message between an unanswered tool_calls
-	// assistant turn and its pending tool_result — every provider 400s
-	// on that shape and the session never recovers. Keep the input
-	// intact so the user doesn't lose what they typed, and prompt them
-	// to interrupt the active run first.
+	m.appendHistory(text)
+
+	// Mid-run submit: queue the prompt for the agent to drain at the
+	// top of its next iteration. We render the prompt to the
+	// transcript immediately (so the user sees it land) and clear the
+	// input — but DO NOT start a new Run. Starting a second Run while
+	// one is in flight would append a RoleUser between an unanswered
+	// tool_calls turn and its pending tool_result; every provider 400s
+	// on that shape.
 	if m.state.isActive() {
-		m.hintText = "agent is running — press Ctrl+C or Esc to interrupt first"
+		forAgent := m.expandPastes(text)
+		forView := m.expandPastesForView(text)
+		m.transcript.appendUserPrompt(forView)
+		m.input.SetValue("")
+		m.pastedBuf = nil
+		m.controller.ToolState().UserPromptQueue().Enqueue(forAgent)
+		m.hintText = "queued — will land at the next iteration"
+		m.refreshViewport()
 		return m, nil
 	}
 
-	m.appendHistory(text)
 	switch m.state {
 	case stateIterLimit:
 		m.input.SetValue("")

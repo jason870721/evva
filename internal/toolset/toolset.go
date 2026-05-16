@@ -58,6 +58,12 @@ type ToolState struct {
 	// agent builds its tool list. nil = no gate (auto-approve).
 	approver    fs.Approver
 	wakeupQueue *meta.WakeupQueue
+	// userPromptQueue carries prompts the user typed while a Run was
+	// already in flight. The agent loop drains it between iterations
+	// so the conversation stays well-formed (no orphaned tool_calls).
+	// Only the root agent's queue is ever populated — subagents
+	// have no user input.
+	userPromptQueue *UserPromptQueue
 	// Future: monitorBus, cronService, skillLoader, ...
 
 	// TaskGroup registry — every observable.Store registered here fans its
@@ -202,6 +208,24 @@ func (s *ToolState) WakeupQueue() *meta.WakeupQueue {
 		s.wakeupQueue = meta.NewWakeupQueue()
 	}
 	return s.wakeupQueue
+}
+
+// HasUserPromptQueue reports whether a UserPromptQueue has already been
+// allocated. The agent loop uses this to skip the drain in runs that
+// never had user input queued (avoids forcing the lazy allocation just
+// to peek at an empty queue).
+func (s *ToolState) HasUserPromptQueue() bool { return s.userPromptQueue != nil }
+
+// UserPromptQueue returns the side-channel for prompts the user typed
+// while a Run was in flight, allocating one on first use. The UI's
+// submit handler Enqueue's; the agent loop's drainUserPrompts pulls
+// every entry and folds them into the session as fresh RoleUser
+// messages between iterations.
+func (s *ToolState) UserPromptQueue() *UserPromptQueue {
+	if s.userPromptQueue == nil {
+		s.userPromptQueue = NewUserPromptQueue()
+	}
+	return s.userPromptQueue
 }
 
 // Describe returns the metadata (tools.Descriptor) for a tool name without

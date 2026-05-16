@@ -94,6 +94,14 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 		// the user just typed it.
 		a.drainWakeupPrompts()
 
+		// Drain queued user prompts. The UI accepts new input while a
+		// Run is in flight and pushes the text to the user-prompt
+		// queue; we fold each entry into the session here so the model
+		// picks it up on the next LLM call — same safety guarantee as
+		// the other two drains (we're between turns, so the previous
+		// assistant tool_calls are already answered).
+		a.drainUserPrompts()
+
 		a.logger.Debug("turn.start", "iter", iter, "messages", len(a.session.Messages))
 		resp, err := a.thinking(ctx, iter)
 		if err != nil {
