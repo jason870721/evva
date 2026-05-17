@@ -13,11 +13,10 @@ import (
 	"github.com/johnny1110/evva/internal/constant"
 )
 
-// pendingConfig is the /config form's in-flight state. The form is
-// modeled on pendingApproval: a single overlay slot, navigation via
-// up/down, Enter to edit the focused field, Esc to close. Persistence
-// happens per-edit (every Apply call writes the YAML) so closing the
-// panel is a no-op — there's nothing to commit at the end.
+// pendingConfig is the /config form's in-flight state. A single overlay
+// slot, navigation via up/down, Enter to edit the focused field, Esc to
+// close. Persistence happens per-edit (every Apply call writes the YAML)
+// so closing the panel is a no-op — there's nothing to commit at the end.
 type pendingConfig struct {
 	fields   []configField
 	selected int
@@ -210,8 +209,8 @@ func (m *rootModel) closeConfig() {
 }
 
 // handleConfigKey routes keystrokes while the /config form is on screen.
-// Mirrors handleApprovalKey: a list mode for navigation, an editor mode
-// while the user is typing into a focused textinput.
+// A list mode for navigation, an editor mode while the user is typing
+// into a focused textinput.
 func (m *rootModel) handleConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	pc := m.pendingConfig
 	if msg.Type == tea.KeyCtrlC {

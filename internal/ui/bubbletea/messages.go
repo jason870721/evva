@@ -2,24 +2,7 @@ package bubbletea
 
 import (
 	"github.com/johnny1110/evva/internal/agent/event"
-	"github.com/johnny1110/evva/internal/tools/fs"
 )
-
-// approvalRequestMsg is dispatched from a tool goroutine (via the UI's
-// fs.Approver impl) when an fs mutation needs user confirmation. The
-// model stashes diff for rendering and reply for the eventual Decision.
-// reply is buffered (cap 1) so a late Send after a ctx cancellation is
-// harmless rather than deadlock.
-type approvalRequestMsg struct {
-	diff  *fs.FileDiff
-	reply chan<- fs.Decision
-}
-
-// approvalCancelMsg tells the bubbletea loop to drop any pending
-// approval — used when the tool's context fires before the user has
-// answered. The approver has already returned ctx.Err() to its caller;
-// this just clears the on-screen prompt.
-type approvalCancelMsg struct{}
 
 // eventMsg wraps an agent event for delivery into bubbletea's Update loop.
 // Emit (called from the agent goroutine) wraps each event in this and

@@ -95,7 +95,7 @@ func (m *rootModel) availableSlashCommands() []slashCommand {
 // the panel with Esc for this typing session, or when there are no
 // matches.
 func (m *rootModel) slashVisible() bool {
-	if m.pendingApproval != nil || m.pendingConfig != nil || m.pendingModel != nil || m.pendingCompact != nil {
+	if m.pendingConfig != nil || m.pendingModel != nil || m.pendingCompact != nil {
 		return false
 	}
 	if m.slashDismissed {

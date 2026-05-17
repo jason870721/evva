@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 
 	config "github.com/johnny1110/evva/configs"
@@ -98,12 +97,6 @@ func runTUI(ctx context.Context, prof agent.Profile, maxIters int, name, evvaHom
 	if err != nil {
 		exitf(1, "evva: %v", err)
 	}
-	// The TUI itself implements fs.Approver — install it so every
-	// fs mutation pauses for a y/n overlay before committing. Late
-	// binding (ToolState.Approver is read at Execute time, not at
-	// build time) lets us set this after agent.New has already built
-	// the active tools.
-	ag.ToolState().SetApprover(tui)
 	tui.Attach(ag)
 	if err := tui.Run(ctx); err != nil {
 		exitf(1, "evva: %v", err)
@@ -132,10 +125,6 @@ func runCLI(ctx context.Context, prof agent.Profile, maxIters int, name string, 
 	if err != nil {
 		exitf(1, "evva: %v", err)
 	}
-	// Install the stdin approver AFTER agent.New (which constructs the
-	// ToolState) and BEFORE the first Run (which builds the tool
-	// instances). Toolset snapshots ToolState.Approver() at build time.
-	ag.ToolState().SetApprover(&stdinApprover{in: os.Stdin, out: os.Stderr})
 
 	resp, err := ag.Run(ctx, prompt)
 	for errors.Is(err, agent.ErrIterLimit) {
@@ -322,144 +311,6 @@ func readPrompt(args []string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(raw)), nil
-}
-
-// --- stdin approver -------------------------------------------------------
-
-// stdinApprover gates fs mutations behind a numeric menu on stdin.
-// Used by the headless (-no-tui) flow. The proposed diff is rendered
-// to out (typically stderr so it stays out of stdout pipelines) and a
-// single line of input drives the decision.
-//
-// Options (mirrored from the TUI's vertical menu):
-//
-//	1 / y / yes → approve this one
-//	2 / a / all → approve this one AND every remaining fs mutation in
-//	              the session (sticky; resets only on process exit)
-//	3           → decline AND prompt for redirection text — the
-//	              follow-up line is returned as Decision.Feedback so
-//	              the agent can re-plan against the user's intent
-//	4 / n / no  → decline this one (no feedback)
-//	anything else / EOF → decline (no feedback)
-//
-// EOF → decline keeps piped runs safe: `echo prompt | evva -no-tui`
-// can't quietly approve writes when stdin is already drained.
-type stdinApprover struct {
-	in  io.Reader
-	out io.Writer
-
-	// mu serializes Approve calls. Parallel fs tool_use blocks in one
-	// assistant turn would otherwise interleave diff output and race on
-	// stdin reads.
-	mu sync.Mutex
-
-	// autoApprove flips once the user has picked option 2. From that
-	// point on every Approve call short-circuits to approved without
-	// re-rendering the diff or reading stdin.
-	autoApprove bool
-}
-
-// stdinChip wraps a key label in the same color palette the TUI uses
-// for menu emphasis. Inline ANSI rather than a styled library to keep
-// the CLI free of bubbletea dependencies.
-func stdinChip(key string, ansi string) string {
-	return ansi + "[" + key + "]\x1b[0m"
-}
-
-const (
-	ansiGreenChip  = "\x1b[1;32m"
-	ansiPurpleChip = "\x1b[1;35m"
-	ansiYellowChip = "\x1b[1;33m"
-	ansiCyanChip   = "\x1b[1;36m"
-)
-
-func (s *stdinApprover) Approve(ctx context.Context, diff *fs.FileDiff) (fs.Decision, error) {
-	// Serialize so concurrent fs tool_use blocks in one assistant turn
-	// don't interleave diff output or race on stdin reads. Acquire
-	// ctx-cancellably so a cancelled run doesn't sit forever behind a
-	// slow prompt ahead of it.
-	lockCh := make(chan struct{}, 1)
-	go func() {
-		s.mu.Lock()
-		lockCh <- struct{}{}
-	}()
-	select {
-	case <-lockCh:
-		defer s.mu.Unlock()
-	case <-ctx.Done():
-		go func() {
-			<-lockCh
-			s.mu.Unlock()
-		}()
-		return fs.Decision{}, ctx.Err()
-	}
-
-	if s.autoApprove {
-		return fs.Decision{Approved: true}, nil
-	}
-
-	fmt.Fprintln(s.out)
-	renderFileDiff(s.out, diff)
-	fmt.Fprintf(s.out, "\nApprove %s on %s?\n", diff.Op, diff.Path)
-	fmt.Fprintf(s.out, "  %s Yes, apply this change\n", stdinChip("1", ansiGreenChip))
-	fmt.Fprintf(s.out, "  %s Yes, and approve all remaining changes this session\n", stdinChip("2", ansiYellowChip))
-	fmt.Fprintf(s.out, "  %s No — let me tell the agent what to do instead\n", stdinChip("3", ansiPurpleChip))
-	fmt.Fprintf(s.out, "  %s Cancel\n", stdinChip("4", ansiCyanChip))
-	fmt.Fprint(s.out, "Choose [1-4]: ")
-
-	line, err := readLine(ctx, s.in)
-	if err != nil {
-		fmt.Fprintln(s.out, "[cancelled]")
-		return fs.Decision{}, err
-	}
-	if line == "" {
-		fmt.Fprintln(s.out, "[no input — declined]")
-		return fs.Decision{Approved: false}, nil
-	}
-
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "1", "y", "yes":
-		return fs.Decision{Approved: true}, nil
-	case "2", "a", "all":
-		s.autoApprove = true
-		fmt.Fprintln(s.out, "[approving all remaining changes in this session]")
-		return fs.Decision{Approved: true}, nil
-	case "3":
-		fmt.Fprint(s.out, "What should the agent do instead? ")
-		fb, ferr := readLine(ctx, s.in)
-		if ferr != nil {
-			return fs.Decision{}, ferr
-		}
-		return fs.Decision{Approved: false, Feedback: strings.TrimSpace(fb)}, nil
-	default:
-		// "4", "n", "no", anything else — plain decline.
-		fmt.Fprintln(s.out, "[declined]")
-		return fs.Decision{Approved: false}, nil
-	}
-}
-
-// readLine reads a single line from r honoring ctx cancellation.
-// Returns empty string + nil error on EOF before any bytes; returns
-// ctx.Err() if the context cancels before the line arrives.
-func readLine(ctx context.Context, r io.Reader) (string, error) {
-	type result struct {
-		line string
-		err  error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		line, err := bufio.NewReader(r).ReadString('\n')
-		ch <- result{line: line, err: err}
-	}()
-	select {
-	case res := <-ch:
-		if res.err != nil && res.line == "" {
-			return "", nil
-		}
-		return res.line, nil
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
 }
 
 // waitEnter blocks until the user presses Enter on stdin, or ctx is cancelled.

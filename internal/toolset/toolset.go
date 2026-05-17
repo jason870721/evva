@@ -20,7 +20,6 @@
 package toolset
 
 import (
-	"context"
 	"fmt"
 	"sync"
 
@@ -54,12 +53,7 @@ type ToolState struct {
 	deferredLookup  meta.DeferredLookup
 	readTracker     *fs.ReadTracker
 	subAgentGroup   *meta.SpawnGroup
-	// approver gates fs mutations behind user confirmation. Late-bound:
-	// the host (cmd/evva) installs the right approver for the current
-	// UI mode (TUI overlay or stdin prompt) via SetApprover BEFORE the
-	// agent builds its tool list. nil = no gate (auto-approve).
-	approver    fs.Approver
-	wakeupQueue *meta.WakeupQueue
+	wakeupQueue     *meta.WakeupQueue
 	// userPromptQueue carries prompts the user typed while a Run was
 	// already in flight. The agent loop drains it between iterations
 	// so the conversation stays well-formed (no orphaned tool_calls).
@@ -178,23 +172,6 @@ func (s *ToolState) ReadTracker() *fs.ReadTracker {
 	return s.readTracker
 }
 
-// Approver returns the installed fs.Approver, or nil if no gate has
-// been wired. The write/edit tools pass this through their constructors
-// — a nil result means auto-approve, which is correct for tests and
-// bench harnesses that bypass UI confirmation.
-func (s *ToolState) Approver() fs.Approver {
-	return s.approver
-}
-
-// SetApprover installs the fs approval gate. The host (cmd/evva) calls
-// this once during startup with the right approver for the current
-// mode: a TUI overlay in interactive mode, a stdin prompt for
-// headless CLI runs. Must be called BEFORE the agent constructs its
-// tools — buildOne snapshots the current approver into each fs tool.
-func (s *ToolState) SetApprover(a fs.Approver) {
-	s.approver = a
-}
-
 func (s *ToolState) AgentGroup() *meta.SpawnGroup {
 	if s.subAgentGroup == nil {
 		s.subAgentGroup = meta.NewSpawnGroup()
@@ -298,9 +275,9 @@ func buildOne(name tools.ToolName, s *ToolState) (tools.Tool, error) {
 	case tools.READ_FILE:
 		return fs.NewRead(s.ReadTracker()), nil
 	case tools.WRITE_FILE:
-		return fs.NewWrite(s.ReadTracker(), lateApprover{state: s}), nil
+		return fs.NewWrite(s.ReadTracker()), nil
 	case tools.EDIT_FILE:
-		return fs.NewEdit(s.ReadTracker(), lateApprover{state: s}), nil
+		return fs.NewEdit(s.ReadTracker()), nil
 
 	// --- shell (stateless) ---
 	case tools.BASH:
@@ -384,21 +361,4 @@ func buildOne(name tools.ToolName, s *ToolState) (tools.Tool, error) {
 	default:
 		return nil, fmt.Errorf("toolset: unknown tool %q", name)
 	}
-}
-
-// lateApprover bridges fs.Approver to the ToolState's late-bound
-// approver slot. Tools snapshot this at build time; calls to Approve
-// resolve the currently-installed approver on each invocation, so the
-// host can SetApprover any time before the first fs mutation lands.
-// A nil approver on the state means "no gate" — return approved=true.
-type lateApprover struct {
-	state *ToolState
-}
-
-func (l lateApprover) Approve(ctx context.Context, diff *fs.FileDiff) (fs.Decision, error) {
-	a := l.state.Approver()
-	if a == nil {
-		return fs.Decision{Approved: true}, nil
-	}
-	return a.Approve(ctx, diff)
 }

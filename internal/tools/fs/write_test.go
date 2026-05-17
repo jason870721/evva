@@ -3,7 +3,6 @@ package fs
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,28 +14,13 @@ import (
 //   - resolvePath errors
 //   - new-file path (no read-guard required)
 //   - overwrite path requires prior read via tracker
-//   - approver decline w/o feedback → IsError
-//   - approver decline w/ feedback → non-error result carrying feedback
-//   - approver approves → file mutated, Metadata holds FileDiff
 //   - auto-mkdir for missing parents
 //   - empty content writes empty file
-
-// fakeApprover implements Approver with a programmable Decision.
-type fakeApprover struct {
-	dec  Decision
-	err  error
-	seen *FileDiff
-}
-
-func (f *fakeApprover) Approve(_ context.Context, diff *FileDiff) (Decision, error) {
-	f.seen = diff
-	return f.dec, f.err
-}
 
 func TestWrite_NewFileSkipsReadGuard(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "new.txt")
-	tool := NewWrite(NewReadTracker(), nil) // nil approver = auto-approve
+	tool := NewWrite(NewReadTracker())
 
 	res, _ := tool.Execute(context.Background(),
 		json.RawMessage(`{"file_path":"`+path+`","content":"hello"}`))
@@ -58,7 +42,7 @@ func TestWrite_NewFileSkipsReadGuard(t *testing.T) {
 
 func TestWrite_OverwriteBlockedWithoutPriorRead(t *testing.T) {
 	path := writeTempFile(t, "old")
-	tool := NewWrite(NewReadTracker(), nil)
+	tool := NewWrite(NewReadTracker())
 
 	res, _ := tool.Execute(context.Background(),
 		json.RawMessage(`{"file_path":"`+path+`","content":"new"}`))
@@ -76,7 +60,7 @@ func TestWrite_OverwriteAllowedAfterRead(t *testing.T) {
 	path := writeTempFile(t, "old")
 	tr := NewReadTracker()
 	tr.MarkRead(path)
-	tool := NewWrite(tr, nil)
+	tool := NewWrite(tr)
 
 	res, _ := tool.Execute(context.Background(),
 		json.RawMessage(`{"file_path":"`+path+`","content":"new"}`))
@@ -96,64 +80,10 @@ func TestWrite_OverwriteAllowedAfterRead(t *testing.T) {
 	}
 }
 
-func TestWrite_ApproverDeclineNoFeedback_IsError(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "x.txt")
-	approver := &fakeApprover{dec: Decision{Approved: false}}
-	tool := NewWrite(NewReadTracker(), approver)
-
-	res, _ := tool.Execute(context.Background(),
-		json.RawMessage(`{"file_path":"`+path+`","content":"v"}`))
-
-	if !res.IsError {
-		t.Fatal("expected IsError when approver declines without feedback")
-	}
-	if _, err := os.Stat(path); err == nil {
-		t.Error("file was created despite decline")
-	}
-	if approver.seen == nil {
-		t.Error("approver was not consulted")
-	}
-}
-
-func TestWrite_ApproverDeclineWithFeedback_IsNonError(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "x.txt")
-	approver := &fakeApprover{dec: Decision{Approved: false, Feedback: "use yaml instead"}}
-	tool := NewWrite(NewReadTracker(), approver)
-
-	res, _ := tool.Execute(context.Background(),
-		json.RawMessage(`{"file_path":"`+path+`","content":"v"}`))
-
-	if res.IsError {
-		t.Errorf("decline-with-feedback should be a non-error result; got IsError, content=%q", res.Content)
-	}
-	if !strings.Contains(res.Content, "use yaml instead") {
-		t.Errorf("feedback text missing from content: %q", res.Content)
-	}
-	if _, err := os.Stat(path); err == nil {
-		t.Error("file was created despite decline")
-	}
-}
-
-func TestWrite_ApproverErrorSurfacedAsIsError(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "x.txt")
-	approver := &fakeApprover{err: errors.New("approver broke")}
-	tool := NewWrite(NewReadTracker(), approver)
-
-	res, _ := tool.Execute(context.Background(),
-		json.RawMessage(`{"file_path":"`+path+`","content":"v"}`))
-
-	if !res.IsError || !strings.Contains(res.Content, "approver broke") {
-		t.Errorf("expected approver error surfaced; got isErr=%v content=%q", res.IsError, res.Content)
-	}
-}
-
 func TestWrite_AutoMkdirsMissingParents(t *testing.T) {
 	dir := t.TempDir()
 	deep := filepath.Join(dir, "a", "b", "c", "f.txt")
-	tool := NewWrite(NewReadTracker(), nil)
+	tool := NewWrite(NewReadTracker())
 
 	res, _ := tool.Execute(context.Background(),
 		json.RawMessage(`{"file_path":"`+deep+`","content":"x"}`))
@@ -169,7 +99,7 @@ func TestWrite_AutoMkdirsMissingParents(t *testing.T) {
 func TestWrite_EmptyContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "empty.txt")
-	tool := NewWrite(NewReadTracker(), nil)
+	tool := NewWrite(NewReadTracker())
 
 	res, _ := tool.Execute(context.Background(),
 		json.RawMessage(`{"file_path":"`+path+`","content":""}`))
@@ -187,7 +117,7 @@ func TestWrite_EmptyContent(t *testing.T) {
 }
 
 func TestWrite_DecodeError(t *testing.T) {
-	tool := NewWrite(NewReadTracker(), nil)
+	tool := NewWrite(NewReadTracker())
 	res, _ := tool.Execute(context.Background(), json.RawMessage(`{not json`))
 	if !res.IsError || !strings.Contains(res.Content, "decode") {
 		t.Errorf("expected decode error; got isErr=%v content=%q", res.IsError, res.Content)

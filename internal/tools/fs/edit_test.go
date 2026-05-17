@@ -19,7 +19,6 @@ import (
 //   - old_string ambiguous (>1 match without replace_all)
 //   - single replacement happy path
 //   - replace_all happy path
-//   - approver decline / approve / decline-with-feedback
 //   - Metadata carries *FileDiff
 
 func TestEdit_FileNotFound(t *testing.T) {
@@ -27,7 +26,7 @@ func TestEdit_FileNotFound(t *testing.T) {
 	missing := filepath.Join(dir, "nope.txt")
 	tr := NewReadTracker()
 	tr.MarkRead(missing) // even with prior read, missing file rejected
-	tool := NewEdit(tr, nil)
+	tool := NewEdit(tr)
 
 	res, _ := tool.Execute(context.Background(), json.RawMessage(
 		`{"file_path":"`+missing+`","old_string":"a","new_string":"b"}`))
@@ -41,7 +40,7 @@ func TestEdit_RejectsDirectory(t *testing.T) {
 	dir := t.TempDir()
 	tr := NewReadTracker()
 	tr.MarkRead(dir)
-	tool := NewEdit(tr, nil)
+	tool := NewEdit(tr)
 
 	res, _ := tool.Execute(context.Background(), json.RawMessage(
 		`{"file_path":"`+dir+`","old_string":"a","new_string":"b"}`))
@@ -53,7 +52,7 @@ func TestEdit_RejectsDirectory(t *testing.T) {
 
 func TestEdit_BlockedWithoutPriorRead(t *testing.T) {
 	path := writeTempFile(t, "hello world")
-	tool := NewEdit(NewReadTracker(), nil)
+	tool := NewEdit(NewReadTracker())
 
 	res, _ := tool.Execute(context.Background(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"hello","new_string":"bye"}`))
@@ -71,7 +70,7 @@ func TestEdit_RejectsIdenticalStrings(t *testing.T) {
 	path := writeTempFile(t, "x")
 	tr := NewReadTracker()
 	tr.MarkRead(path)
-	tool := NewEdit(tr, nil)
+	tool := NewEdit(tr)
 
 	res, _ := tool.Execute(context.Background(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"x","new_string":"x"}`))
@@ -85,7 +84,7 @@ func TestEdit_OldStringNotFound(t *testing.T) {
 	path := writeTempFile(t, "hello world")
 	tr := NewReadTracker()
 	tr.MarkRead(path)
-	tool := NewEdit(tr, nil)
+	tool := NewEdit(tr)
 
 	res, _ := tool.Execute(context.Background(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"nope","new_string":"yes"}`))
@@ -99,7 +98,7 @@ func TestEdit_AmbiguousWithoutReplaceAll(t *testing.T) {
 	path := writeTempFile(t, "foo\nfoo\nfoo\n")
 	tr := NewReadTracker()
 	tr.MarkRead(path)
-	tool := NewEdit(tr, nil)
+	tool := NewEdit(tr)
 
 	res, _ := tool.Execute(context.Background(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"foo","new_string":"bar"}`))
@@ -121,7 +120,7 @@ func TestEdit_SingleReplacement_HappyPath(t *testing.T) {
 	path := writeTempFile(t, "alpha beta gamma")
 	tr := NewReadTracker()
 	tr.MarkRead(path)
-	tool := NewEdit(tr, nil)
+	tool := NewEdit(tr)
 
 	res, _ := tool.Execute(context.Background(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"beta","new_string":"BETA"}`))
@@ -145,7 +144,7 @@ func TestEdit_ReplaceAll(t *testing.T) {
 	path := writeTempFile(t, "foo bar foo baz foo")
 	tr := NewReadTracker()
 	tr.MarkRead(path)
-	tool := NewEdit(tr, nil)
+	tool := NewEdit(tr)
 
 	res, _ := tool.Execute(context.Background(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"foo","new_string":"FOO","replace_all":true}`))
@@ -162,49 +161,8 @@ func TestEdit_ReplaceAll(t *testing.T) {
 	}
 }
 
-func TestEdit_ApproverDeclineLeavesFile(t *testing.T) {
-	path := writeTempFile(t, "hello")
-	tr := NewReadTracker()
-	tr.MarkRead(path)
-	approver := &fakeApprover{dec: Decision{Approved: false}}
-	tool := NewEdit(tr, approver)
-
-	res, _ := tool.Execute(context.Background(), json.RawMessage(
-		`{"file_path":"`+path+`","old_string":"hello","new_string":"bye"}`))
-
-	if !res.IsError {
-		t.Fatal("expected IsError on plain decline")
-	}
-	got, _ := os.ReadFile(path)
-	if string(got) != "hello" {
-		t.Errorf("file mutated despite decline: %q", string(got))
-	}
-}
-
-func TestEdit_ApproverFeedbackIsNonError(t *testing.T) {
-	path := writeTempFile(t, "hello")
-	tr := NewReadTracker()
-	tr.MarkRead(path)
-	approver := &fakeApprover{dec: Decision{Approved: false, Feedback: "switch order of args"}}
-	tool := NewEdit(tr, approver)
-
-	res, _ := tool.Execute(context.Background(), json.RawMessage(
-		`{"file_path":"`+path+`","old_string":"hello","new_string":"bye"}`))
-
-	if res.IsError {
-		t.Errorf("decline-with-feedback should be non-error; got %q", res.Content)
-	}
-	if !strings.Contains(res.Content, "switch order of args") {
-		t.Errorf("feedback text missing; got %q", res.Content)
-	}
-	got, _ := os.ReadFile(path)
-	if string(got) != "hello" {
-		t.Errorf("file mutated despite decline: %q", string(got))
-	}
-}
-
 func TestEdit_DecodeError(t *testing.T) {
-	tool := NewEdit(NewReadTracker(), nil)
+	tool := NewEdit(NewReadTracker())
 	res, _ := tool.Execute(context.Background(), json.RawMessage(`{nope`))
 	if !res.IsError || !strings.Contains(res.Content, "decode") {
 		t.Errorf("expected decode error; got isErr=%v content=%q", res.IsError, res.Content)

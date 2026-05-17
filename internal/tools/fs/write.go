@@ -11,20 +11,15 @@ import (
 	"github.com/johnny1110/evva/internal/tools"
 )
 
-// WriteTool creates or overwrites a file. When an Approver is attached
-// every mutation pauses for user confirmation: the proposed diff is
-// shown and the write only lands on a "yes". A nil approver disables
-// the gate (used by tests).
+// WriteTool creates or overwrites a file.
 type WriteTool struct {
-	tracker  *ReadTracker
-	approver Approver
+	tracker *ReadTracker
 }
 
 // NewWrite creates a WriteTool that enforces the read-before-overwrite guard
-// via the given tracker. Pass a non-nil approver to gate writes behind
-// user confirmation; nil disables the gate.
-func NewWrite(tracker *ReadTracker, approver Approver) *WriteTool {
-	return &WriteTool{tracker: tracker, approver: approver}
+// via the given tracker.
+func NewWrite(tracker *ReadTracker) *WriteTool {
+	return &WriteTool{tracker: tracker}
 }
 
 func (t *WriteTool) Name() string { return string(tools.WRITE_FILE) }
@@ -88,8 +83,8 @@ func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (tools.R
 	}
 
 	// Capture prior content. We need this for two things on the
-	// overwrite path: the proposed diff that the approver renders, and
-	// the "was M / now N" summary line on the model-facing result.
+	// overwrite path: the proposed diff (Metadata for the UI) and the
+	// "was M / now N" summary line on the model-facing result.
 	var oldByteCount, oldLineCount int
 	var priorContent string
 	if existedBefore {
@@ -101,8 +96,7 @@ func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (tools.R
 		}
 	}
 
-	// Build the proposed diff up front so the same payload powers both
-	// the approval prompt and the final tools.Result.Metadata. New
+	// Build the proposed diff for the final tools.Result.Metadata. New
 	// files render every line as an add; overwrites use difflib for a
 	// minimal unified diff.
 	var diff *FileDiff
@@ -110,32 +104,6 @@ func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (tools.R
 		diff = buildOverwriteDiff(resolved, priorContent, in.Content)
 	} else {
 		diff = buildCreateDiff(resolved, in.Content)
-	}
-
-	if t.approver != nil {
-		dec, aerr := t.approver.Approve(ctx, diff)
-		if aerr != nil {
-			return tools.Result{IsError: true, Content: "write: approval failed: " + aerr.Error()}, nil
-		}
-		if !dec.Approved {
-			// Two decline shapes:
-			//   - No feedback (user pressed Esc / EOF / blank line) →
-			//     surface a real error so the model knows the change
-			//     was refused outright.
-			//   - With feedback → silently pass the user's redirection
-			//     through as a non-error result. No "declined" chrome
-			//     in the transcript; the model treats the text as
-			//     in-flight instructions and continues the workflow.
-			if dec.Feedback == "" {
-				return tools.Result{
-					IsError: true,
-					Content: fmt.Sprintf("write: user declined the change to %s; the file was not modified.", in.FilePath),
-				}, nil
-			}
-			return tools.Result{
-				Content: fmt.Sprintf("User asked instead: %s", dec.Feedback),
-			}, nil
-		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {

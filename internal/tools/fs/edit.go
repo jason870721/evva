@@ -11,20 +11,15 @@ import (
 	"github.com/johnny1110/evva/internal/tools"
 )
 
-// EditTool performs exact string replacements in existing files. When
-// an Approver is attached every edit pauses for user confirmation: the
-// proposed diff is shown and the write only lands on a "yes". A nil
-// approver disables the gate.
+// EditTool performs exact string replacements in existing files.
 type EditTool struct {
-	tracker  *ReadTracker
-	approver Approver
+	tracker *ReadTracker
 }
 
 // NewEdit creates an EditTool that enforces the read-before-edit guard
-// via the given tracker. Pass a non-nil approver to gate edits behind
-// user confirmation; nil disables the gate.
-func NewEdit(tracker *ReadTracker, approver Approver) *EditTool {
-	return &EditTool{tracker: tracker, approver: approver}
+// via the given tracker.
+func NewEdit(tracker *ReadTracker) *EditTool {
+	return &EditTool{tracker: tracker}
 }
 
 func (t *EditTool) Name() string { return string(tools.EDIT_FILE) }
@@ -164,32 +159,6 @@ func (t *EditTool) Execute(ctx context.Context, input json.RawMessage) (tools.Re
 	}
 
 	diff := buildEditDiff(resolved, before, after, in.OldString, in.NewString, oldLineNums)
-
-	if t.approver != nil {
-		dec, aerr := t.approver.Approve(ctx, diff)
-		if aerr != nil {
-			return tools.Result{IsError: true, Content: "edit: approval failed: " + aerr.Error()}, nil
-		}
-		if !dec.Approved {
-			// Two decline shapes:
-			//   - No feedback (user pressed Esc / EOF / blank line) →
-			//     surface a real error so the model knows the change
-			//     was refused outright.
-			//   - With feedback → silently pass the user's redirection
-			//     through as a non-error result. No "declined" chrome
-			//     in the transcript; the model treats the text as
-			//     in-flight instructions and continues the workflow.
-			if dec.Feedback == "" {
-				return tools.Result{
-					IsError: true,
-					Content: fmt.Sprintf("edit: user declined the change to %s; the file was not modified.", in.FilePath),
-				}, nil
-			}
-			return tools.Result{
-				Content: fmt.Sprintf("User asked instead: %s", dec.Feedback),
-			}, nil
-		}
-	}
 
 	if err := os.WriteFile(resolved, []byte(after), 0o644); err != nil {
 		return tools.Result{IsError: true, Content: fmt.Sprintf("edit: could not write %s: %s", in.FilePath, err)}, nil
