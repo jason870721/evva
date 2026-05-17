@@ -34,6 +34,7 @@ import (
 	"github.com/johnny1110/evva/internal/tools/monitor"
 	"github.com/johnny1110/evva/internal/tools/notebook"
 	"github.com/johnny1110/evva/internal/tools/shell"
+	"github.com/johnny1110/evva/internal/tools/skill"
 	"github.com/johnny1110/evva/internal/tools/task"
 	"github.com/johnny1110/evva/internal/tools/ux"
 	"github.com/johnny1110/evva/internal/tools/web"
@@ -65,7 +66,15 @@ type ToolState struct {
 	// Only the root agent's queue is ever populated — subagents
 	// have no user input.
 	userPromptQueue *UserPromptQueue
-	// Future: monitorBus, cronService, skillLoader, ...
+
+	// skillRegistry holds the merged catalog of user-installed skills.
+	// Installed once at startup by the host (cmd/evva) and read by the
+	// SKILL tool through its late-bound lookup. Subagents share the
+	// pointer via WithSkillRegistry on agent.New so a skill invoked from
+	// a subagent path still resolves; today only root sees SKILL in its
+	// active set, but threading is cheap and future-proof.
+	skillRegistry *skill.Registry
+	// Future: monitorBus, cronService, ...
 
 	// TaskGroup registry — every observable.Store registered here fans its
 	// changes into the ToolState's observers. The agent subscribes once
@@ -211,6 +220,21 @@ func (s *ToolState) WakeupQueue() *meta.WakeupQueue {
 	return s.wakeupQueue
 }
 
+// SkillRegistry returns the currently-installed skill catalog, or nil if
+// none. The SKILL tool reads through this lookup at Execute time so the
+// host can SetSkillRegistry any time before the model invokes it.
+func (s *ToolState) SkillRegistry() *skill.Registry {
+	return s.skillRegistry
+}
+
+// SetSkillRegistry installs the skill catalog the SKILL tool will read
+// from. The host (cmd/evva) calls this once at startup with the merged
+// home+workdir registry. Subagents inherit the same pointer via
+// agent.WithSkillRegistry.
+func (s *ToolState) SetSkillRegistry(r *skill.Registry) {
+	s.skillRegistry = r
+}
+
 // HasUserPromptQueue reports whether a UserPromptQueue has already been
 // allocated. The agent loop uses this to skip the drain in runs that
 // never had user input queued (avoids forcing the lazy allocation just
@@ -297,7 +321,10 @@ func buildOne(name tools.ToolName, s *ToolState) (tools.Tool, error) {
 		// as the deferred lookup via SetDeferredLookup after construction.
 		return meta.NewToolSearch(s.DeferredLookup), nil
 	case tools.SKILL:
-		return meta.Skill, nil
+		// Same late-binding pattern as AGENT / TOOL_SEARCH — the host
+		// installs the registry via SetSkillRegistry, and skill.NewSkill
+		// reads through it at Execute time.
+		return skill.NewSkill(s.SkillRegistry), nil
 	case tools.SCHEDULE_WAKEUP:
 		return meta.NewWakeup(s.WakeupQueue()), nil
 

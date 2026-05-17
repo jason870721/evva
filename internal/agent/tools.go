@@ -7,6 +7,7 @@ import (
 	"github.com/johnny1110/evva/internal/observable"
 	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/toolset"
+	"github.com/johnny1110/evva/internal/ui"
 )
 
 // ResolveTool returns the runnable instance for a tool name, building it on
@@ -72,6 +73,26 @@ func (a *Agent) Describe(name tools.ToolName) (tools.Descriptor, error) {
 		return tools.Descriptor{}, fmt.Errorf("agent: %q is not in the deferred allowlist", name)
 	}
 	return toolset.Describe(name)
+}
+
+// Skills returns the user-installed skill catalog as the UI sees it —
+// name + description per entry, sorted by name. Implements ui.Controller
+// so the TUI's slash-suggestion panel can list skills alongside the
+// built-in commands without reaching into ToolState directly.
+//
+// Returns nil when no registry was installed (e.g. tests / headless
+// callers that didn't pass WithSkillRegistry).
+func (a *Agent) Skills() []ui.Skill {
+	reg := a.toolState.SkillRegistry()
+	if reg == nil {
+		return nil
+	}
+	list := reg.List()
+	out := make([]ui.Skill, 0, len(list))
+	for _, m := range list {
+		out = append(out, ui.Skill{Name: m.Name, Description: m.Description})
+	}
+	return out
 }
 
 // Agent ToolState OnChange Event Binding ============================================

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/agent/event"
+	"github.com/johnny1110/evva/internal/llm"
 	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/tools/meta"
 )
@@ -115,29 +117,71 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 }
 
 // subagentProfile builds a Profile for a subagent of the given kind,
-// inheriting the ParentID's LLM provider/model/options. Subagent profiles
+// inheriting the parent's LLM provider/model/options. Subagent profiles
 // deliberately do NOT include the AGENT tool — the "subagents cannot
 // spawn subagents" invariant is enforced both here (no AGENT in tool list)
 // and in Spawn itself (IsSubagent check).
 //
+// The system prompt is intentionally NOT inherited from the parent —
+// Explore / General each build their own via the sysprompt package so a
+// subagent never accidentally adopts the root's full harness. This is the
+// "distinct system prompt = distinct profile" invariant the Profile
+// constructors document.
+//
 // Unknown kinds are an error the caller surfaces to the model.
 func subagentProfile(parent Profile, kind string) (Profile, error) {
+	cfg := config.Get()
+	// Strip any system-prompt option the parent picked up. The subagent
+	// constructor will append its own WithSystem; leaving the parent's in
+	// the slice would let it override the subagent's via "last write wins"
+	// in llm.Apply.
+	inherited := withoutSystemOption(parent.LLMOptions)
+
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "explore":
 		// read-only
-		return Explore(parent.LLMProvider, parent.LLMModel, parent.LLMOptions), nil
+		return Explore(cfg, parent.LLMProvider, parent.LLMModel, inherited), nil
 	case "general-purpose", "general", "":
 		toolNames := []tools.ToolName{
 			tools.READ_FILE, tools.WRITE_FILE, tools.EDIT_FILE,
 			tools.BASH, tools.WEB_SEARCH, tools.WEB_FETCH,
 		}
-		return General(parent.LLMProvider, parent.LLMModel, parent.LLMOptions, toolNames...), nil
+		return General(cfg, parent.LLMProvider, parent.LLMModel, inherited, toolNames...), nil
 	case "teammate":
 		// TODO: a strong agent, not a typical subagent. It have same permission as main agent, and free to do his own job in async mode.
 		return Profile{}, fmt.Errorf("not support subagent_type in current version %q (want \"explore\" or \"general-purpose\")", kind)
 	default:
 		return Profile{}, fmt.Errorf("unknown subagent_type %q (want \"explore\" or \"general-purpose\")", kind)
 	}
+}
+
+// withoutSystemOption filters out any llm.WithSystem entries from opts. The
+// agent profile constructors append a fresh WithSystem at the end of the
+// option list, but the parent's slice may already carry one — if we passed
+// the parent's WithSystem and our own to the same Apply, the subagent
+// could end up with the wrong prompt because option ordering across slices
+// is not guaranteed beyond "last applied wins". Stripping up front
+// guarantees the subagent's own prompt is the only one in play.
+//
+// Detection is by sentinel: build a probe LLMParams, apply each option,
+// and drop any option that touches System. Cheap; runs once per spawn.
+func withoutSystemOption(opts []llm.Option) []llm.Option {
+	if len(opts) == 0 {
+		return nil
+	}
+	out := make([]llm.Option, 0, len(opts))
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		var probe llm.LLMParams
+		opt(&probe)
+		if probe.System != "" {
+			continue
+		}
+		out = append(out, opt)
+	}
+	return out
 }
 
 func truncateSummary(s string, max int) string {

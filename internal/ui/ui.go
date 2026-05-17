@@ -46,6 +46,16 @@ type UI interface {
 	Run(ctx context.Context) error
 }
 
+// Skill is the UI-facing view of a user-installed skill — just the name
+// and a one-line description for the slash-command suggestion panel. The
+// ui package deliberately does not expose Path or Source: the UI never
+// needs to read the SKILL.md file itself, the agent (via the SKILL tool)
+// does that.
+type Skill struct {
+	Name        string
+	Description string
+}
+
 // Controller is the narrow API a UI uses to send commands back to the
 // agent. Implemented by *agent.Agent.
 //
@@ -98,4 +108,11 @@ type Controller interface {
 	// Caller (the TUI's /model form) must ensure no Run is in flight
 	// before calling — see Agent.SwitchLLM for the running guard.
 	SwitchLLM(provider constant.LLMProvider, model constant.Model) error
+
+	// Skills returns the merged catalog of user-installed skills (home
+	// and workdir, with workdir overrides applied). The TUI's slash
+	// suggestion panel surfaces each entry as `/<name>` with the
+	// description; the agent decides if/when to invoke them via the
+	// SKILL tool. Returns nil when no skills are installed.
+	Skills() []Skill
 }

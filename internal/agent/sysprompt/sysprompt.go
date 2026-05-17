@@ -22,6 +22,16 @@ import (
 	"time"
 )
 
+// SkillRef is the prompt-side view of a user-installed skill — just the
+// name and description we want to advertise to the model. The sysprompt
+// package deliberately does not depend on internal/tools/skill so the
+// dependency graph stays one-way; the caller flattens the skill registry
+// into this struct.
+type SkillRef struct {
+	Name        string
+	Description string
+}
+
 // Inputs is the composable input to Build. Zero values are tolerated: any
 // environment field that is empty is rendered as "(unknown)"; toggles
 // default to false so callers must opt in to each section. Use Default() to
@@ -44,6 +54,12 @@ type Inputs struct {
 	IncludeHarness      bool // software-engineering conduct rules.
 	IncludeToolGuide    bool // dedicated-tool preference + TOOL_SEARCH protocol.
 	IncludeTaskPlanning bool // when and how to use the task_* tool family.
+
+	// Skills is the advertised skill catalog. Build renders a `# Skills`
+	// section iff len(Skills) > 0 — there is no separate toggle, since
+	// "no skills installed" and "don't advertise skills" are the same
+	// observable state.
+	Skills []SkillRef
 
 	Env string // dev or prod
 }
@@ -85,6 +101,9 @@ func Build(in Inputs) string {
 	}
 	if in.IncludeTaskPlanning {
 		parts = append(parts, taskPlanning())
+	}
+	if len(in.Skills) > 0 {
+		parts = append(parts, skillsSection(in.Skills))
 	}
 	if in.Env == "dev" {
 		parts = append(parts, devSection())

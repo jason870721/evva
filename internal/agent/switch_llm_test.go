@@ -44,7 +44,7 @@ func TestSwitchLLMClearsSessionAndUpdatesProfile(t *testing.T) {
 		t.Fatalf("seed anthropic: %v", err)
 	}
 
-	prof := Main(cfg.AppEnv, constant.DEEPSEEK, constant.DEEPSEEK_V4_PRO, "", nil)
+	prof := Main(cfg, constant.DEEPSEEK, constant.DEEPSEEK_V4_PRO, nil, nil)
 	a, err := New(nil, prof, WithName("test"))
 	if err != nil {
 		t.Fatalf("agent.New: %v", err)
@@ -89,7 +89,7 @@ func TestSwitchLLMRefusedWhileRunning(t *testing.T) {
 		t.Fatalf("seed deepseek: %v", err)
 	}
 
-	prof := Main(cfg.AppEnv, constant.DEEPSEEK, constant.DEEPSEEK_V4_PRO, "", nil)
+	prof := Main(cfg, constant.DEEPSEEK, constant.DEEPSEEK_V4_PRO, nil, nil)
 	a, err := New(nil, prof, WithName("test"))
 	if err != nil {
 		t.Fatalf("agent.New: %v", err)

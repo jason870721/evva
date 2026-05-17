@@ -225,6 +225,46 @@ func TestBuild_SkipsBlankSectionsBetweenContent(t *testing.T) {
 	}
 }
 
+func TestBuild_SkillsSection_RendersWhenPopulated(t *testing.T) {
+	got := Build(Inputs{
+		AgentName: "evva",
+		Skills: []SkillRef{
+			{Name: "git-commit", Description: "how to commit (rules) in a git branch"},
+			{Name: "review", Description: "code review checklist"},
+		},
+	})
+	for _, want := range []string{
+		"# Skills",
+		"- git-commit: how to commit (rules) in a git branch",
+		"- review: code review checklist",
+		"Invoke a skill with the `skill` tool",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q\nfull:\n%s", want, got)
+		}
+	}
+}
+
+func TestBuild_SkillsSection_OmittedWhenEmpty(t *testing.T) {
+	got := Build(Inputs{AgentName: "evva"})
+	if strings.Contains(got, "# Skills") {
+		t.Errorf("# Skills should not appear when Skills is empty:\n%s", got)
+	}
+}
+
+func TestBuild_SkillsSection_EmptyDescriptionFallback(t *testing.T) {
+	got := Build(Inputs{
+		AgentName: "evva",
+		Skills:    []SkillRef{{Name: "solo"}},
+	})
+	if !strings.Contains(got, "- solo\n") && !strings.HasSuffix(got, "- solo") {
+		t.Errorf("expected '- solo' line without colon; got:\n%s", got)
+	}
+	if strings.Contains(got, "- solo:") {
+		t.Errorf("trailing colon should be omitted when description is empty:\n%s", got)
+	}
+}
+
 // TestBuild_TodayFieldIsAdvisoryOnly is a forward-looking smoke test:
 // Today is on Inputs but no current section consumes it. If a future
 // section starts rendering it, this test will start failing — at which

@@ -22,7 +22,7 @@ var toolTags = map[tools.ToolName][]string{
 	// meta
 	tools.AGENT:           {"subagent", "delegate", "spawn", "parallel", "task"},
 	tools.TOOL_SEARCH:     {"tool", "search", "discover", "schema", "lookup"},
-	tools.SKILL:           {"skill", "slash", "command", "invoke", "plugin"},
+	tools.SKILL:           {"skill", "invoke", "instructions", "markdown", "user-defined"},
 	tools.SCHEDULE_WAKEUP: {"loop", "schedule", "wake", "pace", "interval"},
 
 	// task

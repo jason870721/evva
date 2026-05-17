@@ -21,6 +21,7 @@ import (
 	"github.com/johnny1110/evva/internal/llm"
 	"github.com/johnny1110/evva/internal/tools/fs"
 	"github.com/johnny1110/evva/internal/tools/meta"
+	"github.com/johnny1110/evva/internal/tools/skill"
 	"github.com/johnny1110/evva/internal/tools/task"
 	"github.com/johnny1110/evva/internal/ui/bubbletea"
 	"github.com/joho/godotenv"
@@ -48,30 +49,51 @@ func main() {
 	noTUI := flag.Bool("no-tui", false, "disable the bubbletea TUI; read a prompt and run once with plain CLI output")
 	flag.Parse()
 
-	prof := agent.Main(cfg.AppEnv, cfg.DefaultProvider, cfg.DefaultModel,
-		sysprompt.Build(sysprompt.Default(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)),
-		buildOptions(*temp, *maxTokens))
+	registry, _ := skill.LoadRegistry(cfg.EvvaHomeSkillsDir, cfg.WorkDirSkillsDir)
+	for _, w := range registry.Warnings {
+		fmt.Fprintln(os.Stderr, "evva:", w)
+	}
+	skillRefs := skillRefsFromRegistry(registry)
+
+	prof := agent.Main(cfg, cfg.DefaultProvider, cfg.DefaultModel, skillRefs, buildOptions(*temp, *maxTokens))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	useTUI := !*noTUI && isTTY(os.Stdout)
 	if useTUI {
-		runTUI(ctx, prof, *maxIters, cfg.AppName, cfg.EvvaHome)
+		runTUI(ctx, prof, *maxIters, cfg.AppName, cfg.EvvaHome, registry)
 		return
 	}
-	runCLI(ctx, prof, *maxIters, cfg.AppName)
+	runCLI(ctx, prof, *maxIters, cfg.AppName, registry)
+}
+
+// skillRefsFromRegistry flattens the merged skill catalog into the
+// sysprompt-facing struct list used by Profile constructors. The sysprompt
+// package intentionally does not depend on internal/tools/skill, so the
+// caller does the conversion.
+func skillRefsFromRegistry(r *skill.Registry) []sysprompt.SkillRef {
+	if r == nil {
+		return nil
+	}
+	list := r.List()
+	out := make([]sysprompt.SkillRef, 0, len(list))
+	for _, m := range list {
+		out = append(out, sysprompt.SkillRef{Name: m.Name, Description: m.Description})
+	}
+	return out
 }
 
 // runTUI is the interactive path. The bubbletea UI owns the screen; the
 // agent emits events into it; the user drives prompts from the textarea.
 // evvaHome lets the TUI resolve banner.txt (and any future user config).
-func runTUI(ctx context.Context, prof agent.Profile, maxIters int, name, evvaHome string) {
+func runTUI(ctx context.Context, prof agent.Profile, maxIters int, name, evvaHome string, skills *skill.Registry) {
 	tui := bubbletea.New(evvaHome)
 	ag, err := agent.New(nil, prof,
 		agent.WithName(name),
 		agent.WithSink(tui),
 		agent.WithMaxIterations(maxIters),
+		agent.WithSkillRegistry(skills),
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)
@@ -92,7 +114,7 @@ func runTUI(ctx context.Context, prof agent.Profile, maxIters int, name, evvaHom
 // Preserves the original behavior: read prompt → run → stream events as
 // plain text → exit. ErrIterLimit triggers a synchronous "press Enter to
 // continue" prompt on stderr.
-func runCLI(ctx context.Context, prof agent.Profile, maxIters int, name string) {
+func runCLI(ctx context.Context, prof agent.Profile, maxIters int, name string, skills *skill.Registry) {
 	prompt, err := readPrompt(flag.Args())
 	if err != nil {
 		exitf(2, "evva: %v", err)
@@ -105,6 +127,7 @@ func runCLI(ctx context.Context, prof agent.Profile, maxIters int, name string) 
 		agent.WithName(name),
 		agent.WithSink(cliSink{out: os.Stdout}),
 		agent.WithMaxIterations(maxIters),
+		agent.WithSkillRegistry(skills),
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)

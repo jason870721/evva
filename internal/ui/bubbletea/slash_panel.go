@@ -10,37 +10,81 @@ import (
 
 // slashCommand is one entry in the autocomplete catalog. name includes
 // the leading "/"; desc is the short label shown next to it. Order in
-// slashCommands is the display order when the user has typed only "/"
-// — put the commands they'll reach for most first.
+// defaultSlashCommands is the display order when the user has typed only
+// "/" — put the commands they'll reach for most first.
 type slashCommand struct {
 	name string
 	desc string
 }
 
-var slashCommands = []slashCommand{
+// slashMaxSuggestions caps the number of rows the suggestion panel
+// renders. With skills installed the merged list can grow long; capping
+// keeps the panel compact and the input area large.
+const slashMaxSuggestions = 5
+
+// defaultSlashCommands is the built-in command catalog, in display order.
+// /compact is intentionally listed first even though the implementation
+// is still pending — surfacing the affordance is what the user wants
+// while we ship it. /quit remains an alias the submit handler recognizes
+// but is omitted from the suggestion list to keep the row count tight.
+var defaultSlashCommands = []slashCommand{
+	{"/compact", "compact the transcript (coming soon)"},
 	{"/config", "edit runtime settings (max_iterations, api keys, …)"},
 	{"/model", "switch llm provider / model · clears history"},
 	{"/clear", "clear the transcript"},
 	{"/exit", "quit evva"},
-	{"/quit", "quit evva (alias)"},
 }
 
-// matchSlashCommands returns the commands whose name has the trimmed
-// input as a prefix. An exact match (input == name) collapses to that
-// single entry — once the user has typed the full command there's
+// matchSlashCommands returns the entries from all whose name has the
+// trimmed input as a prefix. An exact match (input == name) collapses to
+// that single entry — once the user has typed the full command there's
 // nothing left to suggest. Empty / non-"/" input returns nil so the
 // caller can collapse the panel.
-func matchSlashCommands(input string) []slashCommand {
+//
+// The result is hard-capped at slashMaxSuggestions so the panel stays
+// short even with many installed skills.
+func matchSlashCommands(input string, all []slashCommand) []slashCommand {
 	trimmed := strings.TrimSpace(input)
 	if !strings.HasPrefix(trimmed, "/") {
 		return nil
 	}
 	lower := strings.ToLower(trimmed)
-	out := make([]slashCommand, 0, len(slashCommands))
-	for _, c := range slashCommands {
+	out := make([]slashCommand, 0, len(all))
+	for _, c := range all {
 		if strings.HasPrefix(c.name, lower) {
 			out = append(out, c)
+			if len(out) >= slashMaxSuggestions {
+				break
+			}
 		}
+	}
+	return out
+}
+
+// availableSlashCommands returns the catalog matched against the current
+// input: built-in commands first, then user-installed skills. Skills are
+// rendered as `/<name>` with the registry's description so the user can
+// tell them apart from built-ins at a glance.
+//
+// The controller is consulted at call time so newly-installed skills (a
+// possible future feature) show up without restart; today the registry
+// is fixed at startup and the controller returns a stable list.
+func (m *rootModel) availableSlashCommands() []slashCommand {
+	out := make([]slashCommand, 0, len(defaultSlashCommands)+4)
+	out = append(out, defaultSlashCommands...)
+	if m.controller == nil {
+		return out
+	}
+	for _, s := range m.controller.Skills() {
+		name := strings.TrimSpace(s.Name)
+		if name == "" {
+			continue
+		}
+		desc := strings.TrimSpace(s.Description)
+		if desc == "" {
+			desc = "user-installed skill"
+		}
+		out = append(out, slashCommand{name: "/" + name, desc: desc})
 	}
 	return out
 }
@@ -57,7 +101,7 @@ func (m *rootModel) slashVisible() bool {
 	if m.slashDismissed {
 		return false
 	}
-	return len(matchSlashCommands(m.input.Value())) > 0
+	return len(matchSlashCommands(m.input.Value(), m.availableSlashCommands())) > 0
 }
 
 // completeSlash replaces the current input with the highlighted
@@ -65,7 +109,7 @@ func (m *rootModel) slashVisible() bool {
 // or keep typing arguments (today no slash command takes args, but
 // the trailing-space hook is here for when one does).
 func (m *rootModel) completeSlash() tea.Cmd {
-	matches := matchSlashCommands(m.input.Value())
+	matches := matchSlashCommands(m.input.Value(), m.availableSlashCommands())
 	if len(matches) == 0 {
 		return nil
 	}
@@ -83,7 +127,7 @@ func (m *rootModel) completeSlash() tea.Cmd {
 // clamps to the bounds of the current match list. Returns true when a
 // move happened so the caller can swallow the key event.
 func (m *rootModel) slashMoveSel(delta int) bool {
-	matches := matchSlashCommands(m.input.Value())
+	matches := matchSlashCommands(m.input.Value(), m.availableSlashCommands())
 	if len(matches) == 0 {
 		return false
 	}
@@ -106,7 +150,7 @@ func (m *rootModel) slashPanel(width int) string {
 	if !m.slashVisible() {
 		return ""
 	}
-	matches := matchSlashCommands(m.input.Value())
+	matches := matchSlashCommands(m.input.Value(), m.availableSlashCommands())
 	innerWidth := width - 4
 	if innerWidth < 30 {
 		innerWidth = 30

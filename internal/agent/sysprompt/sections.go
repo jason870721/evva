@@ -53,7 +53,7 @@ func environment(in Inputs) string {
 - OS / shell: %s / %s
 - Today: %s
 - Working directory: %s
-- Evva home (global config, skills, memory): %s`, osLabel, shellLabel, todayStr, workdir, evvaHome)
+- Evva home (global: config, skills, memory): %s`, osLabel, shellLabel, todayStr, workdir, evvaHome)
 }
 
 // harness encodes the Claude-Code-style coding conduct: edit over create,
@@ -137,6 +137,36 @@ How to plan:
 4. The moment a step is done, ` + "`task_update`" + ` it to ` + "`completed`" + `. Don't batch updates at the end of the turn.
 5. If you discover a new step mid-flight, add it with ` + "`task_create`" + `. If a step turns out to be unnecessary, remove and note why.
 `
+}
+
+// skillsSection advertises the user-installed skill catalog. Each entry is
+// rendered as `- <name>: <description>` (description omitted when empty);
+// the model is told to invoke the SKILL tool to load full instructions.
+//
+// Skills are listed in the order the caller provides — the sysprompt
+// package does not re-sort, since the registry already returns a stable
+// order. An empty slice produces an empty string; Build skips it.
+func skillsSection(skills []SkillRef) string {
+	if len(skills) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("# Skills\n")
+	b.WriteString("Invoke a skill with the `skill` tool to load its full instructions. Available skills:\n")
+	for _, s := range skills {
+		name := strings.TrimSpace(s.Name)
+		if name == "" {
+			continue
+		}
+		desc := strings.TrimSpace(s.Description)
+		if desc == "" {
+			fmt.Fprintf(&b, "- %s\n", name)
+		} else {
+			fmt.Fprintf(&b, "- %s: %s\n", name, desc)
+		}
+	}
+	b.WriteString(fmt.Sprintf("How to create a skill: locate EvvaHome dir or workdir/.evva, create skills/{skill-name}/SKILL.md, the first line in SKILL.md is description (e.g # commit ...), other line is body."))
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // devSection tells the model about the feedback tool available in dev mode.
