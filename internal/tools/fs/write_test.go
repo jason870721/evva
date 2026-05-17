@@ -119,7 +119,52 @@ func TestWrite_EmptyContent(t *testing.T) {
 func TestWrite_DecodeError(t *testing.T) {
 	tool := NewWrite(NewReadTracker())
 	res, _ := tool.Execute(context.Background(), json.RawMessage(`{not json`))
-	if !res.IsError || !strings.Contains(res.Content, "decode") {
-		t.Errorf("expected decode error; got isErr=%v content=%q", res.IsError, res.Content)
+	if !res.IsError || !strings.Contains(res.Content, "missing required") {
+		t.Errorf("expected error about missing required params; got isErr=%v content=%q", res.IsError, res.Content)
+	}
+}
+
+func TestWrite_EmptyInput(t *testing.T) {
+	tool := NewWrite(NewReadTracker())
+	res, _ := tool.Execute(context.Background(), json.RawMessage(``))
+	if !res.IsError {
+		t.Fatalf("expected error for empty input")
+	}
+	if !strings.Contains(res.Content, "file_path") && !strings.Contains(res.Content, "content") {
+		t.Fatalf("error should mention missing required params; got: %s", res.Content)
+	}
+}
+
+func TestWrite_MissingFilePath(t *testing.T) {
+	tool := NewWrite(NewReadTracker())
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"content":"hello"}`))
+	if !res.IsError {
+		t.Fatalf("expected error for missing file_path")
+	}
+	if !strings.Contains(res.Content, "file_path") {
+		t.Fatalf("error should mention file_path; got: %s", res.Content)
+	}
+}
+
+func TestWrite_MissingContent(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewWrite(NewReadTracker())
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"file_path":"`+filepath.Join(dir, "f.txt")+`"}`))
+	if !res.IsError {
+		t.Fatalf("expected error for missing content")
+	}
+	if !strings.Contains(res.Content, "content") {
+		t.Fatalf("error should mention content; got: %s", res.Content)
+	}
+}
+
+func TestWrite_EmptyFilePath(t *testing.T) {
+	tool := NewWrite(NewReadTracker())
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"file_path":"","content":"hello"}`))
+	if !res.IsError {
+		t.Fatalf("expected error for empty file_path")
+	}
+	if !strings.Contains(res.Content, "file_path") {
+		t.Fatalf("error should mention file_path; got: %s", res.Content)
 	}
 }

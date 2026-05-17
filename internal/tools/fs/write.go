@@ -59,7 +59,13 @@ type writeInput struct {
 func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (tools.Result, error) {
 	var in writeInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tools.Result{IsError: true, Content: "write: decode input: " + err.Error()}, nil
+		return tools.Result{IsError: true, Content: "write: missing required params: need file_path and content"}, nil
+	}
+	if in.FilePath == "" {
+		return tools.Result{IsError: true, Content: "write: missing required param: file_path"}, nil
+	}
+	if in.Content == "" && !jsonFieldPresent(input, "content") {
+		return tools.Result{IsError: true, Content: "write: missing required param: content"}, nil
 	}
 
 	resolved, err := resolvePath(in.FilePath)
@@ -145,4 +151,16 @@ func countLines(s string) int {
 		n++
 	}
 	return n
+}
+
+// jsonFieldPresent reports whether key appears at the top level of raw
+// (which must be a JSON object). Used to distinguish missing "content" from
+// "content":"" — both unmarshal to "", but only the former should error.
+func jsonFieldPresent(raw json.RawMessage, key string) bool {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return false
+	}
+	_, ok := m[key]
+	return ok
 }
