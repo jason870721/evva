@@ -35,6 +35,7 @@ import (
 	"github.com/johnny1110/evva/internal/tools/shell"
 	"github.com/johnny1110/evva/internal/tools/skill"
 	"github.com/johnny1110/evva/internal/tools/task"
+	"github.com/johnny1110/evva/internal/tools/util"
 	"github.com/johnny1110/evva/internal/tools/ux"
 	"github.com/johnny1110/evva/internal/tools/web"
 )
@@ -353,6 +354,12 @@ func buildOne(name tools.ToolName, s *ToolState) (tools.Tool, error) {
 		return ux.AskQuestion, nil
 	case tools.PUSH_NOTIFICATION:
 		return ux.Notify, nil
+
+	// --- util ---
+	case tools.JSON_QUERY:
+		return util.JSONQuery, nil
+	case tools.CALC:
+		return util.Calc, nil
 
 	// evva developer tools
 	case tools.FEEDBACK:

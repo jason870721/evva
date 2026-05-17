@@ -88,6 +88,10 @@ const (
 	GREP ToolName = "grep"
 	TREE ToolName = "tree"
 
+	// Others — deferred.
+	JSON_QUERY ToolName = "json_query"
+	CALC       ToolName = "calc"
+
 	// this is for dev phase
 	FEEDBACK ToolName = "feedback"
 )
