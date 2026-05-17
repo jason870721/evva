@@ -3,6 +3,8 @@ package transcript
 import (
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/theme"
 )
 
@@ -19,14 +21,26 @@ import (
 // Gutter glyphs are styled with theme.Timeline (muted grey) so they
 // sit back as chrome, not as content.
 
+// gutterStyle picks the muted-or-accent style depending on whether
+// the block is the yank-mode focused one (M8). Centralised here so
+// every gutter helper shares the same swap.
+func gutterStyle(th *theme.Theme, accent bool) lipgloss.Style {
+	if accent {
+		return th.TimelineAccent
+	}
+	return th.Timeline
+}
+
 // applyLineGutter prepends `│ ` to every line of s. Empty input
 // emits a single pipe line so a blank block still occupies one row
-// of the timeline.
-func applyLineGutter(s string, width int, th *theme.Theme) string {
+// of the timeline. accent=true switches the glyph to the cyan-bold
+// variant used by yank-mode to highlight the focused block.
+func applyLineGutter(s string, width int, th *theme.Theme, accent bool) string {
+	g := gutterStyle(th, accent)
 	if s == "" {
-		return th.Timeline.Render("│")
+		return g.Render("│")
 	}
-	pipe := th.Timeline.Render("│") + " "
+	pipe := g.Render("│") + " "
 	wrapped := wrapForWidth(s, width-2)
 	lines := strings.Split(wrapped, "\n")
 	for i, line := range lines {
@@ -38,13 +52,14 @@ func applyLineGutter(s string, width int, th *theme.Theme) string {
 // applyToolGutter prefixes the first line with `├─ ` (branch-out
 // connector) and subsequent lines with `│  ` so the body sits in
 // line with the connector's arm. Content wraps to (width-3) — gutter
-// is 3 cols here.
-func applyToolGutter(s string, width int, th *theme.Theme) string {
+// is 3 cols here. accent=true uses the cyan-bold variant.
+func applyToolGutter(s string, width int, th *theme.Theme, accent bool) string {
+	g := gutterStyle(th, accent)
 	if s == "" {
-		return th.Timeline.Render("├─")
+		return g.Render("├─")
 	}
-	branch := th.Timeline.Render("├─") + " "
-	pipe := th.Timeline.Render("│") + "  "
+	branch := g.Render("├─") + " "
+	pipe := g.Render("│") + "  "
 	wrapped := wrapForWidth(s, width-3)
 	lines := strings.Split(wrapped, "\n")
 	for i, line := range lines {

@@ -33,3 +33,13 @@ type SpinnerTickMsg struct{}
 type RunDoneMsg struct {
 	Err error
 }
+
+// ClipboardMsg is the result of an OSC52 clipboard write. Dispatched
+// by mouse.WriteOSC52's returned tea.Cmd once the escape sequence
+// has been written to stderr. The App reads it to flash a transient
+// status hint ("copied N chars" or "clipboard write failed").
+type ClipboardMsg struct {
+	OK   bool
+	Size int   // bytes written when OK; informational when !OK
+	Err  error // populated when OK=false
+}

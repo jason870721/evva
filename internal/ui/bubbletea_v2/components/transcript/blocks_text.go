@@ -47,7 +47,7 @@ func (b *TextBlock) Render(ctx RenderContext) string {
 	} else {
 		styled = ctx.Theme.Assistant.Render(b.text)
 	}
-	return applyLineGutter(styled, ctx.Width, ctx.Theme)
+	return applyLineGutter(styled, ctx.Width, ctx.Theme, ctx.Opts.Focused)
 }
 
 // ----------------------------------------------------------------------------
@@ -82,5 +82,5 @@ func (b *ThinkingBlock) Render(ctx RenderContext) string {
 	// `· ` prefix marks the block as thinking even when the user
 	// hasn't seen its gutter (search results, copy-mode preview).
 	styled := ctx.Theme.Thinking.Render("· " + b.text)
-	return applyLineGutter(styled, ctx.Width, ctx.Theme)
+	return applyLineGutter(styled, ctx.Width, ctx.Theme, ctx.Opts.Focused)
 }

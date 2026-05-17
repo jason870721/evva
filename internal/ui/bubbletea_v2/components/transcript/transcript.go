@@ -57,6 +57,12 @@ type Transcript struct {
 	// every tool block renders in full; false means each block
 	// decides based on its own state.
 	expanded bool
+
+	// focusedID is the Block.ID() of the yank-mode focused block,
+	// or 0 when no yank focus is active. View() passes
+	// RenderOpts{Focused: true} for the matching block so its
+	// gutter renders in the cyan accent style.
+	focusedID uint64
 }
 
 // New constructs a transcript with no blocks. The caller must call
@@ -179,6 +185,23 @@ func (t *Transcript) ToggleExpand() {
 // Expanded reports the current Ctrl+O override state. The App's
 // status bar reads this to show "expanded" / "folded" hint.
 func (t *Transcript) Expanded() bool { return t.expanded }
+
+// SetFocusedBlock marks one block as the yank-mode cursor target.
+// id==0 clears the focus (no block highlighted).
+//
+// The cache invalidates only the previously-focused and the newly-
+// focused entries — every other block stays cached. Cost is one
+// render per focus shift, not one full re-render.
+func (t *Transcript) SetFocusedBlock(id uint64) {
+	if id == t.focusedID {
+		return
+	}
+	t.focusedID = id
+}
+
+// FocusedBlock returns the currently focused Block ID, or 0 when
+// no yank focus is active. Test-only / yank-mode internal use.
+func (t *Transcript) FocusedBlock() uint64 { return t.focusedID }
 
 // SetSpinnerFrame updates the live compaction row's animation
 // frame, if one exists. No-op when no compaction is in flight.
@@ -415,7 +438,7 @@ func (t *Transcript) View() string {
 	if t.width < 1 || t.theme == nil || len(t.blocks) == 0 {
 		return ""
 	}
-	ctx := RenderContext{
+	baseCtx := RenderContext{
 		Width:    t.width,
 		Theme:    t.theme,
 		Markdown: t.markdown,
@@ -425,9 +448,13 @@ func (t *Transcript) View() string {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
+		ctx := baseCtx
+		// Per-block opts: focus flag for the yank-mode cursor.
+		if t.focusedID != 0 && b.ID() == t.focusedID {
+			ctx.Opts.Focused = true
+		}
 		out.WriteString(t.cache.Get(b, ctx))
-		// Inter-block spacer: empty line with optional gutter pipe,
-		// derived from the (cur,next) kinds.
+		// Inter-block spacer: empty line with optional gutter pipe.
 		if i < len(t.blocks)-1 {
 			out.WriteByte('\n')
 			out.WriteString(interBlockSpacer(b.Kind(), t.blocks[i+1].Kind(), t.theme))

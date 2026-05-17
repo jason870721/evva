@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/components/tasks"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/components/transcript"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/events"
+	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/mouse"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/theme"
 	"github.com/johnny1110/evva/pkg/banner"
 )
@@ -185,6 +187,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case input.SubmitMsg:
 		return a.handleSubmit(m)
+
+	case tea.MouseMsg:
+		// Only wheel events do anything in v2; non-wheel events
+		// (clicks, motion) are dropped. Native drag-select still
+		// works in modern terminals via Shift/Alt-bypass.
+		if mouse.IsWheelEvent(m) {
+			return a, a.view.Update(m)
+		}
+		return a, nil
+
+	case events.ClipboardMsg:
+		if m.OK {
+			a.state.SetHint(fmt.Sprintf("copied %d chars", m.Size))
+		} else if m.Err != nil {
+			a.state.SetHint("clipboard: " + m.Err.Error())
+		}
+		return a, nil
+
+	case overlays.YankCursorChangedMsg:
+		// The yank overlay already set the transcript's focused
+		// block; we just need to invalidate the rendered viewport
+		// so the cyan-gutter accent repaints.
+		a.view.MarkDirty()
+		return a, nil
 
 	case overlays.CompactDoneMsg:
 		if m.Err != nil {
@@ -398,6 +424,21 @@ func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.view.MarkDirty()
 		return a, nil
 
+	case "ctrl+y":
+		// Open block-yank mode. Empty transcripts (pre-controller,
+		// pre-banner) skip silently.
+		if a.transcript == nil || len(a.transcript.Blocks()) == 0 {
+			return a, nil
+		}
+		y := overlays.NewYank(a.transcript)
+		if y == nil {
+			return a, nil
+		}
+		a.focus.Push(y)
+		a.view.MarkDirty()
+		a.relayout()
+		return a, nil
+
 	case "pgup", "pgdown", "home", "end":
 		return a, a.view.Update(m)
 	}
@@ -601,8 +642,10 @@ func (a *App) View() string {
 	}
 
 	if top := a.focus.Top(); top != nil {
-		b.WriteByte('\n')
-		b.WriteString(top.View(width, a.theme))
+		if body := top.View(width, a.theme); body != "" {
+			b.WriteByte('\n')
+			b.WriteString(body)
+		}
 	} else if a.slashVisible() {
 		b.WriteByte('\n')
 		b.WriteString(a.slash.View(a.input.Value(), a.controller, width, a.theme))

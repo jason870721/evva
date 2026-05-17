@@ -74,10 +74,11 @@ type Theme struct {
 
 	// Tasks / paste / timeline — timeline sits back as muted grey so
 	// every transcript line doesn't read as an error.
-	TasksDone   lipgloss.Style
-	PasteChip   lipgloss.Style
-	Timeline    lipgloss.Style
-	TimelineCut lipgloss.Style
+	TasksDone      lipgloss.Style
+	PasteChip      lipgloss.Style
+	Timeline       lipgloss.Style
+	TimelineCut    lipgloss.Style
+	TimelineAccent lipgloss.Style // cyan-bold variant for yank-mode focus
 
 	// Context HUD (status-bar context bar).
 	ContextBar  lipgloss.Style
@@ -164,6 +165,7 @@ func Default() *Theme {
 	t.PasteChip = lipgloss.NewStyle().Foreground(purple).Italic(true)
 	t.Timeline = lipgloss.NewStyle().Foreground(muted)
 	t.TimelineCut = lipgloss.NewStyle().Foreground(purple).Bold(true)
+	t.TimelineAccent = lipgloss.NewStyle().Foreground(cyan).Bold(true)
 
 	// Context HUD
 	t.ContextBar = lipgloss.NewStyle().Foreground(muted)

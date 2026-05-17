@@ -34,12 +34,17 @@ type UI struct {
 // config directory (typically ~/.evva); it is plumbed through to the
 // app model for future banner / settings resolution.
 //
-// Mouse capture is intentionally off in the skeleton. M8 flips it on
-// (tea.WithMouseCellMotion) once the yank-mode fallback path lands.
+// Mouse capture is on via tea.WithMouseCellMotion so the wheel
+// scrolls the transcript viewport. The trade-off (no native
+// drag-select unless the user holds Shift/Alt) is documented in the
+// approved plan; the Ctrl+Y yank mode is the canonical clean-copy
+// path for users on terminals where Shift-bypass doesn't work
+// (tmux, screen).
 func New(evvaHome string) *UI {
 	u := &UI{model: app.New(evvaHome)}
 	u.program = tea.NewProgram(u.model,
 		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
 	)
 	u.model.SetProgram(u.program)
 	return u

@@ -125,6 +125,11 @@ func (b *ToolBlock) SetExpanded(v bool) {
 	b.rev++
 }
 
+// Expanded reports whether this block's per-block override is
+// currently on. Used by yank mode to flip a single block
+// independently of the transcript-wide Ctrl+O state.
+func (b *ToolBlock) Expanded() bool { return b.expanded }
+
 // Render builds the gutter-prefixed call head + optional folded /
 // expanded result body.
 func (b *ToolBlock) Render(ctx RenderContext) string {
@@ -144,7 +149,7 @@ func (b *ToolBlock) Render(ctx RenderContext) string {
 	b.resultLines = styledLines
 
 	body := b.compose()
-	return applyToolGutter(body, ctx.Width, ctx.Theme)
+	return applyToolGutter(body, ctx.Width, ctx.Theme, ctx.Opts.Focused)
 }
 
 // styleResultBody produces the multi-line styled result + optional

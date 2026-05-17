@@ -243,7 +243,7 @@ func (b *ErrorBlock) PlainText() string { return fmt.Sprintf("✘ [%s] %s", stri
 
 func (b *ErrorBlock) Render(ctx RenderContext) string {
 	styled := ctx.Theme.ErrorBanner.Render(fmt.Sprintf("✘ [%s] %s", strings.ToUpper(b.stage), b.err))
-	return applyLineGutter(styled, ctx.Width, ctx.Theme)
+	return applyLineGutter(styled, ctx.Width, ctx.Theme, ctx.Opts.Focused)
 }
 
 // ============================================================================
@@ -288,7 +288,7 @@ func (b *SystemBlock) PlainText() string { return b.text }
 
 func (b *SystemBlock) Render(ctx RenderContext) string {
 	styled := b.styleFn(ctx.Theme).Render(b.text)
-	return applyLineGutter(styled, ctx.Width, ctx.Theme)
+	return applyLineGutter(styled, ctx.Width, ctx.Theme, ctx.Opts.Focused)
 }
 
 // ============================================================================
@@ -350,7 +350,7 @@ func (b *CompactingBlock) Render(ctx RenderContext) string {
 		kind = "?"
 	}
 	styled := ctx.Theme.Compacting.Render(fmt.Sprintf("%s Compacting… [%s]", frame, kind))
-	return applyLineGutter(styled, ctx.Width, ctx.Theme)
+	return applyLineGutter(styled, ctx.Width, ctx.Theme, ctx.Opts.Focused)
 }
 
 // ============================================================================
@@ -375,5 +375,5 @@ func (b *SyntheticBlock) Kind() Kind       { return KindSynthetic }
 func (b *SyntheticBlock) PlainText() string { return stripANSI(b.text) }
 
 func (b *SyntheticBlock) Render(ctx RenderContext) string {
-	return applyLineGutter(b.text, ctx.Width, ctx.Theme)
+	return applyLineGutter(b.text, ctx.Width, ctx.Theme, ctx.Opts.Focused)
 }
