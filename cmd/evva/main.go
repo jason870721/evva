@@ -18,6 +18,7 @@ import (
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/tools/fs"
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/skill"
@@ -56,7 +57,16 @@ func main() {
 	}
 	skillRefs := skillRefsFromRegistry(registry)
 
-	prof := agent.Main(cfg, cfg.DefaultProvider, cfg.DefaultModel, skillRefs, buildOptions(*temp, *maxTokens))
+	// Load project memory (<workdir>/EVVA.md) and user memory
+	// (<EVVA_HOME>/USER_PROFILE.md) once at startup; the snapshot threads
+	// into the main agent's prompt. Missing files are silent; oversize /
+	// permission warnings are surfaced on stderr like skill warnings.
+	memSnap := memdir.Load(cfg.WorkDir, cfg.EvvaHome)
+	for _, w := range memSnap.Warnings {
+		fmt.Fprintln(os.Stderr, "evva:", w)
+	}
+
+	prof := agent.Main(cfg, cfg.DefaultProvider, cfg.DefaultModel, skillRefs, memSnap, buildOptions(*temp, *maxTokens))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

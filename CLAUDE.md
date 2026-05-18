@@ -68,12 +68,20 @@ Foundation. Every later phase ships prompt strings, so the prompt scaffold needs
 
 ### Phase 1 — Filesystem parity (Read / Write / Edit / Glob)
 
-Port `ref/src/tools/FileReadTool / FileEditTool / FileWriteTool / GlobTool` descriptions verbatim; drop evva current Write/Edit/Read tools, can copy claude code design.
+Port `ref/src/tools/FileReadTool / FileEditTool / FileWriteTool / GlobTool` descriptions verbatim; drop evva current Write/Edit/Read tools (many bug in current evva fs tools), can copy claude code design.
 
 - Port descriptions + parameter schemas + implement from `ref/src/tools/Read/Edit/Write/`.
 - New `internal/tools/fs/glob.go` — mtime-sorted file matching. Today evva has `shell.Grep` + `shell.Tree` but no dedicated Glob.
 - TUI diff render parity for `Edit` and `Write` — match Claude Code's hunk layout.
 - Tighten `ReadTracker` semantics to match Claude Code's "must Read before Edit / overwrite-Write."
+
+**Phase 0 dev log — what Phase 1 must keep in sync:**
+
+- Tool names interpolated into agent prompts live in `internal/agent/sysprompt/toolnames.go` (prompt-side constants like `nameRead`, `nameEdit`, `nameWrite`, `nameGrep`, `nameTree`). When Phase 1 changes a wire value in `internal/tools/name.go` or adds a new fs tool, mirror it in `toolnames.go`. Drift is caught by `internal/agent/sysprompt/toolnames_link_test.go` at CI — that test interpolates each canonical `tools.ToolName` into the rendered main prompt and fails if the wire string is absent.
+- Add `nameGlob = "glob"` to `toolnames.go` when introducing the Glob tool. Reference it from `main_agent.go:mainToolsGuideSection()` next to `nameTree` / `nameGrep`, and from `explore_agent.go:buildExplorePrompt` (the Explore subagent should prefer Glob over `tree` for broad pattern matching once it lands). Append `tools.GLOB` to the required-names list in `toolnames_link_test.go:TestToolNamesAppearInMainPrompt`.
+- The Main agent's tools-guide section in `internal/agent/sysprompt/main_agent.go:mainToolsGuideSection()` describes Read/Write/Edit/Bash usage. After porting the ref TS descriptions, rewrite this section against the new tool guidance so the main agent advertises the new behavior — keep the hardcoded examples (`{"query": "select:task_create,..."}`) in sync with whatever Phase 1's tool descriptions reference.
+- `internal/agent/profiles.go:Explore()` lists the active tools for the Explore subagent: currently `READ_FILE, WEB_SEARCH, TREE, GREP, JSON_QUERY`. When Glob lands, swap (or augment) TREE → GLOB. The Explore subagent prompt at `explore_agent.go` also mentions `tree` in its guidelines — update both.
+- The new fs tool descriptions should be ported from `ref/src/tools/FileReadTool/prompt.ts`, `FileEditTool/constants.ts`, `FileWriteTool/prompt.ts`, `GlobTool/prompt.ts`. Each ref TS file exports a `*_TOOL_NAME` constant; the prompt-side mirror in `toolnames.go` is evva's equivalent of that pattern (Go can't do the prompt↔tool round-trip without creating an import cycle, which is why the link test exists).
 
 ### Phase 2 — ToolSearch + AgentTool polish + agent loader
 
@@ -115,8 +123,8 @@ Compositional with permissions. Lets users wire validation, auto-format, custom 
 evva's current `internal/tools/task/` is **conceptually TodoWrite** — in-session ephemeral planning. The six-tool layout (`task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`) doesn't match Claude Code's design and conflates planning with background-process management. Rebuild it.
 
 - Delete `internal/tools/task/` (six tools).
-- Delete `internal/agent/sysprompt/sections.go:taskPlanning()`.
-- New `internal/tools/todo/` — single `todo_write` tool: `todos: [{content, activeForm, status}]`, full-list-replacement semantics. Port description from `ref/src/tools/TodoWriteTool/prompt.ts`.
+- Delete the `mainTaskPlanningSection()` function from `internal/agent/sysprompt/main_agent.go` and drop `nameTaskCreate` / `nameTaskUpdate` / `nameTaskList` from `internal/agent/sysprompt/toolnames.go`. (Phase 0 moved the task-planning copy out of `sections.go` and into the main-agent builder; the old `sections.go` no longer exists.)
+- New `internal/tools/todo/` — single `todo_write` tool: `todos: [{content, activeForm, status}]`, full-list-replacement semantics. Port description from `ref/src/tools/TodoWriteTool/prompt.ts`. Add `nameTodoWrite` to `toolnames.go` and a new `mainTodoSection()` fragment in `main_agent.go`.
 - Rename `internal/ui/bubbletea_v2/components/tasks/` → `components/todos/`. Reuse the existing observable store wiring (just rename `TaskGroup` → `TodoStore`).
 - The "real" process tools (`Monitor`, `task_output`, `task_stop`) come back in a future phase tied to `Bash run_in_background`.
 
@@ -164,7 +172,11 @@ Niche. Ship after the higher-leverage phases.
 - Implement `git worktree add / remove` plumbing.
 - Wire AgentTool's `isolation: "worktree"` parameter to the same code path.
 
-### Phase 11 — MCP support + bundled skills (v2 tier)
+### Phase  11 - Refine the Agent System Prompt
+
+- port ref system prompt to evva.
+
+### Phase 12 — MCP support + bundled skills (v2 tier)
 
 Closes the gap with Claude Code's plugin/skill ecosystem.
 

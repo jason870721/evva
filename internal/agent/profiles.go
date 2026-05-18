@@ -18,6 +18,7 @@ import (
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/constant"
 	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/tools/cron"
 	"github.com/johnny1110/evva/internal/tools/dev"
@@ -96,43 +97,24 @@ type Profile struct {
 	Stream bool
 }
 
-// buildSysPrompt is the shared sysprompt construction path. Each profile
-// constructor invokes it with its own AgentType so the section toggles match
-// the agent's responsibilities — root agents get the full harness, subagents
-// get the minimum needed to orient.
-//
-// Skills are advertised only on MAIN. Subagents intentionally don't see the
-// catalog: skill invocation is the root's job, and pushing the list into
-// every subagent prompt would bloat their context for no benefit.
-func buildSysPrompt(t AgentType, cfg *config.AppConfig, skills []sysprompt.SkillRef) string {
-	in := sysprompt.Default(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)
-	switch t {
-	case MAIN:
-		in.Skills = skills
-	case EXPLORE, GENERAL_PURPOSE:
-		// Subagents skip the full harness + task-planning chapters and
-		// never advertise skills. Tools-guide stays on because it covers
-		// TOOL_SEARCH usage, which both subagent kinds rely on.
-		in.IncludeHarness = false
-		in.IncludeTaskPlanning = false
-		in.Skills = nil
-	}
-	return sysprompt.Build(in)
-}
-
 // Main returns the full-kit profile: fs/shell/meta/skill are active; the rest
 // are deferred (loaded on demand via TOOL_SEARCH).
 //
-// The system prompt is built internally from cfg + skills — callers no
-// longer pass a prompt string. Different prompt content = different
-// AgentProfile.
+// The system prompt is built via sysprompt.MainAgent. Skills are advertised
+// (Main is the only agent that surfaces them), and the EVVA.md / USER_PROFILE.md
+// memory snapshot is threaded into the prompt under labeled headings. Callers
+// pass an empty memdir.Snapshot{} when memory injection is not desired.
 //
 // Streaming is on by default — the user-facing UX win is large and the
 // chunk adapter falls back cleanly for providers without native streaming.
 // Callers who want the old buffered behavior can pass WithStream(false) at
 // agent construction.
-func Main(cfg *config.AppConfig, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, options []llm.Option) Profile {
-	sp := buildSysPrompt(MAIN, cfg, skills)
+func Main(cfg *config.AppConfig, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
+	ctx := sysprompt.DetectContext(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)
+	ctx.Skills = skills
+	ctx.ProjectMemory = mem.ProjectMemory
+	ctx.UserProfile = mem.UserProfile
+	sp := sysprompt.MainAgent.BuildSystemPrompt(ctx)
 	options = append(options, llm.WithSystem(sp))
 
 	activeTools := slices.Concat(fs.Names(), shell.Names(), meta.Names(), skill.Names())
@@ -165,8 +147,13 @@ func Main(cfg *config.AppConfig, provider constant.LLMProvider, model constant.M
 // Explore returns a read-only profile: just READ_FILE / GREP / TREE, plus
 // WEB_SEARCH for docs lookup. Useful for sub-agents whose job is to inspect
 // without risk of modification.
+//
+// The Explore prompt is self-contained (mirrors ref TS Explore agent) and
+// does not include EVVA.md / USER_PROFILE.md — sysprompt.ExploreAgent
+// declares OmitMemory: true.
 func Explore(cfg *config.AppConfig, provider constant.LLMProvider, model constant.Model, options []llm.Option) Profile {
-	sp := buildSysPrompt(EXPLORE, cfg, nil)
+	ctx := sysprompt.DetectContext(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)
+	sp := sysprompt.ExploreAgent.BuildSystemPrompt(ctx)
 	options = append(options, llm.WithSystem(sp))
 
 	return Profile{
@@ -181,8 +168,11 @@ func Explore(cfg *config.AppConfig, provider constant.LLMProvider, model constan
 
 // General returns a minimal profile carrying only the tool names the caller
 // supplies as active. No deferred tools. Useful for narrow-purpose sub-agents.
+//
+// Like Explore, the General prompt does not include EVVA.md / USER_PROFILE.md.
 func General(cfg *config.AppConfig, provider constant.LLMProvider, model constant.Model, options []llm.Option, toolset ...tools.ToolName) Profile {
-	sp := buildSysPrompt(GENERAL_PURPOSE, cfg, nil)
+	ctx := sysprompt.DetectContext(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)
+	sp := sysprompt.GeneralAgent.BuildSystemPrompt(ctx)
 	options = append(options, llm.WithSystem(sp))
 
 	return Profile{

@@ -6,6 +6,7 @@ import (
 	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/constant"
 	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/internal/memdir"
 )
 
 // TestSwitchLLMClearsSessionAndUpdatesProfile drives the phase-3 swap
@@ -44,7 +45,7 @@ func TestSwitchLLMClearsSessionAndUpdatesProfile(t *testing.T) {
 		t.Fatalf("seed anthropic: %v", err)
 	}
 
-	prof := Main(cfg, constant.DEEPSEEK, constant.DEEPSEEK_V4_PRO, nil, nil)
+	prof := Main(cfg, constant.DEEPSEEK, constant.DEEPSEEK_V4_PRO, nil, memdir.Snapshot{}, nil)
 	a, err := New(nil, prof, WithName("test"))
 	if err != nil {
 		t.Fatalf("agent.New: %v", err)
@@ -89,7 +90,7 @@ func TestSwitchLLMRefusedWhileRunning(t *testing.T) {
 		t.Fatalf("seed deepseek: %v", err)
 	}
 
-	prof := Main(cfg, constant.DEEPSEEK, constant.DEEPSEEK_V4_PRO, nil, nil)
+	prof := Main(cfg, constant.DEEPSEEK, constant.DEEPSEEK_V4_PRO, nil, memdir.Snapshot{}, nil)
 	a, err := New(nil, prof, WithName("test"))
 	if err != nil {
 		t.Fatalf("agent.New: %v", err)
