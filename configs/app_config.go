@@ -50,6 +50,10 @@ type AppConfig struct {
 	DefaultProvider constant.LLMProvider
 	DefaultModel    constant.Model
 
+	// DefaultEffort is the user-facing effort level name: low|medium|high|ultra.
+	// Defaults to "medium". Sourced from evva-config.yml; /effort updates it.
+	DefaultEffort string
+
 	// Loaded metadata
 	LoadedAt time.Time
 	// DefaultMaxIterations is the loop's safety cap. Hitting it emits a
@@ -171,6 +175,26 @@ func (c *AppConfig) SetDefaultModel(provider constant.LLMProvider, model constan
 	c.mu.Lock()
 	c.DefaultProvider = provider
 	c.DefaultModel = model
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// Effort returns the current effort level name under the read lock.
+func (c *AppConfig) Effort() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DefaultEffort
+}
+
+// SetDefaultEffort validates the effort level name and persists it.
+func (c *AppConfig) SetDefaultEffort(level string) error {
+	switch level {
+	case "low", "medium", "high", "ultra":
+	default:
+		return fmt.Errorf("invalid effort level %q: want low|medium|high|ultra", level)
+	}
+	c.mu.Lock()
+	c.DefaultEffort = level
 	c.mu.Unlock()
 	return c.SaveFile()
 }
@@ -310,6 +334,7 @@ func load() *AppConfig {
 		FetchMaxBytes:        fileCfg.FetchMaxBytes,
 		DefaultProvider:      defProvider,
 		DefaultModel:         defModel,
+		DefaultEffort:        fileCfg.DefaultEffort,
 
 		LoadedAt: time.Now(),
 	}
@@ -351,6 +376,7 @@ func (c *AppConfig) SaveFile() error {
 		DisplayThinking:      c.DisplayThinking,
 		DefaultProvider:      c.DefaultProvider.Name,
 		DefaultModel:         string(c.DefaultModel),
+		DefaultEffort:        c.DefaultEffort,
 		FetchMaxBytes:        c.FetchMaxBytes,
 		TavilyAPIKey:         c.TavilyAPIKey,
 		Providers:            providers,

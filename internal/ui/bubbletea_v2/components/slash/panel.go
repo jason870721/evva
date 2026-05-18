@@ -41,6 +41,7 @@ type Command struct {
 var builtins = []Command{
 	{Name: "/compact", Desc: "compact the transcript · pick micro or full"},
 	{Name: "/config", Desc: "edit runtime settings (max_iterations, api keys, …)"},
+	{Name: "/effort", Desc: "set thinking effort · low, medium, high, ultra"},
 	{Name: "/model", Desc: "switch llm provider / model · clears history"},
 	{Name: "/clear", Desc: "clear the transcript"},
 	{Name: "/exit", Desc: "quit evva"},

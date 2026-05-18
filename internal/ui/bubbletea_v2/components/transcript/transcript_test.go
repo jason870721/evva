@@ -133,7 +133,7 @@ func buildLongToolBlock(t *testing.T, n int) *ToolBlock {
 	for i := 0; i < n; i++ {
 		lines = append(lines, "line "+string(rune('a'+i%26)))
 	}
-	tb.SetResult(strings.Join(lines, "\n"), false, nil)
+	tb.SetResult(strings.Join(lines, "\n"), false, nil, nil)
 	return tb
 }
 
@@ -181,7 +181,7 @@ func TestToolResultDiffNeverFolds(t *testing.T) {
 	d := &fs.FileDiff{Path: "x.go", Op: fs.OpCreate, Hunks: []fs.DiffHunk{
 		{OldStart: 0, OldCount: 0, NewStart: 1, NewCount: 50, Lines: lines},
 	}}
-	tb.SetResult("created x.go", false, d)
+	tb.SetResult("created x.go", false, d, nil)
 	tr.AppendBlock(tb)
 
 	out := tr.View()
@@ -200,7 +200,7 @@ func TestToolResultDiffNeverFolds(t *testing.T) {
 func TestToolResultShortStaysInline(t *testing.T) {
 	tr := newTestTranscript(t, 80)
 	tb := newToolBlock("bash", "t", json.RawMessage(`{}`), false)
-	tb.SetResult("line one\nline two\nline three", false, nil)
+	tb.SetResult("line one\nline two\nline three", false, nil, nil)
 	tr.AppendBlock(tb)
 
 	out := tr.View()
@@ -393,7 +393,7 @@ func TestPlainTextStripsGutter(t *testing.T) {
 	}
 
 	tool := newToolBlock("bash", "x", json.RawMessage(`{}`), false)
-	tool.SetResult("output", false, nil)
+	tool.SetResult("output", false, nil, nil)
 	plain := tool.PlainText()
 	if strings.Contains(plain, "│") || strings.Contains(plain, "├─") {
 		t.Errorf("ToolBlock.PlainText contains gutter glyph: %q", plain)

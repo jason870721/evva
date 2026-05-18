@@ -38,6 +38,7 @@ type StatusBar struct {
 
 	model   string
 	agentID string
+	effort  string
 }
 
 // New constructs a StatusBar bound to the given run-state machine.
@@ -70,6 +71,9 @@ func (s *StatusBar) SetModel(m string) { s.model = m }
 // to 8 chars. Empty input collapses the cell entirely.
 func (s *StatusBar) SetAgentID(id string) { s.agentID = id }
 
+// SetEffort stores the current effort level for the status bar cell.
+func (s *StatusBar) SetEffort(level string) { s.effort = level }
+
 // Compose returns the rendered HUD as one styled line, padded to
 // width. Layout (left → right):
 //
@@ -86,7 +90,7 @@ func (s *StatusBar) Compose(width int, th *theme.Theme) string {
 	parts := []string{
 		renderStatePill(s.state, th),
 		th.UserPrompt.Render("EVVA"),
-		th.StatusKey.Render("▸ ") + th.StatusValue.Render(modelOrDash(s.model)),
+		th.StatusKey.Render("▸ ") + th.StatusValue.Render(modelOrDash(s.model)) + renderEffort(s.effort, th),
 		th.StatusKey.Render("IN ") + th.StatusValue.Render(humanTokens(s.usage.InputTokens)) +
 			th.StatusKey.Render("  OUT ") + th.StatusValue.Render(humanTokens(s.usage.OutputTokens)),
 		renderContextBar(s.contextUsed, s.contextLimit, th),
@@ -247,6 +251,29 @@ func humanTokens(n int) string {
 	default:
 		return fmt.Sprintf("%d", n)
 	}
+}
+
+// renderEffort returns the effort level as a colored label.
+// Colors: low→green, medium→blue, high→yellow, ultra→red. Empty returns "".
+func renderEffort(level string, th *theme.Theme) string {
+	if level == "" {
+		return ""
+	}
+	var color lipgloss.Color
+	switch level {
+	case "low":
+		color = "#39FF14" // green
+	case "medium":
+		color = "#00BFFF" // blue
+	case "high":
+		color = "#FAFC4E" // yellow
+	case "ultra":
+		color = "#FF003C" // red
+	default:
+		color = "#7A7E94" // grey fallback
+	}
+	style := lipgloss.NewStyle().Foreground(color).Bold(true)
+	return " " + th.StatusKey.Render("·") + style.Render(level)
 }
 
 // ContextLimitFor returns the model's context window from the

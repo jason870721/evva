@@ -50,3 +50,29 @@ func (p *LLMParams) HTTP() *http.Client {
 	}
 	return http.DefaultClient
 }
+
+// --- effort name ↔ int mapping ---
+
+var effortNames = map[string]int{
+	"low":    1,
+	"medium": 2,
+	"high":   3,
+	"ultra":  4,
+}
+
+// EffortNames returns the sorted list of valid effort level names.
+func EffortNames() []string { return []string{"low", "medium", "high", "ultra"} }
+
+// ParseEffort converts a lowercase effort name to its int value.
+// Returns 0 when the name is unknown.
+func ParseEffort(name string) int { return effortNames[name] }
+
+// EffortString converts an int level back to its name. Returns "medium" for unknowns.
+func EffortString(level int) string {
+	for name, n := range effortNames {
+		if n == level {
+			return name
+		}
+	}
+	return "medium"
+}

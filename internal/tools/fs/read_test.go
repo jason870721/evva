@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/johnny1110/evva/internal/tools"
 )
 
 // writeTempFile is the shared fixture builder used across fs tests —
@@ -20,6 +22,27 @@ func writeTempFile(t *testing.T, content string) string {
 		t.Fatalf("write fixture: %v", err)
 	}
 	return path
+}
+
+// writeTempPNG writes a minimal valid 1x1 white PNG to the given path.
+// Produces a proper PNG that both image.Decode and detectImageMIME can parse.
+func writeTempPNG(t *testing.T, path string) {
+	t.Helper()
+	// Minimal valid 1x1 white PNG (67 bytes).
+	png := []byte{
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
+		0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk len + tag
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1 px
+		0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+		0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IDAT chunk
+		0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+		0x00, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x00, 0x0E,
+		0xFC, 0x1F, 0xA7, 0x00, 0x00, 0x00, 0x00, 0x49, // IEND chunk
+		0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+	}
+	if err := os.WriteFile(path, png, 0o644); err != nil {
+		t.Fatalf("write PNG fixture: %v", err)
+	}
 }
 
 // recordFullRead simulates a successful full-file read on the tracker
@@ -238,20 +261,74 @@ func TestRead_StubResetsOnMtimeBump(t *testing.T) {
 	}
 }
 
-// TestRead_ImageFileNotSupported — image extensions return the
-// Phase 1b stub error.
-func TestRead_ImageFileNotSupported(t *testing.T) {
+// TestRead_Image_PNG — reading a PNG returns an image content block.
+func TestRead_Image_PNG(t *testing.T) {
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "screenshot.png")
-	os.WriteFile(imgPath, []byte("\x89PNG\r\n\x1a\n"), 0o644)
+	// Minimal valid 1x1 white PNG.
+	writeTempPNG(t, imgPath)
+
+	tool := NewRead(NewReadTracker())
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"file_path":"`+imgPath+`"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("expected success for image read; got error: %s", res.Content)
+	}
+	if len(res.ContentBlocks) != 1 {
+		t.Fatalf("expected 1 ContentBlock; got %d", len(res.ContentBlocks))
+	}
+	cb := res.ContentBlocks[0]
+	if cb.Type != tools.ContentBlockImage {
+		t.Fatalf("expected image content block; got %s", cb.Type)
+	}
+	if cb.Image == nil {
+		t.Fatal("Image should not be nil")
+	}
+	if cb.Image.MIMEType != "image/png" {
+		t.Errorf("expected image/png; got %s", cb.Image.MIMEType)
+	}
+	if cb.Image.OriginalSize <= 0 {
+		t.Errorf("expected positive original size; got %d", cb.Image.OriginalSize)
+	}
+	if cb.Image.Base64Data == "" {
+		t.Error("expected non-empty base64 data")
+	}
+}
+
+// TestRead_Image_TooLarge — images over the size limit are rejected.
+func TestRead_Image_TooLarge(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "big.jpg")
+	// Fake a file larger than maxImageBytes.
+	f, _ := os.Create(imgPath)
+	f.Truncate(maxImageBytes + 1)
+	f.Close()
 
 	tool := NewRead(NewReadTracker())
 	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"file_path":"`+imgPath+`"}`))
 	if !res.IsError {
-		t.Fatalf("expected image rejection; got content=%q", res.Content)
+		t.Fatalf("expected rejection for too-large image; got content=%q", res.Content)
 	}
-	if !strings.Contains(res.Content, "Phase 1b") {
-		t.Errorf("error should mention Phase 1b roadmap; got %q", res.Content)
+}
+
+// TestRead_SVG_ReadAsText — SVG files are not in imageExts and should
+// be read as text, not routed to the image path.
+func TestRead_SVG_ReadAsText(t *testing.T) {
+	path := writeTempFile(t, "<svg></svg>\n")
+	if err := os.Rename(path, path+".svg"); err != nil {
+		t.Fatal(err)
+	}
+	svgPath := path + ".svg"
+
+	tool := NewRead(NewReadTracker())
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"file_path":"`+svgPath+`"}`))
+	if res.IsError {
+		t.Fatalf("SVG should be read as text, not rejected; got: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "<svg>") {
+		t.Errorf("expected SVG content in text output; got %q", res.Content)
 	}
 }
 

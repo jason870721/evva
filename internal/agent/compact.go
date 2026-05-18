@@ -403,6 +403,9 @@ func renderMessageForSummary(b *strings.Builder, m llm.Message) {
 				tag = "TOOL ERROR"
 			}
 			content := tr.Content
+			if content == "" && len(tr.ContentBlocks) > 0 {
+				content = llm.RenderContentBlocksAsText(tr.ContentBlocks)
+			}
 			if len(content) > summaryToolResultMaxBytes {
 				content = content[:summaryToolResultMaxBytes] + "…(truncated)"
 			}

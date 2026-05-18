@@ -1,12 +1,21 @@
 package fs
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"  // register GIF decoder
+	"image/jpeg"
+	_ "image/png" // register PNG decoder
 	"os"
 	"path/filepath"
 	"strings"
+
+	_ "golang.org/x/image/bmp"  // register BMP decoder
+	_ "golang.org/x/image/webp" // register WebP decoder
+	"golang.org/x/image/draw"
 
 	"github.com/johnny1110/evva/internal/tools"
 )
@@ -22,12 +31,11 @@ const DefaultReadLimit = 2000
 // again would just burn cache tokens for the same content.
 const fileUnchangedStub = "File unchanged since last read. The content from the earlier Read tool_result in this conversation is still current — refer to that instead of re-reading."
 
-// imageExts is the set of extensions we route to the Phase 1b stub
-// (images aren't yet round-tripped through tool_result blocks; see
-// CLAUDE.md Phase 1b for the cross-cutting refactor). PDF lives in the
-// shared binaryExtensions blocklist; this set is consulted before that
-// check so we emit the Phase 1b message instead of a generic
+// imageExts is the set of extensions we route to the image-reading path.
+// PDF lives in the shared binaryExtensions blocklist; this set is consulted
+// before that check so we emit image content blocks instead of a generic
 // "binary file" rejection.
+// SVG is intentionally absent — it is XML text, not a raster image.
 var imageExts = map[string]struct{}{
 	".png":  {},
 	".jpg":  {},
@@ -35,7 +43,6 @@ var imageExts = map[string]struct{}{
 	".gif":  {},
 	".webp": {},
 	".bmp":  {},
-	".svg":  {},
 }
 
 type ReadTool struct {
@@ -60,7 +67,7 @@ Usage:
 - This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you MUST provide the pages parameter to read specific page ranges (e.g., pages: "1-5"). Reading a large PDF without the pages parameter will fail. Maximum 20 pages per request.
 - This tool can read Jupyter notebooks (.ipynb files) and returns all cells with their outputs, combining code, text, and visualizations.
 - This tool can only read files, not directories. To list a directory, run ` + "`ls`" + ` via the bash tool.
-- Image file reads (PNG/JPG/GIF/WebP/BMP/SVG) are not yet supported — tracked in CLAUDE.md as Phase 1b. Attempting to read an image file returns an error today.
+- This tool can read images (PNG, JPG, GIF, WebP, BMP). When reading an image file the contents are presented visually as Claude Code is a multimodal LLM. SVG files are read as text (XML).
 - Binary files (executables, archives, fonts, native libraries, etc.) are rejected — their bytes would corrupt the conversation context. Use the bash tool with specialized utilities (file, hexdump, strings, jq, etc.) if you need to inspect a binary.
 - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
 - Reading a file marks it as loaded into the session — edit_file and write_file (overwrite) refuse to touch a file you haven't read first, and force a re-read if the file's mtime advances on disk between reads.
@@ -122,10 +129,7 @@ func (t *ReadTool) Execute(ctx context.Context, input json.RawMessage) (tools.Re
 	ext := strings.ToLower(filepath.Ext(resolved))
 
 	if _, isImage := imageExts[ext]; isImage {
-		return tools.Result{
-			IsError: true,
-			Content: fmt.Sprintf("read: image file reads (%s) are not yet supported in evva. Tracked in CLAUDE.md as Phase 1b — multimodal tool_result blocks across providers.", ext),
-		}, nil
+		return readImageFile(resolved, info.Size())
 	}
 
 	if ext == ".pdf" {
@@ -276,4 +280,117 @@ func formatLines(lines []string, startLine int) string {
 		fmt.Fprintf(&b, "%6d\t%s", startLine+i, line)
 	}
 	return b.String()
+}
+
+// --- image reading -----------------------------------------------------------
+
+const (
+	// maxImageBytes caps the raw image size we'll process before rejecting.
+	maxImageBytes = 10 * 1024 * 1024 // 10 MB
+
+	// Anthropic's base64-encoded image limit is ~5 MB. Target ~3.75 MB raw
+	// so base64 stays under that ceiling (3.75 * 4/3 ≈ 5).
+	imageTargetRawSize = (5 * 1024 * 1024 * 3) / 4
+)
+
+// readImageFile reads an image from disk and returns a multimodal Result.
+func readImageFile(resolved string, fileSize int64) (tools.Result, error) {
+	if fileSize > maxImageBytes {
+		return tools.Result{
+			IsError: true,
+			Content: fmt.Sprintf("read: image too large (%d bytes, max %d)", fileSize, maxImageBytes),
+		}, nil
+	}
+
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return tools.Result{
+			IsError: true,
+			Content: fmt.Sprintf("read: could not read image %s: %s", resolved, err),
+		}, nil
+	}
+
+	mimeType := detectImageMIME(data, filepath.Ext(resolved))
+
+	if len(data) > imageTargetRawSize {
+		if resized, err := resizeImage(data, imageTargetRawSize); err == nil {
+			data = resized
+		}
+		// If resize fails, continue with original — the API may still accept it.
+	}
+
+	return tools.NewImageResult(data, mimeType, fileSize), nil
+}
+
+// detectImageMIME reads magic bytes to determine the image MIME type.
+// Falls back to extension-based guess when magic bytes are inconclusive.
+func detectImageMIME(data []byte, ext string) string {
+	switch {
+	case len(data) >= 8 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G':
+		return "image/png"
+	case len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff:
+		return "image/jpeg"
+	case len(data) >= 6 && (string(data[:6]) == "GIF87a" || string(data[:6]) == "GIF89a"):
+		return "image/gif"
+	case len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP":
+		return "image/webp"
+	case len(data) >= 2 && data[0] == 'B' && data[1] == 'M':
+		return "image/bmp"
+	default:
+		switch ext {
+		case ".png":
+			return "image/png"
+		case ".jpg", ".jpeg":
+			return "image/jpeg"
+		case ".gif":
+			return "image/gif"
+		case ".webp":
+			return "image/webp"
+		case ".bmp":
+			return "image/bmp"
+		default:
+			return "application/octet-stream"
+		}
+	}
+}
+
+// resizeImage decodes an image, downsamples it to fit within maxBytes, and
+// re-encodes as JPEG. Best-effort — returns the original data and an error
+// if decoding fails.
+func resizeImage(data []byte, maxBytes int) ([]byte, error) {
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if w == 0 || h == 0 {
+		return nil, fmt.Errorf("zero-dimension image")
+	}
+
+	// Compute scale factor to stay within pixel budget.
+	// ~3 bytes per pixel for JPEG at quality 80.
+	pixelBudget := float64(maxBytes) / 3.0
+	currentPixels := float64(w * h)
+	scale := 1.0
+	if currentPixels > pixelBudget {
+		scale = pixelBudget / currentPixels
+		if scale < 0.1 {
+			scale = 0.1 // don't shrink below 10%
+		}
+	}
+
+	newW := max(1, int(float64(w)*scale))
+	newH := max(1, int(float64(h)*scale))
+
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	draw.BiLinear.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 80}); err != nil {
+		return nil, fmt.Errorf("encode: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }

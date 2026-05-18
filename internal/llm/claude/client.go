@@ -23,8 +23,15 @@ const (
 	messagesPath     = "/v1/messages"
 )
 
-// budgetForEffort maps llm.LLMParams.Effort (1..n) to Anthropic's
-// thinking budget_tokens. Effort 0 disables thinking entirely.
+// budgetForEffort maps user-facing effort levels (via LLMParams.Effort) to
+// Anthropic thinking budget_tokens:
+//
+//	0 → disabled (no extended thinking)
+//	1 → 1024   (low)
+//	2 → 4096   (medium, default)
+//	3 → 8192   (high)
+//	4 → 16384  (ultra)
+//	5+ → 24576 (future expansion)
 //
 // The tiers are deliberately coarse — the caller picks "how hard should
 // it think" not "exactly how many tokens." Levels 5+ saturate at the max
@@ -102,13 +109,27 @@ type block struct {
 	Name      string          `json:"name,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`
 	ToolUseID string          `json:"tool_use_id,omitempty"`
-	Content   string          `json:"content,omitempty"`
+	Content   any             `json:"content,omitempty"` // string or []blockContentItem for multimodal tool results
 	IsError   bool            `json:"is_error,omitempty"`
 	// Thinking block fields. Signature is opaque crypto Anthropic generates
 	// alongside each thinking block; it MUST be echoed verbatim if the
 	// thinking block precedes a tool_use in a subsequent turn.
 	Thinking  string `json:"thinking,omitempty"`
 	Signature string `json:"signature,omitempty"`
+}
+
+// blockContentItem is one element of a tool_result's content array.
+// Used when a tool returns multimodal content (text + image blocks).
+type blockContentItem struct {
+	Type   string             `json:"type"`
+	Text   string             `json:"text,omitempty"`
+	Source *blockImageSource  `json:"source,omitempty"`
+}
+
+type blockImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 // apiThinking enables extended thinking. BudgetTokens caps how many tokens
@@ -313,12 +334,41 @@ func toAPIMessages(msgs []llm.Message) []apiMessage {
 			// not a "tool" role — that role doesn't exist in this API.
 			blocks := make([]block, 0, len(m.ToolResults))
 			for _, tr := range m.ToolResults {
-				blocks = append(blocks, block{
+				b := block{
 					Type:      "tool_result",
 					ToolUseID: tr.ID,
-					Content:   tr.Content,
 					IsError:   tr.IsError,
-				})
+				}
+				if len(tr.ContentBlocks) > 0 && !tr.IsError {
+					// Multimodal content: emit an array of typed blocks.
+					// Anthropic requires is_error tool_results to contain
+					// only text, so fall back to the plain string for errors.
+					items := make([]blockContentItem, 0, len(tr.ContentBlocks))
+					for _, cb := range tr.ContentBlocks {
+						switch cb.Type {
+						case tools.ContentBlockText:
+							items = append(items, blockContentItem{
+								Type: "text",
+								Text: cb.Text,
+							})
+						case tools.ContentBlockImage:
+							if cb.Image != nil {
+								items = append(items, blockContentItem{
+									Type: "image",
+									Source: &blockImageSource{
+										Type:      "base64",
+										MediaType: cb.Image.MIMEType,
+										Data:      cb.Image.Base64Data,
+									},
+								})
+							}
+						}
+					}
+					b.Content = items
+				} else {
+					b.Content = tr.Content
+				}
+				blocks = append(blocks, b)
 			}
 			out = append(out, apiMessage{Role: "user", Content: blocks})
 		}

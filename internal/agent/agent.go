@@ -70,6 +70,9 @@ type Agent struct {
 	// reads it at iteration boundaries.
 	maxIters atomic.Int64
 
+	// effort is the user-facing level name. Defaults to "medium".
+	effort string
+
 	asyncMode bool
 
 	// emitMu serializes calls into a.sink.Emit so parallel tool dispatch
@@ -139,6 +142,7 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		exposeTools:       exposeTools,
 	}
 	a.maxIters.Store(int64(cfg.DefaultMaxIterations))
+	a.effort = cfg.DefaultEffort
 
 	// adapt options params (e.g. name, sink, maxIters..)
 	for _, opt := range opts {
@@ -159,7 +163,8 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		a.toolState.SetDeferredLookup(a)  // only main agent can have deferred tool lookup.
 	}
 
-	llmClient, err := llmfactory.Of(profile.LLMProvider, profile.LLMModel, profile.LLMOptions)
+	effortOpts := append(profile.LLMOptions, llm.WithEffort(llm.ParseEffort(a.effort)))
+	llmClient, err := llmfactory.Of(profile.LLMProvider, profile.LLMModel, effortOpts)
 	if err != nil {
 		return nil, fmt.Errorf("agent: init llm client: %w", err)
 	}
@@ -196,6 +201,22 @@ func (a *Agent) SetMaxIterations(n int) {
 		n = 1
 	}
 	a.maxIters.Store(int64(n))
+}
+
+// Effort returns the current effort level name.
+func (a *Agent) Effort() string { return a.effort }
+
+// SetEffort updates the effort level at runtime. Validates the name,
+// applies it to the LLM client, and persists to config.
+func (a *Agent) SetEffort(level string) error {
+	n := llm.ParseEffort(level)
+	if n == 0 {
+		return fmt.Errorf("agent: invalid effort level %q", level)
+	}
+	a.effort = level
+	a.llm.Apply(llm.WithEffort(n))
+	a.logger.Info("agent: effort set", "level", level)
+	return config.Get().SetDefaultEffort(level)
 }
 
 // SwitchLLM rebuilds a.llm with a new (provider, model) pair, updates

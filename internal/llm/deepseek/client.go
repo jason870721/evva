@@ -140,16 +140,22 @@ type apiResponse struct {
 
 // --- Client interface -----------------------------------------------------
 
-// Note on llm.LLMParams.Effort: DeepSeek selects reasoning by model name
-// (deepseek-reasoner vs deepseek-chat), not via a per-request knob, so
-// the Effort field is intentionally ignored here. Caller picks the model.
+// effectiveModel selects the model for the next request based on effort.
+// Low effort picks the fast/cheap model; medium+ uses the configured model.
+func (c *Client) effectiveModel() string {
+	if c.params.Effort == 1 {
+		return string(constant.DEEPSEEK_V4_FLASH)
+	}
+	return c.model
+}
+
 func (c *Client) Complete(ctx context.Context, messages []llm.Message, toolSet []tools.Tool) (llm.Response, error) {
 	if c.apiKey == "" {
 		return llm.Response{}, fmt.Errorf("deepseek: missing API key (type in /config to setup)")
 	}
 
 	body := apiRequest{
-		Model:       c.model,
+		Model:       c.effectiveModel(),
 		Messages:    toAPIMessages(messages, c.params.System),
 		Temperature: c.params.Temperature,
 		TopP:        c.params.TopP,
@@ -283,7 +289,7 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message, toolSet []t
 	}
 
 	body := apiRequest{
-		Model:         c.model,
+		Model:         c.effectiveModel(),
 		Messages:      toAPIMessages(messages, c.params.System),
 		Temperature:   c.params.Temperature,
 		TopP:          c.params.TopP,
@@ -458,9 +464,13 @@ func toAPIMessages(msgs []llm.Message, system string) []apiMessage {
 		case llm.RoleTool:
 			// OpenAI-style: one tool-role message per tool_call_id.
 			for _, tr := range m.ToolResults {
+				content := tr.Content
+				if len(tr.ContentBlocks) > 0 {
+					content = llm.RenderContentBlocksAsText(tr.ContentBlocks)
+				}
 				out = append(out, apiMessage{
 					Role:       "tool",
-					Content:    tr.Content,
+					Content:    content,
 					ToolCallID: tr.ID,
 				})
 			}

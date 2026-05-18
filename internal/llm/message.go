@@ -1,6 +1,11 @@
 package llm
 
-import "github.com/johnny1110/evva/internal/tools"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/johnny1110/evva/internal/tools"
+)
 
 // Role labels who emitted a message.
 type Role string
@@ -59,7 +64,29 @@ type Response struct {
 // Lives on RoleTool messages so one message can carry N results from a
 // parallel-dispatched assistant turn.
 type ToolResult struct {
-	ID      string
-	Content string
-	IsError bool
+	ID            string
+	Content       string
+	IsError        bool
+	ContentBlocks []tools.ContentBlock
+}
+
+// RenderContentBlocksAsText converts typed content blocks to a text-only
+// representation for providers that do not support multimodal tool results.
+// Image blocks are rendered as [Image: <mime>, <bytes>B] metadata stubs.
+func RenderContentBlocksAsText(blocks []tools.ContentBlock) string {
+	var b strings.Builder
+	for i, cb := range blocks {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		switch cb.Type {
+		case tools.ContentBlockText:
+			b.WriteString(cb.Text)
+		case tools.ContentBlockImage:
+			if cb.Image != nil {
+				fmt.Fprintf(&b, "[Image: %s, %d bytes]", cb.Image.MIMEType, cb.Image.OriginalSize)
+			}
+		}
+	}
+	return b.String()
 }

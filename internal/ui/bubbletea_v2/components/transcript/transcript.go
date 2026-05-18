@@ -454,7 +454,7 @@ func (t *Transcript) attachToolResult(r *event.ToolUseResultPayload) bool {
 	}
 
 	if tb, ok := t.toolBlocks[r.ToolID]; ok {
-		tb.SetResult(content, r.IsError, diffMeta)
+		tb.SetResult(content, r.IsError, diffMeta, r.ContentBlocks)
 		return true
 	}
 
@@ -462,7 +462,7 @@ func (t *Transcript) attachToolResult(r *event.ToolUseResultPayload) bool {
 	// the result. ToolBlock.compose handles head=="" by emitting
 	// the result body alone.
 	stub := newToolBlock("?", r.ToolID, nil, false)
-	stub.SetResult(content, r.IsError, diffMeta)
+	stub.SetResult(content, r.IsError, diffMeta, r.ContentBlocks)
 	t.blocks = append(t.blocks, stub)
 	if t.toolBlocks == nil {
 		t.toolBlocks = map[string]*ToolBlock{}

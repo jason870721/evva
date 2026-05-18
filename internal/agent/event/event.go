@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/internal/tools"
 )
 
 // Kind tags every event. New kinds are added by extending this list and the
@@ -141,10 +142,11 @@ type ToolUseStartPayload struct {
 // layer; the UI type-asserts. Never sent to the LLM — Content alone is the
 // model-facing summary.
 type ToolUseResultPayload struct {
-	ToolID   string
-	Content  string
-	IsError  bool
-	Metadata any
+	ToolID        string
+	Content       string
+	IsError       bool
+	Metadata      any
+	ContentBlocks []tools.ContentBlock
 }
 
 // ErrorPayload reports a Go-level failure that aborted the loop. Tool errors

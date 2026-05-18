@@ -9,10 +9,10 @@ import (
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/events"
 )
 
-func TestWriteOSC52ProducesCmd(t *testing.T) {
-	cmd := WriteOSC52("hello")
+func TestCopyProducesCmd(t *testing.T) {
+	cmd := Copy("hello")
 	if cmd == nil {
-		t.Fatal("WriteOSC52 should never return a nil cmd")
+		t.Fatal("Copy should never return a nil cmd")
 	}
 	msg := cmd()
 	c, ok := msg.(events.ClipboardMsg)
@@ -27,8 +27,8 @@ func TestWriteOSC52ProducesCmd(t *testing.T) {
 	}
 }
 
-func TestWriteOSC52EmptyPayload(t *testing.T) {
-	msg := WriteOSC52("")()
+func TestCopyEmptyPayload(t *testing.T) {
+	msg := Copy("")()
 	c, _ := msg.(events.ClipboardMsg)
 	if c.OK {
 		t.Errorf("empty payload should report !OK")
@@ -38,17 +38,22 @@ func TestWriteOSC52EmptyPayload(t *testing.T) {
 	}
 }
 
-func TestWriteOSC52TooLarge(t *testing.T) {
+func TestCopyTooLarge(t *testing.T) {
 	huge := strings.Repeat("x", osc52MaxPayload+1)
-	c, _ := WriteOSC52(huge)().(events.ClipboardMsg)
-	if c.OK {
-		t.Errorf("payload > max should report !OK")
-	}
+	c, _ := Copy(huge)().(events.ClipboardMsg)
 	if c.Size != len(huge) {
-		t.Errorf("oversized Size = %d, want %d", c.Size, len(huge))
+		t.Errorf("Size = %d, want %d", c.Size, len(huge))
 	}
-	if c.Err == nil {
-		t.Errorf("oversized payload should populate Err")
+	if c.OK {
+		// Native clipboard may accept large payloads (pbcopy has no
+		// hard limit). Only OSC52 path enforces the size cap.
+		if c.Method == "osc52" {
+			t.Errorf("osc52 oversized payload should report !OK")
+		}
+	} else {
+		if c.Err == nil {
+			t.Errorf("failed payload should populate Err")
+		}
 	}
 }
 

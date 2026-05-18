@@ -193,9 +193,20 @@ Niche. Ship after the higher-leverage phases.
 
 ### Phase  11 - Refine the Agent System Prompt
 
-- port ref system prompt to evva.
+- port ref/ system prompt to evva make evva stronger on tool usage and enhance coding ability.
+- port ref claude code all system prompt 1:1 (except for evva name and tool name interpolation, which is already handled by `toolnames.go`), and add evva style prompt (mix them together)
 
-### Phase 12 — MCP support + bundled skills (v2 tier)
+### Phase 12 - Model Efforts
+
+- support switch Model effort in TUI with `/effort` slash command
+- 4 class of model effort:
+  - `low`:
+  - `medium` (default)
+  - `high`
+  - `ultra`
+- each llm implement can convert the effort to the provider's API request params. if provider only support 2 class of effort, map `low` → "fast" and `medium`/`high`/`ultra` → "best" (or equivalent).
+
+### Phase 13 — MCP support + bundled skills (v2 tier)
 
 Closes the gap with Claude Code's plugin/skill ecosystem.
 

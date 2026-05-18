@@ -151,3 +151,56 @@ func TestHTTP_ReturnsConfiguredClient(t *testing.T) {
 		t.Errorf("HTTP(): got %p, want %p", got, custom)
 	}
 }
+
+func TestParseEffort_ValidNames(t *testing.T) {
+	cases := []struct {
+		name  string
+		level int
+	}{
+		{"low", 1},
+		{"medium", 2},
+		{"high", 3},
+		{"ultra", 4},
+	}
+	for _, c := range cases {
+		got := ParseEffort(c.name)
+		if got != c.level {
+			t.Errorf("ParseEffort(%q) = %d, want %d", c.name, got, c.level)
+		}
+	}
+}
+
+func TestParseEffort_Unknown(t *testing.T) {
+	if got := ParseEffort("unknown"); got != 0 {
+		t.Errorf("ParseEffort(unknown) = %d, want 0", got)
+	}
+	if got := ParseEffort(""); got != 0 {
+		t.Errorf("ParseEffort(\"\") = %d, want 0", got)
+	}
+}
+
+func TestEffortString_RoundTrip(t *testing.T) {
+	for _, name := range EffortNames() {
+		n := ParseEffort(name)
+		back := EffortString(n)
+		if back != name {
+			t.Errorf("EffortString(%d) = %q, want %q", n, back, name)
+		}
+	}
+}
+
+func TestEffortString_Unknown(t *testing.T) {
+	if got := EffortString(0); got != "medium" {
+		t.Errorf("EffortString(0) = %q, want medium", got)
+	}
+	if got := EffortString(99); got != "medium" {
+		t.Errorf("EffortString(99) = %q, want medium", got)
+	}
+}
+
+func TestEffortNames_Count(t *testing.T) {
+	names := EffortNames()
+	if len(names) != 4 {
+		t.Errorf("EffortNames() len = %d, want 4", len(names))
+	}
+}

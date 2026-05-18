@@ -111,7 +111,8 @@ type apiResponse struct {
 // --- Client interface -----------------------------------------------------
 
 // Note on llm.LLMParams.Effort: Ollama exposes no provider-level reasoning
-// knob; reasoning behavior is a property of the model. Effort is ignored.
+// knob and currently offers a single model, so effort is a no-op. If more
+// models are added, effort can select among them (similar to DeepSeek).
 func (c *Client) Complete(ctx context.Context, messages []llm.Message, toolSet []tools.Tool) (llm.Response, error) {
 	body := apiRequest{
 		Model:    c.model,
@@ -201,7 +202,11 @@ func toAPIMessages(msgs []llm.Message, system string) []apiMessage {
 		case llm.RoleTool:
 			// Ollama follows the OpenAI shape: one tool-role message per result.
 			for _, tr := range m.ToolResults {
-				out = append(out, apiMessage{Role: "tool", Content: tr.Content})
+				content := tr.Content
+				if len(tr.ContentBlocks) > 0 {
+					content = llm.RenderContentBlocksAsText(tr.ContentBlocks)
+				}
+				out = append(out, apiMessage{Role: "tool", Content: content})
 			}
 		}
 	}

@@ -109,6 +109,14 @@ type Controller interface {
 	// before calling — see Agent.SwitchLLM for the running guard.
 	SwitchLLM(provider constant.LLMProvider, model constant.Model) error
 
+	// Effort returns the current effort level name ("low"|"medium"|"high"|"ultra").
+	Effort() string
+
+	// SetEffort updates the effort level at runtime. Validates the name;
+	// returns an error for unknown levels. Persists to config and applies
+	// to the LLM client on the next completion.
+	SetEffort(level string) error
+
 	// Skills returns the merged catalog of user-installed skills (home
 	// and workdir, with workdir overrides applied). The TUI's slash
 	// suggestion panel surfaces each entry as `/<name>` with the

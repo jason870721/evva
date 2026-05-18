@@ -119,6 +119,7 @@ func (a *App) Attach(c ui.Controller) {
 	a.controller = c
 	a.refreshBanner()
 	a.status.SetModel(c.Model())
+	a.status.SetEffort(c.Effort())
 	a.status.SetAgentID(c.AgentID())
 	a.status.SetContext(0, status.ContextLimitFor(c.Model()))
 	a.view.MarkDirty()
@@ -139,6 +140,7 @@ func (a *App) refreshBanner() {
 		Info: []transcript.BannerInfo{
 			{Label: "agent", Value: id},
 			{Label: "model", Value: a.controller.Model()},
+			{Label: "effort", Value: a.controller.Effort()},
 			{Label: "started", Value: a.startedAt.Format("2006-01-02 15:04:05")},
 		},
 	})
@@ -237,11 +239,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.transcript.Reset()
 		a.refreshBanner()
 		a.status.SetModel(a.controller.Model())
+		a.status.SetEffort(a.controller.Effort())
 		a.status.SetUsage(llm.Usage{})
 		a.status.SetContext(0, status.ContextLimitFor(a.controller.Model()))
 		a.state.SetHint("switched to " + m.Provider.Name + " / " + string(m.Model) + " · history cleared")
 		a.view.MarkDirty()
 		a.relayout()
+		return a, nil
+
+	case overlays.EffortSwitchedMsg:
+		a.refreshBanner()
+		a.status.SetEffort(m.Level)
+		a.state.SetHint("effort set to " + m.Level)
+		a.view.MarkDirty()
 		return a, nil
 
 	case tea.KeyMsg:
@@ -554,6 +564,16 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 		a.input.Reset()
 		a.slash.Reset()
 		if o := overlays.NewCompact(a.controller); o != nil {
+			a.focus.Push(o)
+			a.relayout()
+		} else {
+			a.state.SetHint("no controller attached")
+		}
+		return a, nil
+	case "/effort":
+		a.input.Reset()
+		a.slash.Reset()
+		if o := overlays.NewEffort(a.controller); o != nil {
 			a.focus.Push(o)
 			a.relayout()
 		} else {

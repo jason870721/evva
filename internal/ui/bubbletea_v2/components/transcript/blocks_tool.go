@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/tools/fs"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/components/diff"
 )
@@ -63,6 +64,10 @@ type ToolBlock struct {
 	// event.
 	diff *fs.FileDiff
 
+	// imageBlocks carries multimodal content blocks from the tool result.
+	// Rendered as [image: <mime>, <bytes>] stubs appended after the text body.
+	imageBlocks []tools.ContentBlock
+
 	expanded bool
 }
 
@@ -93,17 +98,27 @@ func (b *ToolBlock) PlainText() string {
 
 // SetResult attaches the result body to the block. content is the
 // model-facing summary; isError true means the call failed; diffMeta
-// is non-nil for write_file / edit_file calls.
+// is non-nil for write_file / edit_file calls. imageBlocks carries
+// multimodal content (e.g. read of a PNG) for inline rendering.
 //
 // The transcript calls this when the matching KindToolUseResult event
 // arrives. Idempotent — re-applying the same result is a no-op (Rev
 // not bumped, cache not invalidated).
-func (b *ToolBlock) SetResult(content string, isError bool, diffMeta *fs.FileDiff) {
+func (b *ToolBlock) SetResult(content string, isError bool, diffMeta *fs.FileDiff, imageBlocks []tools.ContentBlock) {
 	plain := strings.TrimRight(content, "\n")
 	if b.hideResult && !isError {
 		// tool_search and friends — collapse to a fixed placeholder.
 		plain = "schema loaded"
 	}
+
+	// Append image block stubs to the plain-text result so they appear
+	// in search / yank and in the rendered body.
+	for _, cb := range imageBlocks {
+		if cb.Type == tools.ContentBlockImage && cb.Image != nil {
+			plain += fmt.Sprintf("\n[image: %s, %d bytes]", cb.Image.MIMEType, cb.Image.OriginalSize)
+		}
+	}
+
 	if plain == b.rawResult && isError == b.hasError && diffMeta == b.diff {
 		return
 	}
@@ -111,6 +126,7 @@ func (b *ToolBlock) SetResult(content string, isError bool, diffMeta *fs.FileDif
 	b.hasError = isError
 	b.diff = diffMeta
 	b.hasDiff = diffMeta != nil
+	b.imageBlocks = imageBlocks
 	b.rev++
 }
 

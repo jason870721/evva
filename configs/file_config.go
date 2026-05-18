@@ -24,6 +24,8 @@ type FileConfig struct {
 	DefaultProvider string `yaml:"default_provider"`
 	DefaultModel    string `yaml:"default_model"`
 
+	DefaultEffort string `yaml:"default_effort"`
+
 	FetchMaxBytes int    `yaml:"fetch_max_bytes"`
 	TavilyAPIKey  string `yaml:"tavily_api_key"`
 
@@ -49,6 +51,7 @@ func defaultFileConfig() FileConfig {
 
 		DefaultProvider: constant.DEEPSEEK.Name,
 		DefaultModel:    string(constant.DEEPSEEK_V4_PRO),
+		DefaultEffort:   "medium",
 
 		FetchMaxBytes: 100000,
 		TavilyAPIKey:  "",

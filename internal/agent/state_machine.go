@@ -304,15 +304,21 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 	if !a.IsSubagent() {
 		a.emit(event.KindToolUseResult, func(e *event.Event) {
 			e.ToolUseResult = &event.ToolUseResultPayload{
-				ToolID:   call.ID,
-				Content:  result.Content,
-				IsError:  result.IsError,
-				Metadata: result.Metadata,
+				ToolID:        call.ID,
+				Content:       result.Content,
+				IsError:       result.IsError,
+				Metadata:      result.Metadata,
+				ContentBlocks: result.ContentBlocks,
 			}
 		})
 	}
 
-	return &llm.ToolResult{ID: call.ID, Content: result.Content, IsError: result.IsError}, nil
+	return &llm.ToolResult{
+		ID:            call.ID,
+		Content:       result.Content,
+		IsError:       result.IsError,
+		ContentBlocks: result.ContentBlocks,
+	}, nil
 }
 
 // getParentSpawnGroup is the subagent-only handle on the root agent's
