@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	_ "image/gif"  // register GIF decoder
+	_ "image/gif" // register GIF decoder
 	"image/jpeg"
 	_ "image/png" // register PNG decoder
 	"log/slog"
@@ -14,9 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "golang.org/x/image/bmp"  // register BMP decoder
-	_ "golang.org/x/image/webp" // register WebP decoder
+	_ "golang.org/x/image/bmp" // register BMP decoder
 	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp" // register WebP decoder
 
 	"github.com/johnny1110/evva/internal/tools"
 )
@@ -138,7 +138,7 @@ func (t *ReadTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	if ext == ".pdf" {
 		res := readPDF(resolved, in.Pages)
 		if !res.IsError && t.tracker != nil {
-			t.tracker.Record(resolved, info.ModTime(), in.Pages != "")
+			t.tracker.RecordRead(resolved, info.ModTime(), in.Pages != "")
 		}
 		return res, nil
 	}
@@ -152,7 +152,7 @@ func (t *ReadTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 		}
 		res := readNotebook(resolved)
 		if !res.IsError && t.tracker != nil {
-			t.tracker.Record(resolved, info.ModTime(), false)
+			t.tracker.RecordRead(resolved, info.ModTime(), false)
 		}
 		return res, nil
 	}
@@ -185,7 +185,7 @@ func (t *ReadTool) readText(resolved string, info os.FileInfo, in readInput) (to
 	// mtime is a no-op for the model — point them at the earlier
 	// tool_result instead of dumping the same bytes again.
 	if t.tracker != nil && !explicitOffset && !explicitLimit {
-		if entry, ok := t.tracker.Lookup(resolved); ok && !entry.IsPartialView && entry.Timestamp.Equal(info.ModTime()) {
+		if entry, ok := t.tracker.Lookup(resolved); ok && !entry.IsPartialView && entry.HasReadOffset && entry.Timestamp.Equal(info.ModTime()) {
 			return tools.Result{Content: fileUnchangedStub}, nil
 		}
 	}
@@ -204,7 +204,7 @@ func (t *ReadTool) readText(resolved string, info os.FileInfo, in readInput) (to
 
 	if totalLines == 0 {
 		if t.tracker != nil {
-			t.tracker.Record(resolved, info.ModTime(), false)
+			t.tracker.RecordRead(resolved, info.ModTime(), false)
 		}
 		// System-reminder framing (ref FILE_READ_TOOL behavior) so
 		// the model treats this as a content warning, not actual
@@ -240,7 +240,7 @@ func (t *ReadTool) readText(resolved string, info os.FileInfo, in readInput) (to
 
 	partial := explicitOffset || endIdx < totalLines
 	if t.tracker != nil {
-		t.tracker.Record(resolved, info.ModTime(), partial)
+		t.tracker.RecordRead(resolved, info.ModTime(), partial)
 	}
 
 	selected := allLines[startIdx:endIdx]

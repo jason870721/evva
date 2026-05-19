@@ -35,6 +35,13 @@ type readEntry struct {
 	// IsPartialView is true when the read used offset>0 or a
 	// non-default limit — only part of the file made it into context.
 	IsPartialView bool
+	// HasReadOffset is true when this entry was recorded by the Read
+	// tool (which always passes a concrete offset, even if 0). Edit
+	// and Write record entries with HasReadOffset=false so the Read
+	// tool's dedup check can distinguish "the model actually read
+	// this file" from "a mutation updated the mtime." Mirrors the ref
+	// TS check: existingState.offset !== undefined.
+	HasReadOffset bool
 }
 
 func NewReadTracker() *ReadTracker {
@@ -43,7 +50,10 @@ func NewReadTracker() *ReadTracker {
 
 // Record stores that absPath was read at the given mtime, with the
 // partial flag indicating whether the read covered only a slice of
-// the file.
+// the file. HasReadOffset is left false — callers that represent an
+// actual Read tool invocation should use RecordRead instead so the
+// dedup check can tell them apart from Edit/Write post-mutation
+// updates.
 func (t *ReadTracker) Record(absPath string, mtime time.Time, partial bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -53,6 +63,24 @@ func (t *ReadTracker) Record(absPath string, mtime time.Time, partial bool) {
 	t.state[filepath.Clean(absPath)] = readEntry{
 		Timestamp:     mtime,
 		IsPartialView: partial,
+	}
+}
+
+// RecordRead is like Record but marks the entry as coming from an
+// actual Read tool call. The Read tool's dedup check only fires for
+// entries with HasReadOffset=true, so Edit/Write post-mutation
+// updates (which call Record) don't cause spurious "File unchanged
+// since last read" stubs.
+func (t *ReadTracker) RecordRead(absPath string, mtime time.Time, partial bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.state == nil {
+		t.state = make(map[string]readEntry)
+	}
+	t.state[filepath.Clean(absPath)] = readEntry{
+		Timestamp:     mtime,
+		IsPartialView: partial,
+		HasReadOffset: true,
 	}
 }
 

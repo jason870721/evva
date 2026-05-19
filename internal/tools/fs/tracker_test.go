@@ -75,6 +75,42 @@ func TestReadTracker_PathsCleanedConsistently(t *testing.T) {
 	}
 }
 
+func TestReadTracker_DedupRequiresReadOffset(t *testing.T) {
+	// Regression: Edit/Write call Record() after mutation, which
+	// updates the mtime. The Read tool's dedup check must NOT fire
+	// for those entries — the model has never seen the post-edit
+	// content. Only entries from RecordRead (HasReadOffset=true)
+	// should qualify.
+	tr := NewReadTracker()
+	mtime := time.Now()
+
+	// Simulate Edit/Write post-mutation Record.
+	tr.Record("/x/file", mtime, false)
+	entry, _ := tr.Lookup("/x/file")
+	if entry.HasReadOffset {
+		t.Fatal("Record (used by Edit/Write) must leave HasReadOffset=false")
+	}
+	if entry.Timestamp.Equal(mtime) && !entry.IsPartialView && entry.HasReadOffset {
+		t.Fatal("Record-only entry must not satisfy dedup condition")
+	}
+
+	// Simulate a real Read.
+	tr.RecordRead("/x/file", mtime, false)
+	entry, _ = tr.Lookup("/x/file")
+	if !entry.HasReadOffset {
+		t.Fatal("RecordRead must set HasReadOffset=true")
+	}
+	if !(entry.Timestamp.Equal(mtime) && !entry.IsPartialView && entry.HasReadOffset) {
+		t.Fatal("RecordRead entry must satisfy dedup condition")
+	}
+
+	// CanEdit must still accept both — the guard only affects the
+	// read dedup stub, not the edit/write safety check.
+	if ok, _ := tr.CanEdit("/x/file", mtime); !ok {
+		t.Fatal("CanEdit must accept file recorded by RecordRead")
+	}
+}
+
 func TestReadTracker_Forget(t *testing.T) {
 	tr := NewReadTracker()
 	now := time.Now()
