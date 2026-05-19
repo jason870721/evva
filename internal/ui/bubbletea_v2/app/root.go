@@ -121,6 +121,7 @@ func (a *App) Attach(c ui.Controller) {
 	a.status.SetModel(c.Model())
 	a.status.SetEffort(c.Effort())
 	a.status.SetAgentID(c.AgentID())
+	a.status.SetPermissionMode(c.PermissionModeName())
 	a.status.SetContext(0, status.ContextLimitFor(c.Model()))
 	a.view.MarkDirty()
 	a.relayout()
@@ -254,6 +255,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.view.MarkDirty()
 		return a, nil
 
+	case overlays.ApprovalRespondedMsg:
+		// The overlay already closed itself via the close=true return.
+		// Nothing to do here today; reserved for future bookkeeping
+		// (audit log, queue stats).
+		_ = m
+		return a, nil
+
 	case tea.KeyMsg:
 		return a.handleKey(m)
 	}
@@ -273,6 +281,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // the normal msg→Update path.
 func (a *App) handleAgentEvent(e event.Event) (tea.Model, tea.Cmd) {
 	a.state.Apply(e)
+
+	if e.Kind == event.KindApprovalNeeded && e.ApprovalNeeded != nil {
+		if o := overlays.NewApproval(a.controller, *e.ApprovalNeeded); o != nil {
+			a.focus.Push(o)
+			a.view.MarkDirty()
+			a.relayout()
+		}
+		return a, nil
+	}
 
 	if e.Usage != nil {
 		a.status.SetUsage(e.Usage.Cumulative)
@@ -459,6 +476,18 @@ func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.focus.Push(y)
 		a.view.MarkDirty()
 		a.relayout()
+		return a, nil
+
+	case "shift+tab":
+		// Cycle the permission stance. Takes effect immediately for the
+		// next tool call; in-flight calls captured the prior mode at
+		// dispatch.
+		if a.controller != nil {
+			next := a.controller.CyclePermissionMode()
+			a.status.SetPermissionMode(next)
+			a.state.SetHint("permission mode: " + next)
+			a.view.MarkDirty()
+		}
 		return a, nil
 
 	case "ctrl+f":

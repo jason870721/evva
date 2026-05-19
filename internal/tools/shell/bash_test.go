@@ -38,15 +38,6 @@ func TestBash_RejectsRunInBackground(t *testing.T) {
 	}
 }
 
-func TestBash_RejectsDangerouslyDisableSandbox(t *testing.T) {
-	tool := &BashTool{}
-	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
-		json.RawMessage(`{"command":"echo hi","dangerouslyDisableSandbox":true}`))
-	if !res.IsError || !strings.Contains(res.Content, "dangerouslyDisableSandbox") {
-		t.Errorf("expected sandbox rejection; got %q", res.Content)
-	}
-}
-
 func TestBash_HappyPath_ReturnsStdout(t *testing.T) {
 	tool := &BashTool{}
 	res, err := tool.Execute(context.Background(), tools.NopLogger(),

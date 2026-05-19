@@ -47,7 +47,8 @@ func (t *BashTool) Description() string {
 		"Prefer dedicated tools when one fits: Read for known paths, Edit for edits, Write for new files. " +
 		"Reserve Bash for shell-only operations.\n\n" +
 		"Timeout defaults to 120000 ms (2 min), max 600000 ms (10 min). " +
-		"run_in_background and dangerouslyDisableSandbox are reserved for future implementations and currently rejected."
+		"run_in_background is reserved for future implementations and currently rejected. " +
+		"dangerouslyDisableSandbox is accepted but ignored — the permission gate now mediates execution."
 }
 
 func (t *BashTool) Schema() json.RawMessage {
@@ -93,12 +94,9 @@ func (t *BashTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 			Content: "bash: run_in_background is not implemented yet — use Monitor (deferred) when it lands",
 		}, nil
 	}
-	if in.DangerouslyDisableSandbox {
-		return tools.Result{
-			IsError: true,
-			Content: "bash: dangerouslyDisableSandbox is reserved and currently rejected",
-		}, nil
-	}
+	// dangerouslyDisableSandbox is accepted as a no-op now that the
+	// permission gate (internal/permission) mediates execution. Drop the
+	// hard rejection so existing rules / model habits don't bounce off it.
 
 	timeout := defaultBashTimeout
 	if in.Timeout != nil {

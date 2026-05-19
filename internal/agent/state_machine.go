@@ -10,8 +10,10 @@ import (
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/internal/constant"
 	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/internal/permission"
 	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/tools/meta"
+	"github.com/johnny1110/evva/internal/tools/shell"
 )
 
 // Each function below maps to one transition of constant.AgentStatus. They
@@ -288,6 +290,10 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 		return &llm.ToolResult{ID: call.ID, Content: msg, IsError: true}, nil
 	}
 
+	if denied, denyResult := a.permissionGate(ctx, call); denied {
+		return denyResult, nil
+	}
+
 	toolLogger := a.logger.With("tool", call.Name, "tool_id", call.ID)
 	result, err := tool.Execute(ctx, toolLogger, call.Input)
 	if err != nil {
@@ -323,6 +329,145 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 		IsError:       result.IsError,
 		ContentBlocks: result.ContentBlocks,
 	}, nil
+}
+
+// permissionGate runs the call through Decide() and, if needed, the
+// approval broker. Returns (denied=true, result) when the call should NOT
+// reach tool.Execute — the caller turns this into the LLM-visible result.
+//
+// Skipped when no Store is installed (tests, headless runs without
+// permission config). When skipped, the call falls through to Execute as
+// if mode were ModeBypass — preserves prior behavior so existing tests
+// keep working.
+func (a *Agent) permissionGate(ctx context.Context, call *tools.Call) (bool, *llm.ToolResult) {
+	store := a.permissionStore
+	if store == nil {
+		return false, nil
+	}
+
+	mode := a.PermissionMode()
+	hint := buildHint(call)
+
+	pcall := permission.ToolCall{Name: call.Name, Input: call.Input}
+	d := permission.Decide(pcall, mode, store, hint)
+
+	if d.Behavior == permission.BehaviorAsk {
+		if a.permissionBroker == nil {
+			a.logger.Warn("permission.no_broker", "tool", call.Name)
+			return true, &llm.ToolResult{
+				ID:      call.ID,
+				Content: "permission required but no approval broker is installed",
+				IsError: true,
+			}
+		}
+		a.logger.Info("permission.ask", "tool", call.Name, "mode", string(mode), "reason", d.Reason)
+		req := permission.ApprovalRequest{
+			AgentID:   a.ID,
+			ToolName:  call.Name,
+			ToolInput: call.Input,
+			Mode:      mode,
+			Reason:    d.Reason,
+			Hint:      hint,
+		}
+		resp, err := a.permissionBroker.Request(ctx, req)
+		if err != nil {
+			a.logger.Warn("permission.broker.cancel", "tool", call.Name, "err", err)
+		}
+		d = resp
+		if d.AddRule != nil {
+			store.AddSessionRule(*d.AddRule)
+			a.logger.Info("permission.rule.added", "tool", d.AddRule.ToolName, "content", d.AddRule.Content, "behavior", string(d.AddRule.Behavior))
+		}
+	}
+
+	if d.Behavior == permission.BehaviorDeny {
+		a.logger.Info("permission.deny", "tool", call.Name, "mode", string(mode), "reason", d.Reason)
+		msg := "permission denied: " + d.Reason
+		if !a.IsSubagent() {
+			a.emit(event.KindToolUseResult, func(e *event.Event) {
+				e.ToolUseResult = &event.ToolUseResultPayload{
+					ToolID:  call.ID,
+					Content: msg,
+					IsError: true,
+				}
+			})
+		}
+		return true, &llm.ToolResult{ID: call.ID, Content: msg, IsError: true}
+	}
+
+	a.logger.Debug("permission.allow", "tool", call.Name, "mode", string(mode), "reason", d.Reason)
+	return false, nil
+}
+
+// buildHint pre-computes a classifier hint for tools whose risk depends on
+// the input. Today only Bash sets a non-zero hint — read/write tools have
+// uniform risk by name.
+func buildHint(call *tools.Call) permission.Hint {
+	if call.Name != "bash" {
+		return permission.Hint{}
+	}
+	cmd := extractBashCommand(call.Input)
+	c := shell.Classify(cmd)
+	return permission.Hint{
+		IsReadOnly:  c.Risk == shell.RiskReadOnly,
+		IsCommonFS:  c.IsCommonFS,
+		IsDangerous: c.Risk == shell.RiskDangerous,
+		Matched:     c.Matched,
+		Reason:      c.Reason,
+	}
+}
+
+// extractBashCommand pulls "command" out of a Bash tool input. Mirrors the
+// helper in internal/permission/matcher.go — duplicated here to keep the
+// agent package free of a doublestar dep just for this lookup.
+func extractBashCommand(raw []byte) string {
+	s := string(raw)
+	key := `"command"`
+	idx := strings.Index(s, key)
+	if idx < 0 {
+		return ""
+	}
+	rest := s[idx+len(key):]
+	colon := strings.IndexByte(rest, ':')
+	if colon < 0 {
+		return ""
+	}
+	rest = rest[colon+1:]
+	for len(rest) > 0 && (rest[0] == ' ' || rest[0] == '\t' || rest[0] == '\n' || rest[0] == '\r') {
+		rest = rest[1:]
+	}
+	if len(rest) == 0 || rest[0] != '"' {
+		return ""
+	}
+	rest = rest[1:]
+	var b strings.Builder
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if c == '\\' && i+1 < len(rest) {
+			next := rest[i+1]
+			switch next {
+			case '"':
+				b.WriteByte('"')
+			case '\\':
+				b.WriteByte('\\')
+			case 'n':
+				b.WriteByte('\n')
+			case 't':
+				b.WriteByte('\t')
+			case 'r':
+				b.WriteByte('\r')
+			default:
+				b.WriteByte(next)
+			}
+			i++
+			continue
+		}
+		if c == '"' {
+			return b.String()
+		}
+		b.WriteByte(c)
+	}
+	return ""
 }
 
 // getParentSpawnGroup is the subagent-only handle on the root agent's

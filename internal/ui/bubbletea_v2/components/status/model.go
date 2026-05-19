@@ -39,6 +39,7 @@ type StatusBar struct {
 	model   string
 	agentID string
 	effort  string
+	permMode string
 }
 
 // New constructs a StatusBar bound to the given run-state machine.
@@ -74,6 +75,11 @@ func (s *StatusBar) SetAgentID(id string) { s.agentID = id }
 // SetEffort stores the current effort level for the status bar cell.
 func (s *StatusBar) SetEffort(level string) { s.effort = level }
 
+// SetPermissionMode stores the active permission mode for the status bar
+// cell. Empty string or "default" collapses the cell so the bar isn't
+// cluttered for users in the default stance.
+func (s *StatusBar) SetPermissionMode(mode string) { s.permMode = mode }
+
 // Compose returns the rendered HUD as one styled line, padded to
 // width. Layout (left → right):
 //
@@ -94,6 +100,9 @@ func (s *StatusBar) Compose(width int, th *theme.Theme) string {
 		th.StatusKey.Render("IN ") + th.StatusValue.Render(humanTokens(s.usage.InputTokens)) +
 			th.StatusKey.Render("  OUT ") + th.StatusValue.Render(humanTokens(s.usage.OutputTokens)),
 		renderContextBar(s.contextUsed, s.contextLimit, th),
+	}
+	if cell := renderPermissionMode(s.permMode, th); cell != "" {
+		parts = append(parts, cell)
 	}
 	if id := shortAgentID(s.agentID); id != "" {
 		parts = append(parts, th.StatusKey.Render("SID ")+th.StatusValue.Render(id))
@@ -274,6 +283,30 @@ func renderEffort(level string, th *theme.Theme) string {
 	}
 	style := lipgloss.NewStyle().Foreground(color).Bold(true)
 	return " " + th.StatusKey.Render("·") + style.Render(level)
+}
+
+// renderPermissionMode returns a status-bar cell for the active mode, or
+// "" when the mode is "default" (collapsed cell — no visual noise for the
+// stance most users sit in most of the time). Color matches the stance's
+// severity: green for accept_edits (helpful), blue for plan (informational),
+// red for bypass (danger).
+func renderPermissionMode(mode string, th *theme.Theme) string {
+	if mode == "" || mode == "default" {
+		return ""
+	}
+	var color lipgloss.Color
+	switch mode {
+	case "accept_edits":
+		color = "#39FF14" // green
+	case "plan":
+		color = "#00BFFF" // blue
+	case "bypass":
+		color = "#FF003C" // red
+	default:
+		color = "#7A7E94"
+	}
+	style := lipgloss.NewStyle().Foreground(color).Bold(true)
+	return th.StatusKey.Render("⛨ ") + style.Render(mode)
 }
 
 // ContextLimitFor returns the model's context window from the

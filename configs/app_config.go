@@ -54,6 +54,12 @@ type AppConfig struct {
 	// Defaults to "medium". Sourced from evva-config.yml; /effort updates it.
 	DefaultEffort string
 
+	// PermissionMode is the startup permission stance. One of
+	// default|accept_edits|plan|bypass|auto. The -permission-mode CLI
+	// flag overrides this at boot; the TUI's Shift+Tab cycle mutates the
+	// in-memory value via SetPermissionMode (not yet persisted).
+	PermissionMode string
+
 	// Loaded metadata
 	LoadedAt time.Time
 	// DefaultMaxIterations is the loop's safety cap. Hitting it emits a
@@ -335,6 +341,7 @@ func load() *AppConfig {
 		DefaultProvider:      defProvider,
 		DefaultModel:         defModel,
 		DefaultEffort:        fileCfg.DefaultEffort,
+		PermissionMode:       fileCfg.PermissionMode,
 
 		LoadedAt: time.Now(),
 	}
@@ -377,6 +384,7 @@ func (c *AppConfig) SaveFile() error {
 		DefaultProvider:      c.DefaultProvider.Name,
 		DefaultModel:         string(c.DefaultModel),
 		DefaultEffort:        c.DefaultEffort,
+		PermissionMode:       c.PermissionMode,
 		FetchMaxBytes:        c.FetchMaxBytes,
 		TavilyAPIKey:         c.TavilyAPIKey,
 		Providers:            providers,

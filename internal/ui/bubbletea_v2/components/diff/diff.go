@@ -8,10 +8,11 @@
 //	└─ gutter (muted) ──────┘└─ content ─┘
 //
 // The gutter holds the two line-number columns and the +/-/space
-// sign; the content column holds the actual file text. Splitting them
-// matters for terminal copy-paste — selecting just the content column
-// is the right ergonomic, line numbers shouldn't paste into the
-// clipboard as if they were code.
+// sign; the content column holds the actual file text with syntax
+// highlighting applied via chroma (keyed by file extension).
+// Splitting them matters for terminal copy-paste — selecting just the
+// content column is the right ergonomic, line numbers shouldn't paste
+// into the clipboard as if they were code.
 //
 // Width handling: gutter width adapts to the largest line number in
 // the diff so a 9-line file doesn't reserve four columns of empty
@@ -45,6 +46,8 @@ func Render(d *fs.FileDiff, th *theme.Theme, width int) string {
 		return ""
 	}
 
+	hl := getHighlighter(d.Path)
+
 	maxLine := maxLineNumber(d)
 	colWidth := digits(maxLine)
 	if colWidth < 1 {
@@ -67,7 +70,7 @@ func Render(d *fs.FileDiff, th *theme.Theme, width int) string {
 		))
 		b.WriteByte('\n')
 		for _, ln := range h.Lines {
-			b.WriteString(renderRow(th, ln, colWidth, contentWidth))
+			b.WriteString(renderRow(th, ln, colWidth, contentWidth, hl))
 			b.WriteByte('\n')
 		}
 	}
@@ -77,34 +80,27 @@ func Render(d *fs.FileDiff, th *theme.Theme, width int) string {
 // renderRow assembles one diff line as gutter+content. The gutter is
 // styled via th.DiffContext (muted, no background) so terminal
 // selection of the content column doesn't drag along the line-number
-// gutter. Content keeps the kind-specific add/remove/context style.
-func renderRow(th *theme.Theme, ln fs.DiffLine, colWidth, contentWidth int) string {
+// gutter. Content gets syntax highlighting via hl when available,
+// with add / remove / context background fills from the theme.
+func renderRow(th *theme.Theme, ln fs.DiffLine, colWidth, contentWidth int, hl *highlighter) string {
 	oldCell := lineNumCell(ln.Old, colWidth)
 	newCell := lineNumCell(ln.New, colWidth)
 	gutterText := oldCell + " " + newCell + " " + signFor(ln.Kind) + " "
 	gutter := th.DiffContext.Render(gutterText)
 
-	var content string
+	var bg lipgloss.Style
 	switch ln.Kind {
 	case fs.LineAdd:
-		content = fill(th.DiffAdd, ln.Text, contentWidth)
+		bg = th.DiffAdd
 	case fs.LineRemove:
-		content = fill(th.DiffRemove, ln.Text, contentWidth)
+		bg = th.DiffRemove
 	default:
-		content = th.DiffContext.Render(ln.Text)
+		bg = th.DiffContext
 	}
+
+	content := highlightLine(ln.Text, bg, hl, contentWidth)
 
 	return gutter + content
-}
-
-// fill renders s through style, padding to width so the Background
-// extends across the column. width <= 0 falls back to natural
-// rendering (no fill).
-func fill(style lipgloss.Style, s string, width int) string {
-	if width <= 0 {
-		return style.Render(s)
-	}
-	return style.Width(width).Render(s)
 }
 
 func signFor(kind string) string {

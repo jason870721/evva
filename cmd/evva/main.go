@@ -19,6 +19,7 @@ import (
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/llm"
 	"github.com/johnny1110/evva/internal/memdir"
+	"github.com/johnny1110/evva/internal/permission"
 	"github.com/johnny1110/evva/internal/tools/fs"
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/skill"
@@ -49,6 +50,7 @@ func main() {
 	maxIters := flag.Int("max-iters", cfg.DefaultMaxIterations, "max loop iterations before pausing for Continue")
 	noTUI := flag.Bool("no-tui", false, "disable the bubbletea TUI; read a prompt and run once with plain CLI output")
 	uiKind := flag.String("ui", "v2", "TUI implementation: v1 | v2 (v2 is in active development)")
+	permModeFlag := flag.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
 	flag.Parse()
 
 	registry, _ := skill.LoadRegistry(cfg.EvvaHomeSkillsDir, cfg.WorkDirSkillsDir)
@@ -77,15 +79,41 @@ func main() {
 		fmt.Fprintln(os.Stderr, "evva:", w.Error())
 	}
 
+	// Permission system: load project + user rules, build the approval
+	// broker, resolve the active mode (CLI > YAML > "default"). One Store
+	// and one Broker per process — subagents inherit them via spawn.go.
+	permStore, permWarns := permission.Load(cfg.WorkDir, cfg.EvvaHome)
+	for _, w := range permWarns {
+		fmt.Fprintln(os.Stderr, "evva:", w.Error())
+	}
+	permBroker := permission.NewBroker()
+	permMode := resolvePermissionMode(*permModeFlag, cfg.PermissionMode)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	useTUI := !*noTUI && isTTY(os.Stdout)
 	if useTUI {
-		runTUI(ctx, prof, *maxIters, cfg.AppName, cfg.EvvaHome, registry, agentReg, *uiKind)
+		runTUI(ctx, prof, *maxIters, cfg.AppName, cfg.EvvaHome, registry, agentReg, permStore, permBroker, permMode, *uiKind)
 		return
 	}
-	runCLI(ctx, prof, *maxIters, cfg.AppName, registry, agentReg)
+	runCLI(ctx, prof, *maxIters, cfg.AppName, registry, agentReg, permStore, permBroker, permMode)
+}
+
+// resolvePermissionMode picks the active mode using CLI > YAML > "default"
+// precedence. An unknown value (typo) silently falls back to default —
+// matches how -temp / -max-tokens degrade.
+func resolvePermissionMode(cliFlag, yamlValue string) permission.Mode {
+	for _, candidate := range []string{cliFlag, yamlValue} {
+		if candidate == "" {
+			continue
+		}
+		if m, ok := permission.ParseMode(candidate); ok {
+			return m
+		}
+		fmt.Fprintf(os.Stderr, "evva: unknown permission mode %q; falling back to default\n", candidate)
+	}
+	return permission.ModeDefault
 }
 
 // skillRefsFromRegistry flattens the merged skill catalog into the
@@ -112,12 +140,19 @@ func skillRefsFromRegistry(r *skill.Registry) []sysprompt.SkillRef {
 // or "v2" (clean-architecture rewrite, in active development). Both
 // satisfy the same ui.UI contract, so the agent-side wiring is
 // identical.
-func runTUI(ctx context.Context, prof agent.Profile, maxIters int, name, evvaHome string, skills *skill.Registry, agents *agent.AgentRegistry, kind string) {
+func runTUI(ctx context.Context, prof agent.Profile, maxIters int, name, evvaHome string, skills *skill.Registry, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode, kind string) {
 	var tui ui.UI
 	switch kind {
 	default:
 		tui = bubbleteav2.New(evvaHome)
 	}
+
+	// Register the broker's approval callback to emit KindApprovalNeeded
+	// through the TUI sink. The broker keeps the goroutine parked until
+	// the TUI calls Broker.Respond with the user's choice.
+	permission.SetOnRequest(permBroker, func(req permission.ApprovalRequest) {
+		tui.Emit(buildApprovalEvent(req))
+	})
 
 	ag, err := agent.New(nil, prof,
 		agent.WithName(name),
@@ -125,6 +160,9 @@ func runTUI(ctx context.Context, prof agent.Profile, maxIters int, name, evvaHom
 		agent.WithMaxIterations(maxIters),
 		agent.WithSkillRegistry(skills),
 		agent.WithAgentRegistry(agents),
+		agent.WithPermissionStore(permStore),
+		agent.WithPermissionBroker(permBroker),
+		agent.WithPermissionMode(permMode),
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)
@@ -135,18 +173,54 @@ func runTUI(ctx context.Context, prof agent.Profile, maxIters int, name, evvaHom
 	}
 }
 
+// buildApprovalEvent converts a permission.ApprovalRequest into the
+// KindApprovalNeeded event the TUI subscribes to.
+func buildApprovalEvent(req permission.ApprovalRequest) event.Event {
+	riskHint := ""
+	switch {
+	case req.Hint.IsDangerous:
+		riskHint = "dangerous"
+	case req.Hint.IsReadOnly:
+		riskHint = "read-only"
+	}
+	return event.Event{
+		Kind:    event.KindApprovalNeeded,
+		AgentID: req.AgentID,
+		ApprovalNeeded: &event.ApprovalNeededPayload{
+			RequestID: req.ID,
+			ToolName:  req.ToolName,
+			ToolInput: req.ToolInput,
+			Mode:      string(req.Mode),
+			Reason:    req.Reason,
+			RiskHint:  riskHint,
+			Matched:   req.Hint.Matched,
+		},
+	}
+}
+
 // runCLI is the headless one-shot path used by `-no-tui` and by pipes.
 // Preserves the original behavior: read prompt → run → stream events as
 // plain text → exit. ErrIterLimit triggers a synchronous "press Enter to
 // continue" prompt on stderr.
-func runCLI(ctx context.Context, prof agent.Profile, maxIters int, name string, skills *skill.Registry, agents *agent.AgentRegistry) {
+func runCLI(ctx context.Context, prof agent.Profile, maxIters int, name string, skills *skill.Registry, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode) {
 	prompt, err := readPrompt(flag.Args())
 	if err != nil {
 		exitf(2, "evva: %v", err)
 	}
 	if prompt == "" {
-		exitf(2, "usage: evva [-temp 0.7] [-max-tokens N] [-max-iters N] [-no-tui] <prompt>")
+		exitf(2, "usage: evva [-temp 0.7] [-max-tokens N] [-max-iters N] [-no-tui] [-permission-mode default|accept_edits|plan|bypass] <prompt>")
 	}
+
+	// CLI mode has no interactive approval surface — every Ask becomes a
+	// deny with a clear message so scripts fail fast instead of hanging
+	// on a phantom prompt.
+	permission.SetOnRequest(permBroker, func(req permission.ApprovalRequest) {
+		fmt.Fprintf(os.Stderr, "evva: -no-tui denied %s — pass -permission-mode=bypass or add a rule to permissions.json\n", req.ToolName)
+		_ = permBroker.Respond(req.ID, permission.Decision{
+			Behavior: permission.BehaviorDeny,
+			Reason:   "no interactive approval surface in -no-tui mode",
+		})
+	})
 
 	ag, err := agent.New(nil, prof,
 		agent.WithName(name),
@@ -154,6 +228,9 @@ func runCLI(ctx context.Context, prof agent.Profile, maxIters int, name string, 
 		agent.WithMaxIterations(maxIters),
 		agent.WithSkillRegistry(skills),
 		agent.WithAgentRegistry(agents),
+		agent.WithPermissionStore(permStore),
+		agent.WithPermissionBroker(permBroker),
+		agent.WithPermissionMode(permMode),
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)

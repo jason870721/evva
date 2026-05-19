@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -14,9 +15,11 @@ import (
 	"github.com/johnny1110/evva/internal/llm"
 	"github.com/johnny1110/evva/internal/llmfactory"
 	"github.com/johnny1110/evva/internal/logger"
+	"github.com/johnny1110/evva/internal/permission"
 	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/toolset"
+	"github.com/johnny1110/evva/internal/ui"
 	"github.com/johnny1110/evva/pkg/common"
 )
 
@@ -68,6 +71,20 @@ type Agent struct {
 	// drive the /profile picker off of it. Subagents inherit the parent's
 	// registry via WithAgentRegistry on agent.New.
 	agentRegistry *AgentRegistry
+
+	// permissionMode is the active stance the gate enforces. Subagents
+	// inherit the parent's mode (CLAUDE.md). Set via WithPermissionMode at
+	// construction; mutated at runtime by SetPermissionMode (e.g. the TUI's
+	// Shift+Tab cycle).
+	permissionMode atomic.Value // permission.Mode
+
+	// permissionStore + permissionBroker are shared instances. permissionStore
+	// holds project/user/session rules; permissionBroker brokers the
+	// approval back-channel between the gate and the TUI. Both are
+	// process-wide: one Store + one Broker built in cmd/evva/main.go and
+	// inherited by every subagent.
+	permissionStore  *permission.Store
+	permissionBroker permission.Broker
 
 	sink event.Sink // event to ui
 
@@ -149,6 +166,7 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	}
 	a.maxIters.Store(int64(cfg.DefaultMaxIterations))
 	a.effort = cfg.DefaultEffort
+	a.permissionMode.Store(permission.ModeDefault)
 
 	// adapt options params (e.g. name, sink, maxIters..)
 	for _, opt := range opts {
@@ -296,6 +314,75 @@ func (a *Agent) Model() string {
 // ToolState exposes the shared state container so the TUI / session-persist
 // layer can read tool state through typed accessors (e.g. TaskStore.List()).
 func (a *Agent) ToolState() *toolset.ToolState { return a.toolState }
+
+// PermissionMode returns the agent's current permission stance. Safe to
+// call from any goroutine.
+func (a *Agent) PermissionMode() permission.Mode {
+	v := a.permissionMode.Load()
+	if v == nil {
+		return permission.ModeDefault
+	}
+	return v.(permission.Mode)
+}
+
+// SetPermissionMode updates the agent's permission stance at runtime
+// (Shift+Tab cycle from the TUI). Validates the mode; ignores unknown
+// values to keep the system in a known-good state.
+//
+// Mode changes don't propagate to already-spawned subagents — they
+// captured the mode at spawn time. New spawns see the updated mode.
+func (a *Agent) SetPermissionMode(m permission.Mode) {
+	if !m.Valid() {
+		return
+	}
+	a.permissionMode.Store(m)
+	a.logger.Info("agent: permission mode set", "mode", string(m))
+}
+
+// PermissionStore exposes the shared rule store. Returns nil if the
+// caller didn't install one (tests, headless CLI runs).
+func (a *Agent) PermissionStore() *permission.Store { return a.permissionStore }
+
+// PermissionBroker exposes the shared approval back-channel.
+func (a *Agent) PermissionBroker() permission.Broker { return a.permissionBroker }
+
+// CyclePermissionMode advances the mode in Shift+Tab order and returns
+// the new mode name. Implements ui.Controller.
+func (a *Agent) CyclePermissionMode() string {
+	next := a.PermissionMode().Next()
+	a.SetPermissionMode(next)
+	return string(next)
+}
+
+// PermissionModeName returns the mode as a plain string (ui.Controller
+// uses a string-typed interface to avoid importing internal/permission).
+func (a *Agent) PermissionModeName() string { return string(a.PermissionMode()) }
+
+// RespondPermission forwards the user's approval choice from the TUI to
+// the broker. The id ties back to a single blocked Broker.Request call.
+// Returns ui.ErrUnknownPermission if the id is no longer pending (already
+// answered or cancelled). Implements ui.Controller.
+func (a *Agent) RespondPermission(id string, dec ui.PermissionDecision) error {
+	if a.permissionBroker == nil {
+		return errors.New("agent: no permission broker installed")
+	}
+	pd := permission.Decision{Reason: dec.Reason}
+	switch dec.Behavior {
+	case "allow":
+		pd.Behavior = permission.BehaviorAllow
+	default:
+		pd.Behavior = permission.BehaviorDeny
+	}
+	if dec.AddRule != nil {
+		pd.AddRule = &permission.Rule{
+			ToolName: dec.AddRule.ToolName,
+			Content:  dec.AddRule.Content,
+			Behavior: permission.BehaviorAllow,
+			Source:   permission.SourceSession,
+		}
+	}
+	return a.permissionBroker.Respond(id, pd)
+}
 
 // Sink returns the agent's event sink. Used by the AGENT tool to wrap with
 // BubbleUp when spawning a subagent. Returns event.Discard if no sink was

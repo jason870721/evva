@@ -178,7 +178,7 @@ func TestToolResultDiffNeverFolds(t *testing.T) {
 			Kind: fs.LineAdd, New: i + 1, Text: "added " + string(rune('a'+i%26)),
 		})
 	}
-	d := &fs.FileDiff{Path: "x.go", Op: fs.OpCreate, Hunks: []fs.DiffHunk{
+	d := &fs.FileDiff{Path: "x", Op: fs.OpCreate, Hunks: []fs.DiffHunk{
 		{OldStart: 0, OldCount: 0, NewStart: 1, NewCount: 50, Lines: lines},
 	}}
 	tb.SetResult("created x.go", false, d, nil)

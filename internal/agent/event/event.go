@@ -53,6 +53,13 @@ const (
 	KindToolUseStart  Kind = "tool_use_start"
 	KindToolUseResult Kind = "tool_use_result"
 
+	// KindApprovalNeeded is emitted when the permission gate decides a tool
+	// call must be approved by the user. The TUI subscribes, opens an
+	// approval overlay, and calls Broker.Respond with the user's decision.
+	// The blocked tool goroutine sleeps in Broker.Request until the answer
+	// arrives (or the context is cancelled).
+	KindApprovalNeeded Kind = "approval_needed"
+
 	KindCompacting    Kind = "compacting"
 	KindCompactingEnd Kind = "compacting_end" // pair to KindCompacting; TUI removes the inflight block
 
@@ -86,8 +93,9 @@ type Event struct {
 	Turn          *TurnPayload          `json:",omitempty"`
 	Thinking      *TextPayload          `json:",omitempty"`
 	Text          *TextPayload          `json:",omitempty"`
-	ToolUseStart  *ToolUseStartPayload  `json:",omitempty"`
-	ToolUseResult *ToolUseResultPayload `json:",omitempty"`
+	ToolUseStart   *ToolUseStartPayload   `json:",omitempty"`
+	ToolUseResult  *ToolUseResultPayload  `json:",omitempty"`
+	ApprovalNeeded *ApprovalNeededPayload `json:",omitempty"`
 	Error         *ErrorPayload         `json:",omitempty"`
 	StoreUpdate   *StoreUpdatePayload   `json:",omitempty"`
 	Usage         *UsagePayload         `json:",omitempty"`
@@ -147,6 +155,23 @@ type ToolUseResultPayload struct {
 	IsError       bool
 	Metadata      any
 	ContentBlocks []tools.ContentBlock
+}
+
+// ApprovalNeededPayload is the wire shape of a pending permission prompt.
+// The TUI receives one of these per blocked tool call. Carries every piece
+// of context the user needs to decide: the tool name, the raw input (UI
+// summarises), the active mode, and the gate's reason for asking.
+//
+// RequestID is the Broker's correlation key — the TUI uses it when calling
+// Broker.Respond. RiskHint is non-empty for Bash; other tools see "".
+type ApprovalNeededPayload struct {
+	RequestID string
+	ToolName  string
+	ToolInput json.RawMessage
+	Mode      string
+	Reason    string
+	RiskHint  string
+	Matched   string
 }
 
 // ErrorPayload reports a Go-level failure that aborted the loop. Tool errors

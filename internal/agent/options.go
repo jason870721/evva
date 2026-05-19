@@ -3,6 +3,7 @@ package agent
 import (
 	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/agent/event"
+	"github.com/johnny1110/evva/internal/permission"
 	"github.com/johnny1110/evva/internal/tools/skill"
 )
 
@@ -68,6 +69,36 @@ func WithMaxIterations(n int) Option {
 		default:
 			a.maxIters.Store(int64(n))
 		}
+	}
+}
+
+// WithPermissionMode sets the agent's initial permission stance. Subagents
+// inherit the parent's mode at spawn time; the runtime cycle (Shift+Tab)
+// uses Agent.SetPermissionMode.
+func WithPermissionMode(m permission.Mode) Option {
+	return func(a *Agent) {
+		if !m.Valid() {
+			return
+		}
+		a.permissionMode.Store(m)
+	}
+}
+
+// WithPermissionStore installs the rule store. One process-wide Store is
+// built in cmd/evva/main.go and threaded into the root agent and every
+// subagent so session rules added in one place are visible everywhere.
+func WithPermissionStore(s *permission.Store) Option {
+	return func(a *Agent) {
+		a.permissionStore = s
+	}
+}
+
+// WithPermissionBroker installs the approval back-channel. Same pattern
+// as WithPermissionStore: one Broker per process, shared by all agents.
+// The TUI registers its onRequest callback on this Broker at startup.
+func WithPermissionBroker(b permission.Broker) Option {
+	return func(a *Agent) {
+		a.permissionBroker = b
 	}
 }
 

@@ -195,6 +195,7 @@ Switching is refused if a run is in flight; press Esc first to cancel, then `/mo
 | `Ctrl+O` | toggle expand-all tool results (fold/unfold long bash + read output) |
 | `Ctrl+Y` | open **yank mode** — pick a block and copy its clean content (see below) |
 | `Ctrl+F` | open **transcript search** — type a query, `Enter`/`n` cycles matches |
+| `Shift+Tab` | cycle the **permission mode** — `default → accept_edits → plan → bypass → …` (see below) |
 | `PgUp` / `PgDown` / `Home` / `End` | scroll transcript |
 | mouse wheel | scroll transcript |
 
@@ -243,28 +244,120 @@ If the write fails (payload too large at >100 KB, terminal blocked it), the stat
 
 **Why not native drag-select?** evva turns on mouse capture so the wheel can scroll the transcript. That trade-off means drag-and-drop copy stops happening natively — and even when modern terminals honor a `Shift`/`Alt`+drag escape hatch, the resulting selection still includes the rendered gutter glyphs (since they're part of what's painted on screen). Yank mode is the workflow that round-trips clean content out of the program.
 
-### Approval prompts (filesystem writes)
+### Permission modes
 
-When the agent attempts to `write_file` or `edit_file`, an overlay shows the proposed diff and pauses for confirmation:
+evva gates every tool call through a **permission mode**. Four modes, cycled with `Shift+Tab`:
+
+| mode | auto-allowed without asking | best for |
+| --- | --- | --- |
+| **`default`** | Read-only access. Read tools (`read`, `tree`, `grep`, `glob`, `web_*`, `json_query`, `calc`), agent self-coordination (`agent`, `task_*`, `todo_write`, `tool_search`, `skill`, `ask_user_question`), and **read-only bash commands** (`ls`, `cat`, `head`, `grep`, `git status`, `git log`, …). File writes and any other bash command **ask**. | Beginners, sensitive work, default stance |
+| **`accept_edits`** | Same as `default` + file edits (`edit`, `write`, `notebook_edit`) + common filesystem bash commands (`mkdir`, `touch`, `mv`, `cp`, `rmdir`, `ln`, `chmod`, `chown`). | Iterating on code under review |
+| **`plan`** | Same read-only safelist as `default`. Anything outside that set is **denied outright** (no prompt). | Exploring a codebase before deciding what to change |
+| **`bypass`** | Everything. Dangerous-command classification still logs in the background, but never blocks. | **Isolated containers and VMs only** — propagates to subagents |
+
+**Read-only ≠ no subagents.** "Read-only access" only protects the filesystem. Agent meta-tools — spawning a subagent, creating tasks, writing a todo list — are agent-internal coordination and remain auto-allowed in `default` and `plan`. The model can still plan and delegate; it just can't write files or run shell unless you approve.
+
+The active mode shows in the status bar as a colored badge (`⛨ plan`, `⛨ bypass`, …). `default` collapses the cell so the bar isn't noisy.
+
+#### Starting in a specific mode
+
+```bash
+evva -permission-mode=plan                # safest: investigate first
+evva -permission-mode=accept_edits        # auto-apply edits + safe fs cmds
+evva -permission-mode=bypass              # no prompts; sandboxed envs only
+```
+
+CLI flag takes precedence; persistent default lives in `evva-config.yml`:
+
+```yaml
+permission_mode: default     # default | accept_edits | plan | bypass
+```
+
+### Approval prompts
+
+In `default` / `accept_edits` / `plan` / `auto` modes, anything that needs your approval opens a modal:
 
 ```
-┌─ APPROVE WRITE /path/to/file ───────────────────┐
-│ <unified diff of the proposed change>           │
-│                                                 │
-│ ▶ Yes, apply this change                        │
-│   Yes, and approve all remaining changes this session
-│   No — let me tell the agent what to do instead │
-└─────────────────────────────────────────────────┘
+┌─ APPROVAL ─────────────────────────────────────────┐
+│ tool: bash                                         │
+│ mode: default  risk: dangerous (sudo)              │
+│ reason: matches dangerous prefix                   │
+│                                                    │
+│ input: sudo rm /tmp/evil-file                      │
+│                                                    │
+│ ▶ [1] Allow once                                   │
+│   [2] Allow for this session                       │
+│   [3] Deny                                         │
+│                                                    │
+│ [↑↓] choose · [Enter] confirm · [Esc] deny         │
+└────────────────────────────────────────────────────┘
 ```
 
 | key | effect |
 | --- | --- |
-| `↑` / `↓` | move the cursor between options |
-| `Enter` | dispatch the selected option |
-| `Esc` | shortcut for "tell the agent what to do instead" — switches to a textinput for your redirection |
-| `Ctrl+C` | decline + quit |
+| `↑` / `↓` | move between buttons |
+| `1` / `a` | Allow once — runs this call only |
+| `2` / `s` | Allow for this session — also adds an in-memory rule so similar calls don't re-prompt |
+| `3` / `d` | Deny — Enter again to type an optional reason for the model |
+| `Enter` | confirm the highlighted choice (or commit a deny reason) |
+| `Esc` | shortcut for deny |
+| `Ctrl+C` | deny + quit |
 
-The "approve all" option is sticky for the remainder of the session. Multiple parallel writes (the agent emitting several `write_file` calls in one turn) queue automatically — you see one prompt at a time, paste works in the feedback field.
+**"Allow for this session"** picks a sensible rule shape from the call: for `bash` it stores the first token (so approving `git status` allows future `git …` calls, not arbitrary commands); for `read`/`write`/`edit` it stores the file path; other tools become tool-wide. Session rules vanish when you quit; persist them by hand-editing `permissions.json` (next section).
+
+Parallel approvals (the agent emitting two `bash` calls in one turn) stack — resolve the top one and the next surfaces.
+
+### Permission rules — `.evva/permissions.json`
+
+Rules persist your approvals so you don't see the same prompt twice across runs. Two scopes:
+
+- `<workdir>/.evva/permissions.json` — **project**: lives with the repo, share via git if you want
+- `~/.evva/permissions.json` — **user**: applies in every working directory
+
+Format mirrors Claude Code's settings.json `permissions` block:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "bash(git:*)",
+      "bash(npm:*)",
+      "read(src/**)",
+      "edit",
+      "tree"
+    ],
+    "deny": [
+      "bash(sudo:*)",
+      "bash(rm -rf /)"
+    ],
+    "ask": [
+      "bash(npm publish)"
+    ]
+  }
+}
+```
+
+**Rule grammar**: `ToolName` matches every call to that tool. `ToolName(content)` adds a content match — tool-specific:
+
+| tool | content syntax | examples |
+| --- | --- | --- |
+| `bash` | `prefix:*`, `pattern *`, `git *`, or exact command | `bash(git:*)`, `bash(npm install *)`, `bash(make build)` |
+| `read`, `write`, `edit`, `notebook_edit` | doublestar glob against the `file_path` | `read(src/**)`, `write(./tmp/*.txt)`, `edit(**/*.go)` |
+| anything else | exact string match against the raw input | rare; prefer tool-wide rules |
+
+**Precedence**:
+
+1. `bypass` mode — always allow, rules ignored.
+2. **deny rules** — checked first, win over allow in every non-bypass mode.
+3. **ask rules** — force a prompt even if a broader allow (or mode safelist) would have matched.
+4. `plan` mode + tool not in read-only safelist → **deny** (no prompt).
+5. Read-only / self-coordination safelist → allow.
+6. Bash + classifier says read-only (`ls`, `cat`, `git status`, …) → allow.
+7. `accept_edits` only: `edit`/`write`/`notebook_edit` → allow; bash common-fs command (`mkdir`/`mv`/`cp`/…) → allow.
+8. **allow rules** — match → run.
+9. Fallback — ask.
+
+Source priority within each behavior (deny/ask/allow) is `session > project > user`, so a session "allow for this session" beats a user-scope rule but never beats a deny.
 
 ### Sub-agents
 
@@ -290,6 +383,9 @@ display_thinking: true
 # Default model used at startup (overwritten by /model swap)
 default_provider: deepseek
 default_model: deepseek-v4-pro
+
+# Permission stance at startup. Cycle at runtime with Shift+Tab; -permission-mode CLI flag overrides.
+permission_mode: default     # default | accept_edits | plan | bypass
 
 # Web tooling
 fetch_max_bytes: 100000
@@ -323,6 +419,8 @@ evva                                # interactive TUI (when stdout is a TTY)
 evva -temp 0.7                      # sampling temperature (default unset)
 evva -max-tokens 2048               # per-completion output cap (overrides YAML)
 evva -max-iters 40                  # loop iteration cap (overrides YAML)
+evva -permission-mode=plan          # boot in plan mode (read-only; see "Permission modes")
+evva -permission-mode=bypass        # boot with the gate disabled
 evva -no-tui "explain loop.go"      # one-shot plain-text mode
 echo "list files in /tmp" | evva -no-tui   # piped prompt
 ```
@@ -333,7 +431,7 @@ echo "list files in /tmp" | evva -no-tui   # piped prompt
 
 **Interactive TUI** (default when stdout is a TTY). Transcript, panels, status bar, the works.
 
-**Plain CLI** (`-no-tui`, or when stdout is piped). One-shot flow: read a prompt from args/stdin → run the agent → stream events as plain text → exit. Approval prompts switch to a numbered stdin menu. Useful for scripts and CI.
+**Plain CLI** (`-no-tui`, or when stdout is piped). One-shot flow: read a prompt from args/stdin → run the agent → stream events as plain text → exit. CLI mode has no interactive approval surface — any call that would prompt is **denied automatically** with a hint to pass `-permission-mode=bypass` or add a rule to `permissions.json`. Useful for scripts and CI.
 
 ---
 

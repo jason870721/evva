@@ -58,6 +58,9 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 		WithMaxIterations(int(a.maxIters.Load())), // share iters with child
 		WithAsync(req.AsyncMode),
 		WithAgentRegistry(a.agentRegistry), // subagents inherit the parent's registry
+		WithPermissionMode(a.PermissionMode()),
+		WithPermissionStore(a.permissionStore),
+		WithPermissionBroker(a.permissionBroker),
 	)
 	if err != nil {
 		return "", fmt.Errorf("spawn: new agent: %w", err)

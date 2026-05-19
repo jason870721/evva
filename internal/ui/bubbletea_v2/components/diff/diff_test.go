@@ -45,7 +45,7 @@ func TestRenderWhiteOnSolid(t *testing.T) {
 	out := Render(d, theme.Default(), 60)
 
 	for _, want := range []string{
-		"hello", "goodbye", "package foo",
+		"hello", "goodbye", "package", "foo",
 		"@@ -1,2 +1,2 @@", "diff edit a/foo.go b/foo.go",
 	} {
 		if !strings.Contains(out, want) {
@@ -57,6 +57,12 @@ func TestRenderWhiteOnSolid(t *testing.T) {
 	// _something_ visual.
 	if !strings.Contains(out, "\x1b[") {
 		t.Errorf("expected at least one ANSI escape in styled output, got: %q", out)
+	}
+
+	// Syntax highlighting: chroma colours keywords and identifiers.
+	// Monokai keyword pink (#f92672) should appear on at least one token.
+	if !strings.Contains(out, "249;38;113") {
+		t.Errorf("expected monokai keyword pink (#f92672) in syntax-highlighted output, missing")
 	}
 }
 
@@ -122,7 +128,11 @@ func TestRenderCreateOp(t *testing.T) {
 		}},
 	}
 	out := Render(d, theme.Default(), 0)
-	for _, want := range []string{"diff create a/new.go b/new.go", "package x", "var v int", "@@ -0,0 +1,2 @@"} {
+	for _, want := range []string{
+		"diff create a/new.go b/new.go",
+		"package", "x", "var", "v", "int",
+		"@@ -0,0 +1,2 @@",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in create-op render: %q", want, out)
 		}

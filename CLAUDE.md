@@ -121,10 +121,11 @@ Unblocks plan mode (Phase 7) and worktree (Phase 10). Plan mode is a permission 
 Design questions resolved at the start of this phase:
 
 - Rule grammar — glob? regex? per-tool? Reference: `ref/src/utils/permissions/permissionRuleParser.ts`.
-- Storage scope — per-project (`.evva/permissions.json`) vs per-user vs per-session.
-- Lifecycle — ask-once vs always-allow vs deny; mode transitions (`default: accept_edits` → `plan` → `bypass`).
+- Storage scope — project (`.evva/permissions.json`) + per-session (design session storage in `<EVVA_HOME>/sessions/{session_id}/` prepare for phase 13).
+- permit pattern list in project permissions.json is always bypass.
+- Lifecycle — ask-once vs allow in this session vs allow in this project vs deny(with optional user input reason); mode transitions (`default: accept_edits` → `plan` → `bypass(auto)`).
 - Override flow — equivalent of `--dangerously-skip-permissions`, sandbox flag, etc.
-- Subagent inheritance — follow the ref source code design.
+- Subagent inheritance — follow the ref source code design maybe (I have no idea about this).
 
 Work:
 
@@ -209,6 +210,12 @@ Niche. Ship after the higher-leverage phases.
   - `high`
   - `ultra`
 - each llm implement can convert the effort to the provider's API request params. if provider only support 2 class of effort, map `low` → "fast" and `medium`/`high`/`ultra` → "best" (or equivalent).
+
+### Phase 13 - Session Storage (/resume)
+
+- support `/resume` slash command to resume a session from a previous session file.
+- store session file in `<EVVA_HOME>/sessions/{session_id}/`.
+
 
 ### Phase 13 — MCP support + bundled skills (v2 tier)
 

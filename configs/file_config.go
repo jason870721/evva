@@ -26,6 +26,11 @@ type FileConfig struct {
 
 	DefaultEffort string `yaml:"default_effort"`
 
+	// PermissionMode is the agent's startup stance. One of:
+	// "default" | "accept_edits" | "plan" | "bypass" | "auto". Defaults to
+	// "default" when omitted. The -permission-mode CLI flag overrides this.
+	PermissionMode string `yaml:"permission_mode"`
+
 	FetchMaxBytes int    `yaml:"fetch_max_bytes"`
 	TavilyAPIKey  string `yaml:"tavily_api_key"`
 
@@ -52,6 +57,7 @@ func defaultFileConfig() FileConfig {
 		DefaultProvider: constant.DEEPSEEK.Name,
 		DefaultModel:    string(constant.DEEPSEEK_V4_PRO),
 		DefaultEffort:   "medium",
+		PermissionMode:  "default",
 
 		FetchMaxBytes: 100000,
 		TavilyAPIKey:  "",

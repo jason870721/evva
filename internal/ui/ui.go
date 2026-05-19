@@ -130,4 +130,39 @@ type Controller interface {
 	// ErrRunInProgress when a Run is currently driving the loop —
 	// the TUI surfaces that as a hint rather than retrying.
 	Compact(ctx context.Context, kind string) error
+
+	// PermissionModeName returns the agent's current permission stance
+	// as a string ("default", "accept_edits", "plan", "bypass", "auto").
+	// Named verbosely to avoid collision with the typed Agent.PermissionMode()
+	// accessor that returns the internal Mode enum.
+	PermissionModeName() string
+
+	// CyclePermissionMode advances the mode in Shift+Tab order and
+	// returns the new mode name. Wraps around at the end of the cycle.
+	CyclePermissionMode() string
+
+	// RespondPermission delivers the user's approval/denial back to
+	// the blocked tool goroutine. id is the RequestID from the
+	// KindApprovalNeeded event payload. Returns an error only when
+	// the id is unknown (already responded / cancelled).
+	RespondPermission(id string, decision PermissionDecision) error
+}
+
+// PermissionDecision is the UI-side payload returned through
+// Controller.RespondPermission. It mirrors permission.Decision but uses
+// strings so the ui package doesn't depend on internal/permission.
+type PermissionDecision struct {
+	Behavior string // "allow" | "deny"
+	Reason   string
+	// AddRule is non-nil when the user picked "Allow for this session" —
+	// the agent's gate adds it to the in-memory store before falling
+	// through to tool.Execute.
+	AddRule *PermissionRuleSeed
+}
+
+// PermissionRuleSeed is the minimum info the agent needs to construct a
+// session-scope allow rule. Source is fixed to session by the agent.
+type PermissionRuleSeed struct {
+	ToolName string
+	Content  string // empty means tool-wide
 }
