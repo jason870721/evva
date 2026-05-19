@@ -189,9 +189,9 @@ func newUserPromptBlock(text string) *UserPromptBlock {
 	return &UserPromptBlock{id: allocID(), rev: 1, text: text}
 }
 
-func (b *UserPromptBlock) ID() uint64       { return b.id }
-func (b *UserPromptBlock) Rev() uint64      { return b.rev }
-func (b *UserPromptBlock) Kind() Kind       { return KindUserPrompt }
+func (b *UserPromptBlock) ID() uint64        { return b.id }
+func (b *UserPromptBlock) Rev() uint64       { return b.rev }
+func (b *UserPromptBlock) Kind() Kind        { return KindUserPrompt }
 func (b *UserPromptBlock) PlainText() string { return b.text }
 
 func (b *UserPromptBlock) Render(ctx RenderContext) string {
@@ -226,8 +226,8 @@ func styleUserPromptLines(text string, th *theme.Theme) string {
 // ============================================================================
 
 type ErrorBlock struct {
-	id   uint64
-	rev  uint64
+	id    uint64
+	rev   uint64
 	stage string
 	err   string
 }
@@ -236,10 +236,12 @@ func newErrorBlock(stage, err string) *ErrorBlock {
 	return &ErrorBlock{id: allocID(), rev: 1, stage: stage, err: err}
 }
 
-func (b *ErrorBlock) ID() uint64       { return b.id }
-func (b *ErrorBlock) Rev() uint64      { return b.rev }
-func (b *ErrorBlock) Kind() Kind       { return KindError }
-func (b *ErrorBlock) PlainText() string { return fmt.Sprintf("✘ [%s] %s", strings.ToUpper(b.stage), b.err) }
+func (b *ErrorBlock) ID() uint64  { return b.id }
+func (b *ErrorBlock) Rev() uint64 { return b.rev }
+func (b *ErrorBlock) Kind() Kind  { return KindError }
+func (b *ErrorBlock) PlainText() string {
+	return fmt.Sprintf("✘ [%s] %s", strings.ToUpper(b.stage), b.err)
+}
 
 func (b *ErrorBlock) Render(ctx RenderContext) string {
 	styled := ctx.Theme.ErrorBanner.Render(fmt.Sprintf("✘ [%s] %s", strings.ToUpper(b.stage), b.err))
@@ -281,9 +283,9 @@ func newIterLimitBlock(reached int) *SystemBlock {
 	}
 }
 
-func (b *SystemBlock) ID() uint64       { return b.id }
-func (b *SystemBlock) Rev() uint64      { return b.rev }
-func (b *SystemBlock) Kind() Kind       { return KindSystem }
+func (b *SystemBlock) ID() uint64        { return b.id }
+func (b *SystemBlock) Rev() uint64       { return b.rev }
+func (b *SystemBlock) Kind() Kind        { return KindSystem }
 func (b *SystemBlock) PlainText() string { return b.text }
 
 func (b *SystemBlock) Render(ctx RenderContext) string {
@@ -369,9 +371,9 @@ func newSyntheticBlock(text string) *SyntheticBlock {
 	return &SyntheticBlock{id: allocID(), rev: 1, text: text}
 }
 
-func (b *SyntheticBlock) ID() uint64       { return b.id }
-func (b *SyntheticBlock) Rev() uint64      { return b.rev }
-func (b *SyntheticBlock) Kind() Kind       { return KindSynthetic }
+func (b *SyntheticBlock) ID() uint64        { return b.id }
+func (b *SyntheticBlock) Rev() uint64       { return b.rev }
+func (b *SyntheticBlock) Kind() Kind        { return KindSynthetic }
 func (b *SyntheticBlock) PlainText() string { return stripANSI(b.text) }
 
 func (b *SyntheticBlock) Render(ctx RenderContext) string {
@@ -395,9 +397,9 @@ func newTurnEndBlock(iter int) *TurnEndBlock {
 	return &TurnEndBlock{id: allocID(), rev: 1, iter: iter}
 }
 
-func (b *TurnEndBlock) ID() uint64       { return b.id }
-func (b *TurnEndBlock) Rev() uint64      { return b.rev }
-func (b *TurnEndBlock) Kind() Kind       { return KindSystem }
+func (b *TurnEndBlock) ID() uint64        { return b.id }
+func (b *TurnEndBlock) Rev() uint64       { return b.rev }
+func (b *TurnEndBlock) Kind() Kind        { return KindSystem }
 func (b *TurnEndBlock) PlainText() string { return "" }
 
 func (b *TurnEndBlock) Render(ctx RenderContext) string {

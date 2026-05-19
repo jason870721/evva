@@ -180,6 +180,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.transcript.SetSpinnerFrame(a.state.Frame())
 			a.view.MarkDirty()
 		}
+		// If the thinking sprite is mounted, advance its walk cycle.
+		if a.transcript.HasThinkingSprite() {
+			a.transcript.SetThinkingSpriteFrame(a.state.Frame())
+			a.view.MarkDirty()
+		}
 		return a, status.SpinnerTickCmd()
 
 	case events.AgentEventMsg:
@@ -280,7 +285,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // We return the Clear as a tea.Cmd so the cascade flows through
 // the normal msg→Update path.
 func (a *App) handleAgentEvent(e event.Event) (tea.Model, tea.Cmd) {
+	prevState := a.state.Current()
 	a.state.Apply(e)
+
+	// Show the thinking sprite when the agent enters the thinking
+	// sub-phase; hide it when it leaves. No-op on no transition.
+	if a.state.Current().IsActive() {
+		a.transcript.ShowThinkingSprite()
+		a.view.MarkDirty()
+	} else if prevState.IsActive() {
+		a.transcript.HideThinkingSprite()
+		a.view.MarkDirty()
+	}
 
 	if e.Kind == event.KindApprovalNeeded && e.ApprovalNeeded != nil {
 		if o := overlays.NewApproval(a.controller, *e.ApprovalNeeded); o != nil {
@@ -396,6 +412,7 @@ func (a *App) handleRunDone(err error) (tea.Model, tea.Cmd) {
 		interrupted = true
 	}
 	a.state.OnRunDone(err, interrupted)
+	a.transcript.HideThinkingSprite()
 	return a, nil
 }
 
@@ -656,6 +673,7 @@ func (a *App) startRun(prompt string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.runCancel = cancel
 	a.state.OnSubmit()
+	a.transcript.ShowThinkingSprite()
 
 	p := a.program
 	go func() {
@@ -676,6 +694,7 @@ func (a *App) startContinue() {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.runCancel = cancel
 	a.state.OnSubmit()
+	a.transcript.ShowThinkingSprite()
 
 	p := a.program
 	go func() {

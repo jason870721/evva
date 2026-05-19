@@ -53,6 +53,11 @@ type Transcript struct {
 	// the blocks slice.
 	compacting *CompactingBlock
 
+	// thinkingSprite is the live ThinkingSpriteBlock (or nil).
+	// Appended to blocks when the agent enters StateThinking;
+	// removed when it leaves. Frame advanced on spinner ticks.
+	thinkingSprite *ThinkingSpriteBlock
+
 	// expanded is the transcript-wide Ctrl+O override. true means
 	// every tool block renders in full; false means each block
 	// decides based on its own state.
@@ -170,6 +175,7 @@ func (t *Transcript) Reset() {
 	t.inflightThink = nil
 	t.toolBlocks = nil
 	t.compacting = nil
+	t.thinkingSprite = nil
 	t.cache.Clear()
 	if banner != nil {
 		t.blocks = append(t.blocks, banner)
@@ -295,6 +301,41 @@ func (t *Transcript) SetSpinnerFrame(frame int) {
 // spinner tick — no compaction means no animation needed.
 func (t *Transcript) HasInflightCompacting() bool {
 	return t.compacting != nil
+}
+
+// ShowThinkingSprite appends the animated thinking sprite to the end
+// of the blocks slice. No-op when already shown.
+func (t *Transcript) ShowThinkingSprite() {
+	if t.thinkingSprite != nil {
+		return
+	}
+	sb := newThinkingSpriteBlock()
+	t.thinkingSprite = sb
+	t.blocks = append(t.blocks, sb)
+}
+
+// HideThinkingSprite removes the animated thinking sprite from the
+// blocks slice. No-op when not shown.
+func (t *Transcript) HideThinkingSprite() {
+	if t.thinkingSprite == nil {
+		return
+	}
+	t.removeBlock(t.thinkingSprite)
+	t.thinkingSprite = nil
+}
+
+// HasThinkingSprite reports whether the thinking sprite is currently
+// mounted. App uses this to advance the frame on spinner ticks.
+func (t *Transcript) HasThinkingSprite() bool {
+	return t.thinkingSprite != nil
+}
+
+// SetThinkingSpriteFrame advances the thinking sprite's animation
+// frame. No-op when the sprite isn't mounted.
+func (t *Transcript) SetThinkingSpriteFrame(frame int) {
+	if t.thinkingSprite != nil {
+		t.thinkingSprite.SetFrame(frame)
+	}
 }
 
 // resetInflight closes the active streaming text/thinking blocks
