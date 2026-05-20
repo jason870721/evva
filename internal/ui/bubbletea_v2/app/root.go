@@ -285,6 +285,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_ = m
 		return a, nil
 
+	case overlays.QuestionRespondedMsg:
+		// Same pattern as ApprovalRespondedMsg — overlay already closed itself.
+		_ = m
+		return a, nil
+
 	case tea.KeyMsg:
 		return a.handleKey(m)
 	}
@@ -318,6 +323,15 @@ func (a *App) handleAgentEvent(e event.Event) (tea.Model, tea.Cmd) {
 
 	if e.Kind == event.KindApprovalNeeded && e.ApprovalNeeded != nil {
 		if o := overlays.NewApproval(a.controller, *e.ApprovalNeeded); o != nil {
+			a.focus.Push(o)
+			a.view.MarkDirty()
+			a.relayout()
+		}
+		return a, nil
+	}
+
+	if e.Kind == event.KindQuestionNeeded && e.QuestionNeeded != nil {
+		if o := overlays.NewQuestion(a.controller, *e.QuestionNeeded); o != nil {
 			a.focus.Push(o)
 			a.view.MarkDirty()
 			a.relayout()

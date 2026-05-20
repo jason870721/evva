@@ -161,6 +161,31 @@ type Controller interface {
 	// KindApprovalNeeded event payload. Returns an error only when
 	// the id is unknown (already responded / cancelled).
 	RespondPermission(id string, decision PermissionDecision) error
+
+	// RespondQuestion delivers the user's answers back to the blocked
+	// AskUserQuestion tool goroutine. id is the RequestID from the
+	// KindQuestionNeeded event payload.
+	RespondQuestion(id string, resp QuestionResponse) error
+}
+
+// QuestionResponse is the UI-side payload returned through
+// Controller.RespondQuestion. It mirrors question.Response but uses plain
+// Go types so the ui package doesn't import internal/question.
+type QuestionResponse struct {
+	// Answers maps question text → answer string. For single-select the value
+	// is the chosen option label; for multi-select it is comma-separated
+	// labels; for "Other" it is the user-typed free text.
+	Answers map[string]string
+	// Annotations is keyed by question text. Present only when the user
+	// selected an option that had a preview, or typed "Other" notes.
+	Annotations map[string]QuestionAnnotation
+}
+
+// QuestionAnnotation captures the preview content (if any) of the option the
+// user selected, plus any free-text notes they added.
+type QuestionAnnotation struct {
+	Notes   string
+	Preview string
 }
 
 // PermissionDecision is the UI-side payload returned through

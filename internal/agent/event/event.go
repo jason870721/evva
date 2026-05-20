@@ -60,6 +60,12 @@ const (
 	// arrives (or the context is cancelled).
 	KindApprovalNeeded Kind = "approval_needed"
 
+	// KindQuestionNeeded is emitted when the AskUserQuestion tool is invoked.
+	// The TUI subscribes, opens a question overlay, and calls
+	// Controller.RespondQuestion with the user's answers. The blocked tool
+	// goroutine sleeps in question.Broker.Request until the answer arrives.
+	KindQuestionNeeded Kind = "question_needed"
+
 	KindCompacting    Kind = "compacting"
 	KindCompactingEnd Kind = "compacting_end" // pair to KindCompacting; TUI removes the inflight block
 
@@ -96,6 +102,7 @@ type Event struct {
 	ToolUseStart   *ToolUseStartPayload   `json:",omitempty"`
 	ToolUseResult  *ToolUseResultPayload  `json:",omitempty"`
 	ApprovalNeeded *ApprovalNeededPayload `json:",omitempty"`
+	QuestionNeeded *QuestionNeededPayload `json:",omitempty"`
 	Error         *ErrorPayload         `json:",omitempty"`
 	StoreUpdate   *StoreUpdatePayload   `json:",omitempty"`
 	Usage         *UsagePayload         `json:",omitempty"`
@@ -175,6 +182,33 @@ type ApprovalNeededPayload struct {
 	RiskHint    string
 	Matched     string
 	PlanContent string
+}
+
+// QuestionNeededPayload is the wire shape of a pending question prompt.
+// The TUI receives one of these when AskUserQuestion is invoked. RequestID
+// is the question.Broker's correlation key used when calling
+// Controller.RespondQuestion.
+type QuestionNeededPayload struct {
+	RequestID string
+	AgentID   string
+	Questions []QuestionItem
+}
+
+// QuestionItem mirrors question.Question for the event layer so event.go
+// does not import internal/question (which would create a cycle through
+// toolset → tools/ux → question → event).
+type QuestionItem struct {
+	Question    string
+	Header      string
+	MultiSelect bool
+	Options     []QuestionOption
+}
+
+// QuestionOption mirrors question.Option for the same reason.
+type QuestionOption struct {
+	Label       string
+	Description string
+	Preview     string
 }
 
 // ErrorPayload reports a Go-level failure that aborted the loop. Tool errors

@@ -69,8 +69,10 @@ func registerBuiltins(r *Registry) {
 	r.MustRegister(tools.WEB_FETCH, func(s *ToolState) (tools.Tool, error) { return web.Fetch, nil })
 	r.MustRegister(tools.WEB_SEARCH, func(s *ToolState) (tools.Tool, error) { return web.Search, nil })
 
-	// --- ux (stateless stubs) ---
-	r.MustRegister(tools.ASK_USER_QUESTION, func(s *ToolState) (tools.Tool, error) { return ux.AskQuestion, nil })
+	// --- ux ---
+	// AskUserQuestion is late-bound: the question broker is installed on ToolState
+	// after construction via agent.WithQuestionBroker; the tool reads it at Execute time.
+	r.MustRegister(tools.ASK_USER_QUESTION, func(s *ToolState) (tools.Tool, error) { return ux.NewAskQuestion(s.QuestionBroker), nil })
 	r.MustRegister(tools.PUSH_NOTIFICATION, func(s *ToolState) (tools.Tool, error) { return ux.Notify, nil })
 
 	// --- util (stateless) ---

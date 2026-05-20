@@ -1,8 +1,4 @@
 // Package ux hosts user-interaction tools: AskUserQuestion, PushNotification.
-//
-// Singletons for stubbing. Once the TUI lands these will take a UI sink via
-// constructor injection so the agent can route prompts/notifications to the
-// active terminal session.
 package ux
 
 import "github.com/johnny1110/evva/internal/tools"
@@ -13,83 +9,6 @@ func Names() []tools.ToolName {
 }
 
 var (
-	AskQuestion tools.Tool = tools.NewStub(
-		tools.ASK_USER_QUESTION,
-		"Ask the user 1–4 structured questions mid-execution to gather preferences, "+
-			"clarify ambiguous instructions, or get decisions on direction. "+
-			"Each question has 2–4 options; the UI auto-adds an \"Other\" free-text option. "+
-			"Set multiSelect: true when choices aren't mutually exclusive. "+
-			"Use option `preview` for visual comparisons (ASCII mockups, code snippets, diagrams) — single-select only. "+
-			"If recommending an option, put it first and append \"(Recommended)\". "+
-			"Do NOT use this to ask \"is the plan ready?\" — use ExitPlanMode for plan approval.",
-		`{
-			"type":"object",
-			"additionalProperties":false,
-			"required":["questions"],
-			"properties":{
-				"questions":{
-					"type":"array",
-					"minItems":1,
-					"maxItems":4,
-					"description":"Questions to ask the user (1-4 questions)",
-					"items":{
-						"type":"object",
-						"additionalProperties":false,
-						"required":["question","header","options","multiSelect"],
-						"properties":{
-							"question":{"type":"string","description":"The complete question. Clear, specific, ending with a question mark."},
-							"header":{"type":"string","description":"Very short label displayed as a chip/tag (max 12 chars). E.g., \"Auth method\", \"Library\"."},
-							"multiSelect":{"type":"boolean","default":false,"description":"Allow multiple options to be selected. Use when choices are not mutually exclusive."},
-							"options":{
-								"type":"array",
-								"minItems":2,
-								"maxItems":4,
-								"description":"2-4 mutually exclusive choices. Do NOT add an \"Other\" option — the UI provides it automatically.",
-								"items":{
-									"type":"object",
-									"additionalProperties":false,
-									"required":["label","description"],
-									"properties":{
-										"label":{"type":"string","description":"Display text (1-5 words)."},
-										"description":{"type":"string","description":"Explanation of what choosing this option means or implies."},
-										"preview":{"type":"string","description":"Optional preview content (markdown in monospace). Use for mockups, code snippets, side-by-side comparisons. Single-select only."}
-									}
-								}
-							}
-						}
-					}
-				},
-				"answers":{
-					"type":"object",
-					"additionalProperties":{"type":"string"},
-					"propertyNames":{"type":"string"},
-					"description":"User answers collected by the permission component (populated by runtime)."
-				},
-				"annotations":{
-					"type":"object",
-					"propertyNames":{"type":"string"},
-					"additionalProperties":{
-						"type":"object",
-						"additionalProperties":false,
-						"properties":{
-							"notes":{"type":"string","description":"Free-text notes the user added to their selection."},
-							"preview":{"type":"string","description":"The preview content of the selected option."}
-						}
-					},
-					"description":"Optional per-question annotations from the user, keyed by question text."
-				},
-				"metadata":{
-					"type":"object",
-					"additionalProperties":false,
-					"description":"Optional metadata for analytics. Not displayed to user.",
-					"properties":{
-						"source":{"type":"string","description":"Identifier for the source of this question (e.g., \"remember\" for /remember)."}
-					}
-				}
-			}
-		}`,
-	)
-
 	Notify tools.Tool = tools.NewStub(
 		tools.PUSH_NOTIFICATION,
 		"Send a desktop notification to the user's terminal (and to their phone if Remote Control is connected). "+

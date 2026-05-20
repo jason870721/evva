@@ -19,6 +19,7 @@ import (
 	"github.com/johnny1110/evva/internal/logger"
 	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/permission"
+	"github.com/johnny1110/evva/internal/question"
 	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/toolset"
@@ -118,6 +119,7 @@ type Agent struct {
 	// inherited by every subagent.
 	permissionStore  *permission.Store
 	permissionBroker permission.Broker
+	questionBroker   question.Broker
 
 	sink event.Sink // event to ui
 
@@ -224,6 +226,8 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		a.toolState.SetDeferredLookup(a)  // only main agent can have deferred tool lookup.
 		a.toolState.SetPlanController(a)  // only main agent can flip plan mode.
 	}
+	// Question broker is process-wide and shared by root and subagents alike.
+	a.toolState.SetQuestionBroker(a.questionBroker)
 
 	effortOpts := append(profile.LLMOptions, llm.WithEffort(llm.ParseEffort(a.effort)))
 	llmClient, err := llmfactory.Of(profile.LLMProvider, profile.LLMModel, effortOpts)
@@ -576,6 +580,23 @@ func (a *Agent) RespondPermission(id string, dec ui.PermissionDecision) error {
 		}
 	}
 	return a.permissionBroker.Respond(id, pd)
+}
+
+// RespondQuestion forwards the user's answers from the TUI to the question
+// broker. id ties back to a single blocked question.Broker.Request call.
+// Implements ui.Controller.
+func (a *Agent) RespondQuestion(id string, resp ui.QuestionResponse) error {
+	if a.questionBroker == nil {
+		return errors.New("agent: no question broker installed")
+	}
+	r := question.Response{
+		Answers:     resp.Answers,
+		Annotations: make(map[string]question.Annotation, len(resp.Annotations)),
+	}
+	for k, v := range resp.Annotations {
+		r.Annotations[k] = question.Annotation{Notes: v.Notes, Preview: v.Preview}
+	}
+	return a.questionBroker.Respond(id, r)
 }
 
 // Sink returns the agent's event sink. Used by the AGENT tool to wrap with

@@ -6,6 +6,7 @@ import (
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/permission"
+	"github.com/johnny1110/evva/internal/question"
 	"github.com/johnny1110/evva/internal/tools/skill"
 )
 
@@ -101,6 +102,15 @@ func WithPermissionStore(s *permission.Store) Option {
 func WithPermissionBroker(b permission.Broker) Option {
 	return func(a *Agent) {
 		a.permissionBroker = b
+	}
+}
+
+// WithQuestionBroker installs the question back-channel. Same pattern as
+// WithPermissionBroker: one Broker per process, shared by all agents.
+// The TUI registers its OnRequest callback on this Broker at startup.
+func WithQuestionBroker(b question.Broker) Option {
+	return func(a *Agent) {
+		a.questionBroker = b
 	}
 }
 

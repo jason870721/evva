@@ -20,6 +20,7 @@ import (
 	"github.com/johnny1110/evva/internal/llm"
 	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/permission"
+	"github.com/johnny1110/evva/internal/question"
 	"github.com/johnny1110/evva/internal/tools/fs"
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/skill"
@@ -97,16 +98,17 @@ func main() {
 	}
 	permBroker := permission.NewBroker()
 	permMode := resolvePermissionMode(*permModeFlag, cfg.PermissionMode)
+	qBroker := question.NewBroker()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	useTUI := !*noTUI && isTTY(os.Stdout)
 	if useTUI {
-		runTUI(ctx, prof, profName, skillRefs, memSnap, *maxIters, cfg.AppName, cfg.EvvaHome, registry, agentReg, permStore, permBroker, permMode, *uiKind)
+		runTUI(ctx, prof, profName, skillRefs, memSnap, *maxIters, cfg.AppName, cfg.EvvaHome, registry, agentReg, permStore, permBroker, permMode, qBroker, *uiKind)
 		return
 	}
-	runCLI(ctx, prof, profName, skillRefs, memSnap, *maxIters, cfg.AppName, registry, agentReg, permStore, permBroker, permMode)
+	runCLI(ctx, prof, profName, skillRefs, memSnap, *maxIters, cfg.AppName, registry, agentReg, permStore, permBroker, permMode, qBroker)
 }
 
 // resolvePermissionMode picks the active mode using CLI > YAML > "default"
@@ -149,7 +151,7 @@ func skillRefsFromRegistry(r *skill.Registry) []sysprompt.SkillRef {
 // or "v2" (clean-architecture rewrite, in active development). Both
 // satisfy the same ui.UI contract, so the agent-side wiring is
 // identical.
-func runTUI(ctx context.Context, prof agent.Profile, profName string, skillRefs []sysprompt.SkillRef, memSnap memdir.Snapshot, maxIters int, name, evvaHome string, skills *skill.Registry, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode, kind string) {
+func runTUI(ctx context.Context, prof agent.Profile, profName string, skillRefs []sysprompt.SkillRef, memSnap memdir.Snapshot, maxIters int, name, evvaHome string, skills *skill.Registry, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode, qBroker question.Broker, kind string) {
 	var tui ui.UI
 	switch kind {
 	default:
@@ -161,6 +163,13 @@ func runTUI(ctx context.Context, prof agent.Profile, profName string, skillRefs 
 	// the TUI calls Broker.Respond with the user's choice.
 	permission.SetOnRequest(permBroker, func(req permission.ApprovalRequest) {
 		tui.Emit(buildApprovalEvent(req))
+	})
+
+	// Register the question broker callback to emit KindQuestionNeeded
+	// through the TUI sink. The tool goroutine parks until the TUI calls
+	// Controller.RespondQuestion with the user's answers.
+	question.SetOnRequest(qBroker, func(req question.Request) {
+		tui.Emit(buildQuestionEvent(req))
 	})
 
 	ag, err := agent.New(nil, prof,
@@ -175,6 +184,7 @@ func runTUI(ctx context.Context, prof agent.Profile, profName string, skillRefs 
 		agent.WithPermissionStore(permStore),
 		agent.WithPermissionBroker(permBroker),
 		agent.WithPermissionMode(permMode),
+		agent.WithQuestionBroker(qBroker),
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)
@@ -182,6 +192,33 @@ func runTUI(ctx context.Context, prof agent.Profile, profName string, skillRefs 
 	tui.Attach(ag)
 	if err := tui.Run(ctx); err != nil {
 		exitf(1, "evva: %v", err)
+	}
+}
+
+// buildQuestionEvent converts a question.Request into the KindQuestionNeeded
+// event the TUI subscribes to.
+func buildQuestionEvent(req question.Request) event.Event {
+	items := make([]event.QuestionItem, len(req.Questions))
+	for i, q := range req.Questions {
+		opts := make([]event.QuestionOption, len(q.Options))
+		for j, o := range q.Options {
+			opts[j] = event.QuestionOption{Label: o.Label, Description: o.Description, Preview: o.Preview}
+		}
+		items[i] = event.QuestionItem{
+			Question:    q.Question,
+			Header:      q.Header,
+			MultiSelect: q.MultiSelect,
+			Options:     opts,
+		}
+	}
+	return event.Event{
+		Kind:    event.KindQuestionNeeded,
+		AgentID: req.AgentID,
+		QuestionNeeded: &event.QuestionNeededPayload{
+			RequestID: req.ID,
+			AgentID:   req.AgentID,
+			Questions: items,
+		},
 	}
 }
 
@@ -215,7 +252,7 @@ func buildApprovalEvent(req permission.ApprovalRequest) event.Event {
 // Preserves the original behavior: read prompt → run → stream events as
 // plain text → exit. ErrIterLimit triggers a synchronous "press Enter to
 // continue" prompt on stderr.
-func runCLI(ctx context.Context, prof agent.Profile, profName string, skillRefs []sysprompt.SkillRef, memSnap memdir.Snapshot, maxIters int, name string, skills *skill.Registry, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode) {
+func runCLI(ctx context.Context, prof agent.Profile, profName string, skillRefs []sysprompt.SkillRef, memSnap memdir.Snapshot, maxIters int, name string, skills *skill.Registry, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode, qBroker question.Broker) {
 	prompt, err := readPrompt(flag.Args())
 	if err != nil {
 		exitf(2, "evva: %v", err)
@@ -224,15 +261,19 @@ func runCLI(ctx context.Context, prof agent.Profile, profName string, skillRefs 
 		exitf(2, "usage: evva [-temp 0.7] [-max-tokens N] [-max-iters N] [-no-tui] [-permission-mode default|accept_edits|plan|bypass] <prompt>")
 	}
 
-	// CLI mode has no interactive approval surface — every Ask becomes a
-	// deny with a clear message so scripts fail fast instead of hanging
-	// on a phantom prompt.
+	// CLI mode has no interactive approval or question surface — every Ask
+	// becomes a deny with a clear message so scripts fail fast instead of
+	// hanging on a phantom prompt.
 	permission.SetOnRequest(permBroker, func(req permission.ApprovalRequest) {
 		fmt.Fprintf(os.Stderr, "evva: -no-tui denied %s — pass -permission-mode=bypass or add a rule to permissions.json\n", req.ToolName)
 		_ = permBroker.Respond(req.ID, permission.Decision{
 			Behavior: permission.BehaviorDeny,
 			Reason:   "no interactive approval surface in -no-tui mode",
 		})
+	})
+	question.SetOnRequest(qBroker, func(req question.Request) {
+		fmt.Fprintf(os.Stderr, "evva: -no-tui cannot display AskUserQuestion — tool call will fail\n")
+		_ = qBroker.Respond(req.ID, question.Response{})
 	})
 
 	ag, err := agent.New(nil, prof,
@@ -247,6 +288,7 @@ func runCLI(ctx context.Context, prof agent.Profile, profName string, skillRefs 
 		agent.WithPermissionStore(permStore),
 		agent.WithPermissionBroker(permBroker),
 		agent.WithPermissionMode(permMode),
+		agent.WithQuestionBroker(qBroker),
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)

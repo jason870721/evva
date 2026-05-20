@@ -171,7 +171,7 @@ Bundled with Phase 3. Plan mode is `permission_mode: plan` plus a `plan_file` wo
 - Wire `ExitPlanMode` to restore the previous permission mode (`default` or whatever was active before enter plan mode).
 - add user-guide in docs/user-guide to teach user how to use plan mode.
 
-### Phase 8 — AskUserQuestion
+### Phase 8 — AskUserQuestion ✅️
 
 UI-heavy port. The tool surface is small; the TUI does most of the work.
 
@@ -202,8 +202,10 @@ Niche. Ship after the higher-leverage phases.
 
 ### Phase  11 - Refine the Agent System Prompt
 
-- port ref/ system prompt to evva make evva stronger on tool usage and enhance coding ability.
+- port ref/ source code system prompt to evva, make evva stronger on tool usage and enhance coding ability.
 - port ref claude code all system prompt 1:1 (except for evva name and tool name interpolation, which is already handled by `toolnames.go`), and add evva style prompt (mix them together)
+- plan mode refine: Learn from ref source code, how they design plan mode workflow and system prompt. When user enter plan mode by manual, the plan mode system prompt(guide agent who to plan) should inject into user's input prompt(first prompt during plan mode), and since agent exit plan mode, the mode should be reset to default and also tui mode should be sync with agent current mode too.
+
 
 ### Phase 12 - Model Efforts ✅️
 

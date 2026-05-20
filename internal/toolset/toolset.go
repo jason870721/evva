@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/johnny1110/evva/internal/observable"
+	"github.com/johnny1110/evva/internal/question"
 	"github.com/johnny1110/evva/internal/tools"
 	"github.com/johnny1110/evva/internal/tools/fs"
 	"github.com/johnny1110/evva/internal/tools/meta"
@@ -53,6 +54,11 @@ type ToolState struct {
 	// Only the root agent's queue is ever populated — subagents
 	// have no user input.
 	userPromptQueue *UserPromptQueue
+
+	// questionBroker is the back-channel used by the AskUserQuestion tool.
+	// Installed once at startup by the host (cmd/evva) via agent.WithQuestionBroker;
+	// the broker is shared across agents so any agent's question reaches the TUI.
+	questionBroker question.Broker
 
 	// skillRegistry holds the merged catalog of user-installed skills.
 	// Installed once at startup by the host (cmd/evva) and read by the
@@ -220,6 +226,18 @@ func (s *ToolState) SkillRegistry() *skill.Registry {
 // agent.WithSkillRegistry.
 func (s *ToolState) SetSkillRegistry(r *skill.Registry) {
 	s.skillRegistry = r
+}
+
+// QuestionBroker returns the question back-channel, or nil if not installed.
+// The AskUserQuestion tool reads through this at Execute time.
+func (s *ToolState) QuestionBroker() question.Broker {
+	return s.questionBroker
+}
+
+// SetQuestionBroker installs the broker the AskUserQuestion tool will block on.
+// The agent layer calls this once after construction via WithQuestionBroker.
+func (s *ToolState) SetQuestionBroker(b question.Broker) {
+	s.questionBroker = b
 }
 
 // HasUserPromptQueue reports whether a UserPromptQueue has already been
