@@ -88,6 +88,8 @@ Full usage documentation covering the TUI interface, slash commands, keybindings
 
 ## How to integrate EVVA agent in your Go project?
 
+- [English](docs/user-guide/en/integration.md)
+
 ---
 
 
