@@ -1,7 +1,7 @@
 package session
 
 import (
-	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/pkg/llm"
 )
 
 // Session holds the live conversation history for a single agent run.

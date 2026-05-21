@@ -4,7 +4,13 @@ import (
 	"os"
 
 	"github.com/johnny1110/evva/pkg/constant"
+	"github.com/johnny1110/evva/pkg/llm"
 )
+
+// LLMProviderAPIConfig is retained as a type alias for backward compat.
+// New code should reference llm.APIConfig directly; this alias is removed
+// when Phase 13a completes and the configs package becomes a thin shim.
+type LLMProviderAPIConfig = llm.APIConfig
 
 // setupGlobalParam ensures the global config directories exist. All
 // user-tunable values are now sourced from evva-config.yml in load();
@@ -42,8 +48,3 @@ func setupLLMProviderConfig(cfg *AppConfig, fc FileConfig) {
 	register(constant.OPENAI, fc.Providers[constant.OPENAI.Name], true)
 }
 
-type LLMProviderAPIConfig struct {
-	ApiURL    string
-	ApiSecret string
-	Models    []constant.Model
-}

@@ -6,7 +6,8 @@ import (
 
 	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/pkg/constant"
-	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/pkg/llm"
+	_ "github.com/johnny1110/evva/pkg/llm/builtins" // populate the LLM registry for these tests
 )
 
 // Phase 1 analysis — Of code paths:

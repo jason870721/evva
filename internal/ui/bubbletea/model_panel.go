@@ -9,7 +9,7 @@ import (
 
 	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/pkg/constant"
-	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/pkg/llm"
 )
 
 // pendingModel is the /model picker's in-flight state. Lists every

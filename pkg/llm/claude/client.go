@@ -9,11 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/johnny1110/evva/pkg/constant"
-
-	config "github.com/johnny1110/evva/configs"
-	"github.com/johnny1110/evva/internal/llm"
 	"github.com/johnny1110/evva/internal/tools"
+	"github.com/johnny1110/evva/pkg/constant"
+	"github.com/johnny1110/evva/pkg/llm"
 )
 
 const (
@@ -59,7 +57,7 @@ type Client struct {
 
 // New builds a Claude client from provider config and applies the given options.
 // Options can be re-applied at runtime via Apply.
-func New(cfg config.LLMProviderAPIConfig, model string, opts ...llm.Option) *Client {
+func New(cfg llm.APIConfig, model string, opts ...llm.Option) *Client {
 	if model == "" {
 		model = DefaultModel
 	}

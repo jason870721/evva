@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/pkg/llm"
 )
 
 // TestConsumeStream feeds canned NDJSON frames through consumeStream and

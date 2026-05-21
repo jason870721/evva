@@ -248,11 +248,54 @@ Phase 13 is a big change of evva, this Phase can make to multi sub phase 13a, 13
 
 Write them down below:
 
-#### Phase 13a
+Ship order: **13b → 13a → 13c → 13d → 13e**. 13b is small and focused (LLM registry) so we prove the extension pattern early. 13a (config DI + `AppHome` rename) follows because 13c (public tool families) blocks on it.
 
-#### Phase 13b
+#### Phase 13b — Public LLM provider registry
 
-...
+Mirror the tool registry pattern for LLM clients. Built-in providers move public per the user's "max reuse" choice.
+
+- New `pkg/llm/` carrying the leaf files (`client.go`, `message.go`, `params.go`, `stream.go`, `tool.go`, `usage.go`, `errors.go`) currently under `internal/llm/`.
+- Move the three provider packages: `internal/llm/{claude,deepseek,ollama}` → `pkg/llm/{claude,deepseek,ollama}`.
+- New `pkg/llm/api.go`: `APIConfig{ApiURL, ApiSecret, Models}` replaces `configs.LLMProviderAPIConfig`. The `configs` package keeps a type alias for one release.
+- New `pkg/llm/registry.go`: `Registry.Register(name, ClientFactory)` + `DefaultRegistry()` pre-populated by `pkg/llm/builtins.go`.
+- Replace `internal/llmfactory/factory.go:Of`'s hardcoded switch with `pkg/llm.DefaultRegistry().Build(...)`. Keep `Of`'s signature unchanged so 13a can do the config DI work cleanly.
+- Downstream extension: `pkg/llm.DefaultRegistry().Register("gemini", geminiFactory)` before `agent.New`.
+
+#### Phase 13a — Decouple `AppConfig` from the singleton, rename `EvvaHome` → `AppHome`
+
+Every `configs.Get()` call becomes a value passed by reference. The singleton goes away (or becomes a thin shim). `EvvaHome*` fields rename to `AppHome*` and accept a constructor argument so downstream apps can choose their own home dir.
+
+- Move `configs/app_config.go` → `pkg/config/config.go` (struct + getters/setters; no `Get()`).
+- Split loader: `pkg/config/load.go` exposes `Load(appName, appHome, workdir string) (*Config, error)` and `LoadDefault() (*Config, error)` (the latter computes `appName="evva"`, `appHome=~/.evva/` for backward compat). `AppName` becomes a constructor parameter, not a package-level const.
+- Field renames: `EvvaHome` → `AppHome`, `EvvaHomeSkillsDir` → `AppHomeSkillsDir`, `EvvaHomeUserProfile` → `AppHomeUserProfile`, `EvvaHomeConfigFile` → `AppHomeConfigFile`.
+- New `WithConfig(cfg)` agent option. The internal agent stashes `a.cfg`; every internal package that today calls `config.Get()` (agent loop files, llmfactory, logger, tools/fs, tools/web, tools/dev) reads from `a.cfg` instead.
+- Tools that need config reach it through `*toolset.ToolState`, which gains a `Config()` accessor (same late-bound pattern as the skill registry / subagent spawner).
+- Delete `internal/llmfactory/` once the registry is callable directly from `internal/agent/`.
+
+#### Phase 13c — Public tool + toolset surface (tool families go public too)
+
+Tool family packages move public per the user's "max reuse" choice.
+
+- Move tool-interface files to `pkg/tools/`: `tool.go`, `name.go`, `descriptor.go`, `stub.go`.
+- Move tool family packages to `pkg/tools/`: `fs/`, `shell/`, `web/`, `util/`, `notebook/`, `monitor/`, `cron/`, `todo/`. Stay internal: `meta/`, `mode/`, `skill/`, `ux/`, `dev/` (they reference evva-specific runtime — spawner, plan controller, skill registry, question broker).
+- Move `internal/toolset/{registry.go, tags.go}` → `pkg/toolset/`. `ToolState` stays internal because it carries internal references.
+- New `pkg/tools.State` interface — the narrow surface a custom tool factory consumes (`Logger()`, `Config()`, `Workdir()`). `internal/toolset/ToolState` satisfies it.
+- New `WithCustomTool(name, factory)` agent option.
+
+#### Phase 13d — Public agent + UI surface
+
+- Move `internal/agent/event/` → `pkg/event/`. Every payload, Kind constant, Sink, Multi, BubbleUp, Discard, SinkFunc.
+- Move `internal/observable/` → `pkg/observable/`.
+- Move `internal/ui/ui.go` → `pkg/ui/ui.go` (UI, Controller, Skill, ProfileChoice, PermissionDecision, QuestionResponse). Bubbletea v1/v2 implementations stay internal.
+- Expand `pkg/agent`: public `Profile` type with `NewProfile(...)` constructor; new options `WithSink`, `WithLLMRegistry`, `WithToolRegistry`, `WithConfig`, `WithPermissionMode`.
+- The agent loop and event emission internals stay in `internal/agent/`. Downstream apps cannot change `Kind` values or add new ones — this is the Phase 13 invariant.
+
+#### Phase 13e — Rewire reference TUI + downstream example
+
+- Rewrite `cmd/evva/main.go` to use only `pkg/` for the agent construction path.
+- `internal/ui/bubbletea_v2/` becomes a downstream-style consumer: imports `pkg/event`, `pkg/ui`, `pkg/agent` only (besides its own components).
+- Add `examples/minimal-host/main.go` (~50 lines) demonstrating custom home dir + custom tool + custom LLM provider + custom sink.
+- Add `docs/extending.md` covering all the extension points.
 
 ### Phase 14 - Session Storage (/resume)
 
@@ -283,8 +326,8 @@ These deliberately don't appear in the 0–11 roadmap. Listed so contributors do
 ## Project conventions
 
 - All source under `internal/` is private. Public extension points live in `pkg/`.
-- One package per tool family (`fs`, `shell`, `meta`, etc.). A new tool either goes in an existing family or starts a new family package.
-- One package per LLM provider in `internal/llm/`. The `llm.Client` interface is the only public seam.
+- One package per tool family (`fs`, `shell`, `meta`, etc.). A new tool either goes in an existing family or starts a new family package. Phase 13c moves the broadly-reusable families (`fs`, `shell`, `web`, `util`, `notebook`, `monitor`, `cron`, `todo`) under `pkg/tools/`; evva-runtime-specific families (`meta`, `mode`, `skill`, `ux`, `dev`) stay under `internal/tools/`.
+- One package per LLM provider. After Phase 13b they live at `pkg/llm/{claude,deepseek,ollama}/` and register into `pkg/llm.DefaultRegistry()`. The `llm.Client` interface remains the only public seam.
 - Tests live next to the code they cover (`*_test.go`). No parallel `tests/` tree.
 - No comments that restate the code. Only comment WHY when the WHY is non-obvious.
 - Port tool descriptions from `ref/src/tools/*/prompt.ts` verbatim when reasonable. Diverge only with a clear reason.

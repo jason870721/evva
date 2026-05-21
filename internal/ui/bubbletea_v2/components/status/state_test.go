@@ -9,7 +9,7 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/johnny1110/evva/internal/agent/event"
-	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/theme"
 )
 

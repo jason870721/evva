@@ -1,17 +1,16 @@
-// Package llmfactory wires LLM provider constants to concrete provider clients.
+// Package llmfactory glues the evva runtime to pkg/llm's provider registry.
 //
-// Why this lives outside internal/llm:
-// internal/llm is a *leaf* — it defines the Client interface and shared types
-// (Message, Response, Option). Each provider package imports internal/llm to
-// implement that interface. If the factory also lived in internal/llm, llm
-// would have to import its own provider subpackages, creating an import
-// cycle that Go rejects at compile time. Putting the factory one level up
-// keeps every edge pointing downward toward the leaf.
+// Today's responsibility: read the per-provider APIConfig from the
+// process-wide AppConfig and forward to pkg/llm.DefaultRegistry().Build.
+// Once Phase 13a lands and config is injected as a value, this package
+// can be deleted — the agent will call the registry directly.
 //
-// Adding a new provider:
-//  1. Create internal/llm/<name>/ implementing llm.Client.
-//  2. Add a case to Of below.
-//  3. Register the provider constant in internal/constant.
+// Adding a new provider does not require changes here. Instead:
+//  1. Implement llm.Client (typically under pkg/llm/<name>/ or a
+//     downstream-owned package).
+//  2. Register the factory: pkg/llm.DefaultRegistry().Register("<name>",
+//     factory). For evva's bundled providers, blank-import
+//     pkg/llm/builtins (cmd/evva does this).
 package llmfactory
 
 import (
@@ -19,34 +18,24 @@ import (
 
 	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/pkg/constant"
-	"github.com/johnny1110/evva/internal/llm"
-	"github.com/johnny1110/evva/internal/llm/claude"
-	"github.com/johnny1110/evva/internal/llm/deepseek"
-	"github.com/johnny1110/evva/internal/llm/ollama"
+	"github.com/johnny1110/evva/pkg/llm"
 )
 
 // Of constructs the concrete llm.Client for the requested provider, looking
-// up its API config (URL + secret) from the loaded application config.
+// up its APIConfig (URL + secret) from the loaded application config and
+// resolving the factory through pkg/llm.DefaultRegistry.
 //
-// Returns an error when the provider has no API key configured or when the
-// provider value is unknown. constant.LLMProvider is keyed by Name so the
-// switch is over the string (the struct contains a slice and is not directly
-// comparable).
+// Returns an error when the provider has no APIConfig loaded or when no
+// factory is registered for the provider name.
 func Of(provider constant.LLMProvider, model constant.Model, opts []llm.Option) (llm.Client, error) {
 	cfg := config.Get()
 	api, ok := cfg.LLMProviderConfig[provider.Name]
 	if !ok {
 		return nil, fmt.Errorf("provider: [%s] API_KEY not set", provider.Name)
 	}
-
-	switch provider.Name {
-	case constant.ANTHROPIC.Name:
-		return claude.New(api, string(model), opts...), nil
-	case constant.DEEPSEEK.Name:
-		return deepseek.New(api, string(model), opts...), nil
-	case constant.OLLAMA.Name:
-		return ollama.New(api, string(model), opts...), nil
-	default:
-		return nil, fmt.Errorf("unknown provider %q (want anthropic | deepseek | ollama)", provider.Name)
+	client, err := llm.DefaultRegistry().Build(provider.Name, string(model), api, opts)
+	if err != nil {
+		return nil, err
 	}
+	return client, nil
 }

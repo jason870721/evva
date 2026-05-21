@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/pkg/llm"
 )
 
 // Phase 1 analysis — Session surface:

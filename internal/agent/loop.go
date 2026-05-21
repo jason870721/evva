@@ -9,7 +9,7 @@ import (
 	"github.com/johnny1110/evva/pkg/constant"
 
 	"github.com/johnny1110/evva/internal/agent/event"
-	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/internal/tools"
 )
 

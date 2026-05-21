@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/johnny1110/evva/pkg/constant"
-	"github.com/johnny1110/evva/internal/llm"
+	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/events"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/theme"
 )
