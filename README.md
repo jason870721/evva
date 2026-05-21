@@ -86,6 +86,11 @@ Full usage documentation covering the TUI interface, slash commands, keybindings
 
 ---
 
+## How to integrate EVVA agent in your Go project?
+
+---
+
+
 ## Configuration
 
 ### `~/.evva/config/evva-config.yml`
