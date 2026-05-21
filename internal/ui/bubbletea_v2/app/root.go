@@ -154,12 +154,24 @@ func (a *App) refreshBanner() {
 		Art:      banner.Load(a.evvaHome),
 		Greeting: defaultGreeting,
 		Info: []transcript.BannerInfo{
-			{Label: "version", Value: config.DisplayVersion()},
+			{Label: "version", Value: bannerVersion()},
 			{Label: "workdir", Value: workdir},
 			{Label: "session", Value: id},
 			{Label: "started", Value: a.startedAt.Format("2006-01-02 15:04:05")},
 		},
 	})
+}
+
+// bannerVersion returns just the version string (e.g. "v0.5.2") without the
+// commit + build-date suffix that config.DisplayVersion adds for --version
+// output. The banner already shows started-at and runs in a fixed-width box,
+// so the extra suffix is noise.
+func bannerVersion() string {
+	v := config.Version
+	if v == "" {
+		v = config.DefaultAppVersion
+	}
+	return v
 }
 
 // Init returns the cursor blink + spinner tick so both animate from
