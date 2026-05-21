@@ -16,7 +16,7 @@ import (
 func TestEdit_FileNotFound_NonEmptyOldString(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "nope.txt")
-	tool := NewEdit(NewReadTracker())
+	tool := NewEdit(NewReadTracker(), "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+missing+`","old_string":"a","new_string":"b"}`))
@@ -31,7 +31,7 @@ func TestEdit_FileNotFound_NonEmptyOldString(t *testing.T) {
 
 func TestEdit_RejectsDirectory(t *testing.T) {
 	dir := t.TempDir()
-	tool := NewEdit(NewReadTracker())
+	tool := NewEdit(NewReadTracker(), "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+dir+`","old_string":"a","new_string":"b"}`))
@@ -43,7 +43,7 @@ func TestEdit_RejectsDirectory(t *testing.T) {
 
 func TestEdit_BlockedWithoutPriorRead(t *testing.T) {
 	path := writeTempFile(t, "hello world")
-	tool := NewEdit(NewReadTracker())
+	tool := NewEdit(NewReadTracker(), "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"hello","new_string":"bye"}`))
@@ -73,7 +73,7 @@ func TestEdit_BlockedOnMtimeDrift(t *testing.T) {
 		t.Fatalf("chtimes: %v", err)
 	}
 
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"hello","new_string":"bye"}`))
 	if !res.IsError {
@@ -92,7 +92,7 @@ func TestEdit_BlockedOnPartialView(t *testing.T) {
 	info, _ := os.Stat(path)
 	tr.Record(path, info.ModTime(), true) // partial
 
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"hello","new_string":"bye"}`))
 	if !res.IsError {
@@ -110,7 +110,7 @@ func TestEdit_RejectsIPYNB(t *testing.T) {
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
 
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"a","new_string":"b"}`))
 	if !res.IsError {
@@ -125,7 +125,7 @@ func TestEdit_RejectsIdenticalStrings(t *testing.T) {
 	path := writeTempFile(t, "x")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"x","new_string":"x"}`))
@@ -139,7 +139,7 @@ func TestEdit_OldStringNotFound(t *testing.T) {
 	path := writeTempFile(t, "hello world\nsecond line\n")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"nope","new_string":"yes"}`))
@@ -156,7 +156,7 @@ func TestEdit_OldStringNotFound_LineNumberPrefixHint(t *testing.T) {
 	path := writeTempFile(t, "hello world\n")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	oldWithPrefix := "     1\thello world"
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
@@ -174,7 +174,7 @@ func TestEdit_AmbiguousWithoutReplaceAll(t *testing.T) {
 	path := writeTempFile(t, "foo\nfoo\nfoo\n")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"foo","new_string":"bar"}`))
@@ -195,7 +195,7 @@ func TestEdit_SingleReplacement_HappyPath(t *testing.T) {
 	path := writeTempFile(t, "alpha beta gamma")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"beta","new_string":"BETA"}`))
@@ -224,7 +224,7 @@ func TestEdit_ReplaceAll(t *testing.T) {
 	path := writeTempFile(t, "foo bar foo baz foo")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"foo","new_string":"FOO","replace_all":true}`))
@@ -242,7 +242,7 @@ func TestEdit_ReplaceAll(t *testing.T) {
 }
 
 func TestEdit_DecodeError(t *testing.T) {
-	tool := NewEdit(NewReadTracker())
+	tool := NewEdit(NewReadTracker(), "")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(`{nope`))
 	if !res.IsError || !strings.Contains(res.Content, "decode") {
 		t.Errorf("expected decode error; got isErr=%v content=%q", res.IsError, res.Content)
@@ -261,7 +261,7 @@ func TestEdit_DecodeError(t *testing.T) {
 func TestEdit_CreatesNewFileWithEmptyOldString(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "subdir", "new.go")
-	tool := NewEdit(NewReadTracker())
+	tool := NewEdit(NewReadTracker(), "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"","new_string":"package main\n"}`))
@@ -288,7 +288,7 @@ func TestEdit_EmptyOldStringOnExistingFileRejected(t *testing.T) {
 	path := writeTempFile(t, "existing content\n")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"","new_string":"new content"}`))
@@ -306,7 +306,7 @@ func TestEdit_EmptyOldStringOnEmptyFile(t *testing.T) {
 	path := writeTempFile(t, "")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"","new_string":"populated"}`))
@@ -330,7 +330,7 @@ func TestEdit_CRLFRoundtrip(t *testing.T) {
 	}
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"second","new_string":"SECOND"}`))
@@ -361,7 +361,7 @@ func TestEdit_UTF16LERoundtrip(t *testing.T) {
 	}
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"hello","new_string":"world"}`))
@@ -386,7 +386,7 @@ func TestEdit_CurlyQuoteToStraight(t *testing.T) {
 	path := writeTempFile(t, "say “hello” loudly\n")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	// Model sends straight quotes — should match the curly version
 	// in the file via normalizeQuotes.
@@ -411,7 +411,7 @@ func TestEdit_StraightQuoteToCurly(t *testing.T) {
 	path := writeTempFile(t, `say "hello" loudly`+"\n")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	// old_string with curly, new_string with straight.
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
@@ -432,7 +432,7 @@ func TestEdit_TrailingNewlineCleanupOnEmptyNewString(t *testing.T) {
 	path := writeTempFile(t, "line1\nline2\nline3\n")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"line2","new_string":""}`))
@@ -452,7 +452,7 @@ func TestEdit_StripTrailingWhitespaceOnNonMarkdown(t *testing.T) {
 	path := writeTempFile(t, "foo\n")
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	// new_string has trailing spaces on each line — should be stripped.
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
@@ -477,7 +477,7 @@ func TestEdit_MarkdownPreservesTrailingSpaces(t *testing.T) {
 	}
 	tr := NewReadTracker()
 	recordFullRead(t, tr, path)
-	tool := NewEdit(tr)
+	tool := NewEdit(tr, "")
 
 	// Two trailing spaces on the first line of new_string — should NOT
 	// be stripped because this is markdown.

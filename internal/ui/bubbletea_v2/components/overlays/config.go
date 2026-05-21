@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/internal/ui"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/theme"
@@ -259,7 +259,7 @@ func (c *Config) renderEditor(innerWidth int, th *theme.Theme) string {
 // Field catalog
 // ----------------------------------------------------------------------------
 
-func buildConfigFields(cfg *config.AppConfig, ctrl ui.Controller) []ConfigField {
+func buildConfigFields(cfg *config.Config, ctrl ui.Controller) []ConfigField {
 	return []ConfigField{
 		{
 			Label: "max_iterations", Kind: cfgKindInt,
@@ -335,7 +335,7 @@ func buildConfigFields(cfg *config.AppConfig, ctrl ui.Controller) []ConfigField 
 	}
 }
 
-func providerKeyField(cfg *config.AppConfig, name string) ConfigField {
+func providerKeyField(cfg *config.Config, name string) ConfigField {
 	return ConfigField{
 		Label: name + ".api_key", Kind: cfgKindSecret,
 		Get:   func() string { return cfg.LLMProviderConfig[name].ApiSecret },
@@ -343,7 +343,7 @@ func providerKeyField(cfg *config.AppConfig, name string) ConfigField {
 	}
 }
 
-func providerURLField(cfg *config.AppConfig, name string) ConfigField {
+func providerURLField(cfg *config.Config, name string) ConfigField {
 	return ConfigField{
 		Label: name + ".api_url", Kind: cfgKindString,
 		Get: func() string {

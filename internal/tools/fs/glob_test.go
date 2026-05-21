@@ -31,7 +31,7 @@ func TestGlob_DoublestarMatchesRecursively(t *testing.T) {
 	writeFixture(t, dir, "pkg/sub/c.go", "")
 	writeFixture(t, dir, "ignore.txt", "")
 
-	tool := NewGlob()
+	tool := NewGlob("")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
 		json.RawMessage(`{"pattern":"**/*.go","path":"`+dir+`"}`))
 	if res.IsError {
@@ -61,7 +61,7 @@ func TestGlob_MtimeSortedAscending(t *testing.T) {
 	os.Chtimes(older, now.Add(-2*time.Hour), now.Add(-2*time.Hour))
 	os.Chtimes(newer, now, now)
 
-	tool := NewGlob()
+	tool := NewGlob("")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
 		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
 	if res.IsError {
@@ -81,7 +81,7 @@ func TestGlob_NoMatches(t *testing.T) {
 	dir := t.TempDir()
 	writeFixture(t, dir, "a.go", "")
 
-	tool := NewGlob()
+	tool := NewGlob("")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
 		json.RawMessage(`{"pattern":"*.rs","path":"`+dir+`"}`))
 	if res.IsError {
@@ -93,7 +93,7 @@ func TestGlob_NoMatches(t *testing.T) {
 }
 
 func TestGlob_MissingPattern(t *testing.T) {
-	tool := NewGlob()
+	tool := NewGlob("")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(`{}`))
 	if !res.IsError {
 		t.Fatal("expected error for missing pattern")
@@ -101,7 +101,7 @@ func TestGlob_MissingPattern(t *testing.T) {
 }
 
 func TestGlob_DirectoryDoesNotExist(t *testing.T) {
-	tool := NewGlob()
+	tool := NewGlob("")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
 		json.RawMessage(`{"pattern":"*.go","path":"/no/such/dir"}`))
 	if !res.IsError {
@@ -114,7 +114,7 @@ func TestGlob_DirectoryDoesNotExist(t *testing.T) {
 
 func TestGlob_PathNotDir(t *testing.T) {
 	path := writeTempFile(t, "x")
-	tool := NewGlob()
+	tool := NewGlob("")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
 		json.RawMessage(`{"pattern":"*.go","path":"`+path+`"}`))
 	if !res.IsError {
@@ -135,7 +135,7 @@ func TestGlob_AbsolutePatternHandled(t *testing.T) {
 	writeFixture(t, dir, "src/a.go", "")
 	writeFixture(t, dir, "src/sub/b.go", "")
 
-	tool := NewGlob()
+	tool := NewGlob("")
 	// Pattern is absolute; path omitted entirely.
 	pattern := filepath.Join(dir, "src", "**", "*.go")
 	body, _ := json.Marshal(map[string]string{"pattern": pattern})
@@ -157,7 +157,7 @@ func TestGlob_OutputFormatPlainFilenames(t *testing.T) {
 	writeFixture(t, dir, "a.go", "")
 	writeFixture(t, dir, "b.go", "")
 
-	tool := NewGlob()
+	tool := NewGlob("")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
 		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
 	if res.IsError {
@@ -182,7 +182,7 @@ func TestGlob_TruncationFooter(t *testing.T) {
 	for i := 0; i < globResultLimit+5; i++ {
 		writeFixture(t, dir, "f"+strings.Repeat("x", i+1)+".go", "")
 	}
-	tool := NewGlob()
+	tool := NewGlob("")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
 		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
 	if res.IsError {

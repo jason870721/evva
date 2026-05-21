@@ -48,10 +48,11 @@ var imageExts = map[string]struct{}{
 
 type ReadTool struct {
 	tracker *ReadTracker
+	workdir string
 }
 
-func NewRead(tracker *ReadTracker) *ReadTool {
-	return &ReadTool{tracker: tracker}
+func NewRead(tracker *ReadTracker, workdir string) *ReadTool {
+	return &ReadTool{tracker: tracker, workdir: workdir}
 }
 
 func (t *ReadTool) Name() string { return string(tools.READ_FILE) }
@@ -103,7 +104,7 @@ func (t *ReadTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	}
 	logger.Debug("read.dispatch", "path", in.FilePath, "offset", in.Offset, "limit", in.Limit, "pages", in.Pages)
 
-	resolved, err := resolvePath(in.FilePath)
+	resolved, err := resolvePath(in.FilePath, t.workdir)
 	if err != nil {
 		return tools.Result{IsError: true, Content: "read: " + err.Error()}, nil
 	}

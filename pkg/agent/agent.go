@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"os"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 	agent_impl "github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/permission"
@@ -24,21 +24,30 @@ type Config struct {
 	// provider's cheapest model is used.
 	Model string
 	// MaxIters overrides the default loop iteration cap. Zero means use the
-	// default (from evva-config.yml or 10).
+	// default (from <app>-config.yml or 10).
 	MaxIters int
 	// PermissionMode sets the initial permission stance: "default", "bypass",
 	// "accept_edits", "plan". Empty means "bypass" (all tool calls auto-approved).
 	PermissionMode string
+	// AppConfig is the runtime configuration the agent reads from. Nil falls
+	// back to config.LoadDefault() / config.Get() — the historical singleton.
+	// Downstream apps that want a non-default AppHome (e.g. ~/.myapp/) pass
+	// a *config.Config they built via config.Load(...).
+	AppConfig *config.Config
 }
 
-// New constructs an Agent ready to call Run. It loads the app config and
-// memory files from the current working directory, builds a full-kit Main
-// profile, and wires up a non-interactive permission broker.
+// New constructs an Agent ready to call Run. When cfg.AppConfig is nil it
+// loads the process-wide default (config.Get(), which initializes via
+// LoadDefault on first use); pass an explicit *config.Config to target a
+// custom AppHome.
 //
-// Set API keys via environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY,
-// DEEPSEEK_API_KEY) or evva-config.yml.
+// Set API keys via the <app>-config.yml file under cfg.AppHome (or env
+// vars consumed by your own loader for downstream apps).
 func New(cfg Config) (Agent, error) {
-	appCfg := config.Get()
+	appCfg := cfg.AppConfig
+	if appCfg == nil {
+		appCfg = config.Get()
+	}
 
 	provider, ok := constant.GetProvider(cfg.Provider)
 	if !ok {
@@ -50,11 +59,11 @@ func New(cfg Config) (Agent, error) {
 	}
 
 	wd, _ := os.Getwd()
-	memSnap := memdir.Load(wd, appCfg.EvvaHome)
+	memSnap := memdir.Load(wd, appCfg.AppHome)
 
 	prof := agent_impl.Main(appCfg, provider, model, nil, memSnap, nil)
 
-	permStore, _ := permission.Load(wd, appCfg.EvvaHome)
+	permStore, _ := permission.Load(wd, appCfg.AppHome)
 	permBroker := permission.NewBroker()
 	permMode := permission.ModeBypass
 	if cfg.PermissionMode != "" {
@@ -76,6 +85,7 @@ func New(cfg Config) (Agent, error) {
 
 	inner, err := agent_impl.New(nil, prof,
 		agent_impl.WithName(appCfg.AppName),
+		agent_impl.WithConfig(appCfg),
 		agent_impl.WithMaxIterations(cfg.MaxIters),
 		agent_impl.WithPermissionStore(permStore),
 		agent_impl.WithPermissionBroker(permBroker),

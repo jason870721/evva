@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/pkg/constant"
@@ -55,6 +55,7 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 	child, err := New(a, subProfile,
 		WithName(req.Name),
 		WithSink(childSink),
+		WithConfig(a.cfg),                         // subagents inherit the parent's config
 		WithMaxIterations(int(a.maxIters.Load())), // share iters with child
 		WithAsync(req.AsyncMode),
 		WithAgentRegistry(a.agentRegistry), // subagents inherit the parent's registry
@@ -140,7 +141,7 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 //
 // Unknown kinds are an error the caller surfaces to the model.
 func (a *Agent) subagentProfile(kind string) (Profile, error) {
-	cfg := config.Get()
+	cfg := a.cfg
 	// Strip any system-prompt option the parent picked up. The subagent
 	// constructor will append its own WithSystem; leaving the parent's in
 	// the slice would let it override the subagent's via "last write wins"
@@ -239,7 +240,7 @@ func truncateSummary(s string, max int) string {
 //
 // Lives in spawn.go so the sysprompt package doesn't depend on the agent
 // package (Profile lives here; AgentDefinition lives in sysprompt).
-func profileFromDiskAgent(def sysprompt.AgentDefinition, _ *config.AppConfig, provider constant.LLMProvider, model constant.Model, inherited []llm.Option) Profile {
+func profileFromDiskAgent(def sysprompt.AgentDefinition, _ *config.Config, provider constant.LLMProvider, model constant.Model, inherited []llm.Option) Profile {
 	ctx := sysprompt.PromptContext{} // disk agents capture their body verbatim; PromptContext is unused for them
 	sp := def.BuildSystemPrompt(ctx)
 	opts := append(inherited, llm.WithSystem(sp))

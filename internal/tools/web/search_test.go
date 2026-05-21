@@ -12,7 +12,7 @@ import (
 	"github.com/johnny1110/evva/internal/tools"
 	"time"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 )
 
 // Phase 1 analysis — SearchTool.Execute code paths:
@@ -58,7 +58,7 @@ func withTavilyServer(t *testing.T, h http.HandlerFunc) *httptest.Server {
 
 func TestSearch_RejectsEmptyQuery(t *testing.T) {
 	// Arrange
-	tool := &SearchTool{}
+	tool := NewSearch(config.Get())
 	setTavilyKey(t, "tvly-test")
 
 	// Act
@@ -78,7 +78,7 @@ func TestSearch_RejectsEmptyQuery(t *testing.T) {
 
 func TestSearch_RejectsMissingAPIKey(t *testing.T) {
 	// Arrange
-	tool := &SearchTool{}
+	tool := NewSearch(config.Get())
 	setTavilyKey(t, "")
 
 	// Act
@@ -94,7 +94,7 @@ func TestSearch_RejectsMissingAPIKey(t *testing.T) {
 }
 
 func TestSearch_RejectsDecodeError(t *testing.T) {
-	tool := &SearchTool{}
+	tool := NewSearch(config.Get())
 	setTavilyKey(t, "tvly-test")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(`{not-json`))
@@ -123,7 +123,7 @@ func TestSearch_HappyPath_RendersResults(t *testing.T) {
 			]
 		}`))
 	})
-	tool := &SearchTool{}
+	tool := NewSearch(config.Get())
 	setTavilyKey(t, "tvly-secret")
 
 	// Act
@@ -174,7 +174,7 @@ func TestSearch_EmptyResults_ReturnsNoResultsLine(t *testing.T) {
 	withTavilyServer(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"results":[]}`))
 	})
-	tool := &SearchTool{}
+	tool := NewSearch(config.Get())
 	setTavilyKey(t, "tvly-test")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(`{"query":"nothing matches"}`))
@@ -202,7 +202,7 @@ func TestSearch_Non2xxSurfacesStatusAndBody(t *testing.T) {
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.body))
 			})
-			tool := &SearchTool{}
+			tool := NewSearch(config.Get())
 			setTavilyKey(t, "tvly-test")
 
 			res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(`{"query":"q"}`))
@@ -221,7 +221,7 @@ func TestSearch_MalformedResponseJSON(t *testing.T) {
 	withTavilyServer(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`not json at all`))
 	})
-	tool := &SearchTool{}
+	tool := NewSearch(config.Get())
 	setTavilyKey(t, "tvly-test")
 
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(`{"query":"q"}`))
@@ -239,7 +239,7 @@ func TestSearch_ContextCancelled(t *testing.T) {
 	withTavilyServer(t, func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 	})
-	tool := &SearchTool{}
+	tool := NewSearch(config.Get())
 	setTavilyKey(t, "tvly-test")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/pkg/llm"
 )
@@ -22,7 +21,7 @@ type chunkAdapter struct {
 func (a *Agent) newChunkAdapter() *chunkAdapter {
 	return &chunkAdapter{
 		agent:        a,
-		emitThinking: config.Get().GetDisplayThinking(),
+		emitThinking: a.cfg.GetDisplayThinking(),
 	}
 }
 

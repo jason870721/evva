@@ -35,10 +35,11 @@ var markdownExt = regexp.MustCompile(`(?i)\.(md|mdx)$`)
 
 type EditTool struct {
 	tracker *ReadTracker
+	workdir string
 }
 
-func NewEdit(tracker *ReadTracker) *EditTool {
-	return &EditTool{tracker: tracker}
+func NewEdit(tracker *ReadTracker, workdir string) *EditTool {
+	return &EditTool{tracker: tracker, workdir: workdir}
 }
 
 func (t *EditTool) Name() string { return string(tools.EDIT_FILE) }
@@ -84,7 +85,7 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	}
 	logger.Debug("edit.dispatch", "path", in.FilePath, "replace_all", in.ReplaceAll, "old_bytes", len(in.OldString), "new_bytes", len(in.NewString))
 
-	resolved, err := resolvePath(in.FilePath)
+	resolved, err := resolvePath(in.FilePath, t.workdir)
 	if err != nil {
 		return tools.Result{IsError: true, Content: "edit: " + err.Error()}, nil
 	}

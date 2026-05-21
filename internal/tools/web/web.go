@@ -1,19 +1,30 @@
 // Package web hosts web tools: web_search (Tavily-backed) and web_fetch
 // (HTTP GET + readable-text extraction).
 //
-// Both stateless — package-level singletons. They read configuration
-// (TAVILY_API_KEY, FETCH_MAX_BYTES) lazily from configs.Get() inside
-// Execute, so a host that rotates env mid-session picks it up.
+// Tools hold a *config.Config pointer captured at construction so their
+// Execute methods can read the live FETCH_MAX_BYTES / TAVILY_API_KEY
+// (mutated by the /config form) without falling back to a global
+// singleton.
 package web
 
-import "github.com/johnny1110/evva/internal/tools"
+import (
+	"github.com/johnny1110/evva/internal/tools"
+	"github.com/johnny1110/evva/pkg/config"
+)
 
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName {
 	return []tools.ToolName{tools.WEB_FETCH, tools.WEB_SEARCH}
 }
 
-var (
-	Fetch  tools.Tool = &FetchTool{}
-	Search tools.Tool = &SearchTool{}
-)
+// NewFetch builds a fetch tool bound to cfg. cfg may be nil — Execute
+// falls back to the default 100k byte cap.
+func NewFetch(cfg *config.Config) *FetchTool {
+	return &FetchTool{cfg: cfg}
+}
+
+// NewSearch builds a search tool bound to cfg. cfg may be nil — Execute
+// surfaces a "not configured" error when no API key is reachable.
+func NewSearch(cfg *config.Config) *SearchTool {
+	return &SearchTool{cfg: cfg}
+}

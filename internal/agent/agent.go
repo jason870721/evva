@@ -9,13 +9,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
 
-	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/pkg/llm"
-	"github.com/johnny1110/evva/internal/llmfactory"
 	"github.com/johnny1110/evva/internal/logger"
 	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/permission"
@@ -114,6 +113,13 @@ type Agent struct {
 	// never the Go process's.
 	workdir string
 
+	// cfg is the runtime configuration this agent reads from. Injected via
+	// WithConfig at construction; defaults to config.Get() when no option is
+	// supplied so the bundled cmd/evva keeps booting with the historical
+	// singleton. Downstream apps that want a non-default AppHome pass a
+	// Config built by pkg/config.Load.
+	cfg *config.Config
+
 	// permissionStore + permissionBroker are shared instances. permissionStore
 	// holds project/user/session rules; permissionBroker brokers the
 	// approval back-channel between the gate and the TUI. Both are
@@ -163,14 +169,55 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	if parent != nil {
 		parentID = parent.ID
 	}
-	// init logger
-	lgr, err := logger.OfAgent(parentID, ID)
-	if err != nil {
-		return nil, fmt.Errorf("agent: init logger: %w", err)
+
+	deferred := make(map[tools.ToolName]struct{}, len(profile.DeferredTools))
+	for _, n := range profile.DeferredTools {
+		// empty at first, lazy loading when ResolveTool is called
+		deferred[n] = struct{}{}
 	}
 
 	toolState := toolset.NewToolState() // per agent per toolState.
-	// expose tools in llm api call, also init at first.
+
+	a := &Agent{
+		Parent:            parent,
+		ID:                ID,
+		status:            constant.INIT,
+		profile:           profile,
+		session:           session.New(),
+		toolState:         toolState,
+		deferredAllowlist: deferred,
+	}
+	a.permissionMode.Store(permission.ModeDefault)
+	a.planModeState = permission.NewPlanModeState()
+	if wd, err := os.Getwd(); err == nil {
+		a.workdir = wd
+	}
+
+	// adapt options params (e.g. name, sink, cfg, maxIters..)
+	for _, opt := range opts {
+		opt(a)
+	}
+
+	// Backward compat: callers that don't pass WithConfig boot against the
+	// process-wide default Config. Downstream apps wanting a custom AppHome
+	// pass their own *config.Config via WithConfig.
+	if a.cfg == nil {
+		a.cfg = config.Get()
+	}
+	// Plumb cfg into the ToolState so tools that need runtime settings
+	// (web tools, fs glob, dev/feedback) read through the state pointer
+	// rather than a global accessor. Must happen before toolset.Build so
+	// the factories see the configured cfg.
+	a.toolState.SetConfig(a.cfg)
+
+	// Logger picks up LogDir / LogLevel / LogFormat from a.cfg.
+	lgr, err := logger.OfAgent(a.cfg, parentID, ID)
+	if err != nil {
+		return nil, fmt.Errorf("agent: init logger: %w", err)
+	}
+	a.logger = lgr
+
+	// Expose tools to the llm api call, also init at first.
 	exposeTools, err := toolset.Build(profile.ActiveTools, toolState)
 	if err != nil {
 		lgr.Error("agent: build active tools failed", "error", err)
@@ -180,38 +227,16 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	for _, t := range exposeTools {
 		active[t.Name()] = t
 	}
+	a.active = active
+	a.exposeTools = exposeTools
 
-	deferred := make(map[tools.ToolName]struct{}, len(profile.DeferredTools))
-	for _, n := range profile.DeferredTools {
-		// empty at first, lazy loading when ResolveTool is called
-		deferred[n] = struct{}{}
+	// Apply cfg-derived defaults for fields the options didn't already set.
+	// Zero values act as the "unset" sentinel.
+	if a.maxIters.Load() == 0 {
+		a.maxIters.Store(int64(a.cfg.DefaultMaxIterations))
 	}
-
-	cfg := config.Get()
-
-	a := &Agent{
-		Parent:            parent,
-		ID:                ID,
-		logger:            lgr,
-		status:            constant.INIT,
-		profile:           profile,
-		session:           session.New(),
-		toolState:         toolState,
-		active:            active,
-		deferredAllowlist: deferred,
-		exposeTools:       exposeTools,
-	}
-	a.maxIters.Store(int64(cfg.DefaultMaxIterations))
-	a.effort = cfg.DefaultEffort
-	a.permissionMode.Store(permission.ModeDefault)
-	a.planModeState = permission.NewPlanModeState()
-	if wd, err := os.Getwd(); err == nil {
-		a.workdir = wd
-	}
-
-	// adapt options params (e.g. name, sink, maxIters..)
-	for _, opt := range opts {
-		opt(a)
+	if a.effort == "" {
+		a.effort = a.cfg.DefaultEffort
 	}
 
 	// Single subscription bridges every store registered on the ToolState
@@ -233,7 +258,7 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	a.toolState.SetQuestionBroker(a.questionBroker)
 
 	effortOpts := append(profile.LLMOptions, llm.WithEffort(llm.ParseEffort(a.effort)))
-	llmClient, err := llmfactory.Of(profile.LLMProvider, profile.LLMModel, effortOpts)
+	llmClient, err := buildLLMClient(a.cfg, profile.LLMProvider, profile.LLMModel, effortOpts)
 	if err != nil {
 		return nil, fmt.Errorf("agent: init llm client: %w", err)
 	}
@@ -285,7 +310,7 @@ func (a *Agent) SetEffort(level string) error {
 	a.effort = level
 	a.llm.Apply(llm.WithEffort(n))
 	a.logger.Info("agent: effort set", "level", level)
-	return config.Get().SetDefaultEffort(level)
+	return a.cfg.SetDefaultEffort(level)
 }
 
 // SwitchProfile rebuilds the agent for a new persona — different system
@@ -311,8 +336,7 @@ func (a *Agent) SwitchProfile(name string) error {
 		return fmt.Errorf("agent: profile name is required")
 	}
 
-	cfg := config.Get()
-	newProfile, err := ResolveMainProfile(cfg, a.agentRegistry, name, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions))
+	newProfile, err := ResolveMainProfile(a.cfg, a.agentRegistry, name, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions))
 	if err != nil {
 		return err
 	}
@@ -333,7 +357,7 @@ func (a *Agent) SwitchProfile(name string) error {
 	}
 
 	effortOpts := append(newProfile.LLMOptions, llm.WithEffort(llm.ParseEffort(a.effort)))
-	client, err := llmfactory.Of(newProfile.LLMProvider, newProfile.LLMModel, effortOpts)
+	client, err := buildLLMClient(a.cfg, newProfile.LLMProvider, newProfile.LLMModel, effortOpts)
 	if err != nil {
 		return fmt.Errorf("agent: build llm client: %w", err)
 	}
@@ -348,7 +372,7 @@ func (a *Agent) SwitchProfile(name string) error {
 	a.toolState.TodoStore().Clear()
 
 	a.logger.Info("agent: profile switched", "persona", name, "provider", client.Name(), "model", client.Model())
-	return cfg.SetDefaultProfile(name)
+	return a.cfg.SetDefaultProfile(name)
 }
 
 // baseLLMOptions strips any prior WithSystem entries from opts so
@@ -395,7 +419,7 @@ func (a *Agent) SwitchLLM(provider constant.LLMProvider, model constant.Model) e
 	newProfile := a.profile
 	newProfile.LLMProvider = provider
 	newProfile.LLMModel = model
-	client, err := llmfactory.Of(provider, model, newProfile.LLMOptions)
+	client, err := buildLLMClient(a.cfg, provider, model, newProfile.LLMOptions)
 	if err != nil {
 		return fmt.Errorf("agent: build llm client: %w", err)
 	}

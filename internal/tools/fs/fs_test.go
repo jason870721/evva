@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	config "github.com/johnny1110/evva/configs"
 )
 
 // TestResolvePathExpandsTilde locks down that `~/x` expands using the
@@ -19,7 +17,7 @@ func TestResolvePathExpandsTilde(t *testing.T) {
 	t.Setenv("SUDO_USER", "")
 	t.Setenv("HOME", "/home/agent")
 
-	got, err := resolvePath("~/tmp/notes.md")
+	got, err := resolvePath("~/tmp/notes.md", "")
 	if err != nil {
 		t.Fatalf("resolvePath: %v", err)
 	}
@@ -45,7 +43,7 @@ func TestResolvePathHonorsSudoUser(t *testing.T) {
 	t.Setenv("HOME", "/root")
 	t.Setenv("SUDO_USER", username)
 
-	got, err := resolvePath("~/tmp/notes.md")
+	got, err := resolvePath("~/tmp/notes.md", "")
 	if err != nil {
 		t.Fatalf("resolvePath: %v", err)
 	}
@@ -63,12 +61,8 @@ func TestResolvePathHonorsSudoUser(t *testing.T) {
 // without plumbing the workdir itself.
 func TestResolvePathAutoAbs(t *testing.T) {
 	wd := t.TempDir()
-	cfg := config.Get()
-	prev := cfg.WorkDir
-	cfg.WorkDir = wd
-	t.Cleanup(func() { cfg.WorkDir = prev })
 
-	got, err := resolvePath("notes/todo.md")
+	got, err := resolvePath("notes/todo.md", wd)
 	if err != nil {
 		t.Fatalf("resolvePath: %v", err)
 	}
@@ -81,7 +75,7 @@ func TestResolvePathAutoAbs(t *testing.T) {
 // TestResolvePathPreservesAbsolute confirms an already-absolute path
 // passes through untouched (modulo filepath.Clean).
 func TestResolvePathPreservesAbsolute(t *testing.T) {
-	got, err := resolvePath("/var/log/agent.log")
+	got, err := resolvePath("/var/log/agent.log", "")
 	if err != nil {
 		t.Fatalf("resolvePath: %v", err)
 	}
@@ -94,7 +88,7 @@ func TestResolvePathPreservesAbsolute(t *testing.T) {
 // fs tool relies on this guard to surface "file_path is required"
 // rather than silently operating on the workdir root.
 func TestResolvePathRejectsEmpty(t *testing.T) {
-	if _, err := resolvePath(""); err == nil {
+	if _, err := resolvePath("", ""); err == nil {
 		t.Fatal("expected error for empty path, got nil")
 	}
 }

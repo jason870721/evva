@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools"
+	"github.com/johnny1110/evva/pkg/config"
+	"github.com/johnny1110/evva/pkg/llm"
 )
 
 // stubLLM is a hand-wired llm.Client used to drive fullCompact's
@@ -39,6 +40,7 @@ func newTestAgent(client llm.Client) *Agent {
 		logger:  slog.Default(),
 		session: session.New(),
 		llm:     client,
+		cfg:     config.Get(),
 	}
 }
 

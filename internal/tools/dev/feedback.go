@@ -9,15 +9,25 @@ import (
 	"path/filepath"
 	"time"
 
-	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/tools"
+	"github.com/johnny1110/evva/pkg/config"
 )
 
 // FeedbackTool lets evva report bugs, suggest improvements, flag unnecessary
 // tool-result patterns, or request new tools. Only available in dev environment.
-type FeedbackTool struct{}
+//
+// Writes feedback markdown into <AppHome>/feedbacks/. cfg.AppHome is
+// captured at construction so multi-agent processes targeting different
+// home dirs route feedback correctly.
+type FeedbackTool struct {
+	cfg *config.Config
+}
 
-var Feedback = &FeedbackTool{}
+// NewFeedback builds a feedback tool bound to cfg. cfg may be nil — Execute
+// surfaces a clear error in that case.
+func NewFeedback(cfg *config.Config) *FeedbackTool {
+	return &FeedbackTool{cfg: cfg}
+}
 
 const feedbackDesc = "Send feedback to the evva developers. " +
 	"Choose a category: " +
@@ -54,8 +64,10 @@ func (t *FeedbackTool) Execute(_ context.Context, logger *slog.Logger, input jso
 	}
 	logger.Debug("feedback.dispatch", "category", in.Category)
 
-	cfg := config.Get()
-	dir := filepath.Join(cfg.EvvaHome, "feedbacks")
+	if t.cfg == nil {
+		return tools.Result{IsError: true, Content: "feedback: no config installed"}, nil
+	}
+	dir := filepath.Join(t.cfg.AppHome, "feedbacks")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		logger.Warn("feedback.fail", "stage", "mkdir", "dir", dir, "err", err)
 		return tools.Result{IsError: true, Content: fmt.Sprintf("feedback: cannot create directory: %v", err)}, nil

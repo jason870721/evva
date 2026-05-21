@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/internal/memdir"

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
@@ -55,7 +55,7 @@ func main() {
 	permModeFlag := flag.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
 	flag.Parse()
 
-	registry, _ := skill.LoadRegistry(cfg.EvvaHomeSkillsDir, cfg.WorkDirSkillsDir)
+	registry, _ := skill.LoadRegistry(cfg.AppHomeSkillsDir, cfg.WorkDirSkillsDir)
 	for _, w := range registry.Warnings {
 		fmt.Fprintln(os.Stderr, "evva:", w)
 	}
@@ -65,7 +65,7 @@ func main() {
 	// (<EVVA_HOME>/USER_PROFILE.md) once at startup; the snapshot threads
 	// into the main agent's prompt. Missing files are silent; oversize /
 	// permission warnings are surfaced on stderr like skill warnings.
-	memSnap := memdir.Load(cfg.WorkDir, cfg.EvvaHome)
+	memSnap := memdir.Load(cfg.WorkDir, cfg.AppHome)
 	for _, w := range memSnap.Warnings {
 		fmt.Fprintln(os.Stderr, "evva:", w)
 	}
@@ -74,7 +74,7 @@ func main() {
 	// pick the right persona (built-in evva or a disk-loaded persona under
 	// <EVVA_HOME>/agents/). Bad disk agents degrade gracefully — they're
 	// skipped with a warning, the session continues without them.
-	agentReg, agentWarns := agent.BuildAgentRegistry(cfg.EvvaHome)
+	agentReg, agentWarns := agent.BuildAgentRegistry(cfg.AppHome)
 	for _, w := range agentWarns {
 		fmt.Fprintln(os.Stderr, "evva:", w.Error())
 	}
@@ -93,7 +93,7 @@ func main() {
 	// Permission system: load project + user rules, build the approval
 	// broker, resolve the active mode (CLI > YAML > "default"). One Store
 	// and one Broker per process — subagents inherit them via spawn.go.
-	permStore, permWarns := permission.Load(cfg.WorkDir, cfg.EvvaHome)
+	permStore, permWarns := permission.Load(cfg.WorkDir, cfg.AppHome)
 	for _, w := range permWarns {
 		fmt.Fprintln(os.Stderr, "evva:", w.Error())
 	}
@@ -106,7 +106,7 @@ func main() {
 
 	useTUI := !*noTUI && isTTY(os.Stdout)
 	if useTUI {
-		runTUI(ctx, prof, profName, skillRefs, memSnap, *maxIters, cfg.AppName, cfg.EvvaHome, registry, agentReg, permStore, permBroker, permMode, qBroker, *uiKind)
+		runTUI(ctx, prof, profName, skillRefs, memSnap, *maxIters, cfg.AppName, cfg.AppHome, registry, agentReg, permStore, permBroker, permMode, qBroker, *uiKind)
 		return
 	}
 	runCLI(ctx, prof, profName, skillRefs, memSnap, *maxIters, cfg.AppName, registry, agentReg, permStore, permBroker, permMode, qBroker)

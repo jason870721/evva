@@ -10,7 +10,6 @@ import (
 	"os/user"
 	"path/filepath"
 
-	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/tools"
 )
 
@@ -25,16 +24,16 @@ func Names() []tools.ToolName {
 //  1. A leading `~` / `~/` expands to the invoking user's home dir
 //     (see resolveUserHome — robust against sudo / container envs
 //     where `$HOME=/root`).
-//  2. Relative paths are joined onto the configured workdir so the
-//     model never has to plumb `cfg.WorkDir` itself; "make a file
-//     at notes/todo.md" Just Works.
+//  2. Relative paths are joined onto workdir so the model never has
+//     to plumb the workdir itself; "make a file at notes/todo.md"
+//     Just Works. Pass "" to fall back to os.Getwd() (test convenience).
 //  3. The result is filepath.Cleaned to collapse `..`, double
 //     slashes, and `.` segments.
 //
 // Returns an error only when the input is empty or `~` expansion
 // fails outright — both signal a misconfigured agent or environment
 // rather than user intent.
-func resolvePath(pathStr string) (string, error) {
+func resolvePath(pathStr, workdir string) (string, error) {
 	if pathStr == "" {
 		return "", fmt.Errorf("file_path is required")
 	}
@@ -43,8 +42,10 @@ func resolvePath(pathStr string) (string, error) {
 		return "", err
 	}
 	if !filepath.IsAbs(expanded) {
-		cfg := config.Get()
-		expanded = filepath.Join(cfg.WorkDir, expanded)
+		if workdir == "" {
+			workdir, _ = os.Getwd()
+		}
+		expanded = filepath.Join(workdir, expanded)
 	}
 	return filepath.Clean(expanded), nil
 }

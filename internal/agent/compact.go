@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/llm"
@@ -99,7 +98,7 @@ func (a *Agent) Compact(ctx context.Context, kind string) error {
 // and the decision (skip:<reason> / trigger:<kind>) so the workflow is
 // debuggable from grep alone.
 func (a *Agent) compact(ctx context.Context, s *session.Session) {
-	cfg := config.Get()
+	cfg := a.cfg
 
 	if a.IsSubagent() {
 		// no compacting for subagents.

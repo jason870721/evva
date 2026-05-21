@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 )
 
 // Config holds logger configuration.
@@ -49,30 +49,23 @@ func New(cfg Config) (*slog.Logger, error) {
 	return slog.New(handler).With("AGENT_ID", cfg.AgentID), nil
 }
 
-// OfAgent constructs a logger from environment variables.
-//
-// Env vars:
-//
-//	LOG_LEVEL   — debug | info | warn | error  (default: info)
-//	LOG_FORMAT  — json | text                  (default: text)
-//	LOG_DIR     — directory path               (default: stdout)
-//	LOG_AGENT_ID — agent identifier            (default: "default")
-func OfAgent(parentID, agentID string) (*slog.Logger, error) {
-	cfg := config.Get()
+// OfAgent constructs a logger using the supplied runtime configuration.
+// cfg may be nil — the logger falls back to stdout in that case (useful
+// for tests).
+func OfAgent(cfg *config.Config, parentID, agentID string) (*slog.Logger, error) {
+	if cfg == nil {
+		return New(Config{AgentID: agentID})
+	}
 
 	logDir := ""
-
 	if cfg.LogDir != nil {
-
 		isMain := parentID == ""
-
 		innerDir := parentID
 		if isMain {
 			innerDir = agentID
 		} else {
 			agentID = "sub_" + agentID
 		}
-
 		logDir = *cfg.LogDir + "/" + innerDir
 	}
 

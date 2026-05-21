@@ -1,7 +1,7 @@
 package agent
 
 import (
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/memdir"
@@ -58,20 +58,34 @@ func WithSkillRegistry(r *skill.Registry) Option {
 	}
 }
 
-// WithMaxIterations overrides DefaultMaxIterations. Pass 0 to use the
-// default. Negative values are clamped to 1 (single-turn).
+// WithMaxIterations overrides the agent's loop cap. Pass 0 to keep the
+// cfg-derived default (applied after options run in agent.New). Values
+// in (0, 2) are clamped to 2 (single-turn agents would never observe a
+// tool result).
 func WithMaxIterations(n int) Option {
-	cfg := config.Get()
-
 	return func(a *Agent) {
 		switch {
 		case n == 0:
-			a.maxIters.Store(int64(cfg.DefaultMaxIterations))
+			// leave a.maxIters at 0 so the New() defaulter picks up cfg.DefaultMaxIterations
 		case n < 2:
 			a.maxIters.Store(2)
 		default:
 			a.maxIters.Store(int64(n))
 		}
+	}
+}
+
+// WithConfig installs the runtime configuration the agent reads from.
+// Subagents inherit the parent's config via spawn; downstream apps that
+// run multiple agents with different home dirs pass distinct *config.Config
+// pointers per agent.
+//
+// Omitting WithConfig boots the agent against config.Get() — the
+// historical singleton — so cmd/evva and existing callers don't need to
+// change.
+func WithConfig(cfg *config.Config) Option {
+	return func(a *Agent) {
+		a.cfg = cfg
 	}
 }
 

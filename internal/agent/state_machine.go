@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/agent/attachments"
 	"github.com/johnny1110/evva/internal/agent/event"
 	"github.com/johnny1110/evva/pkg/constant"
@@ -244,7 +243,7 @@ func (a *Agent) text(usage llm.Usage, thinking string, content string) {
 		return
 	}
 
-	cfg := config.Get()
+	cfg := a.cfg
 
 	a.emit(event.KindUsage, func(e *event.Event) {
 		e.Usage = &event.UsagePayload{

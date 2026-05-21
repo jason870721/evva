@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"slices"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/llm"
@@ -114,7 +114,7 @@ type Profile struct {
 // chunk adapter falls back cleanly for providers without native streaming.
 // Callers who want the old buffered behavior can pass WithStream(false) at
 // agent construction.
-func Main(cfg *config.AppConfig, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
+func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
 	activeTools := slices.Concat(fs.Names(), shell.Names(), meta.Names(), skill.Names(), todo.Names())
 	// enter/exit_plan_mode are always-active on Main so the model can flip
 	// the session into ModePlan without a tool_search round-trip. The
@@ -134,7 +134,7 @@ func Main(cfg *config.AppConfig, provider constant.LLMProvider, model constant.M
 		util.Names(),
 	)
 
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)
+	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
 	ctx.Skills = skills
 	ctx.ProjectMemory = mem.ProjectMemory
 	ctx.UserProfile = mem.UserProfile
@@ -168,7 +168,7 @@ func Main(cfg *config.AppConfig, provider constant.LLMProvider, model constant.M
 // Empty name defaults to "evva". Unknown or non-main names return an
 // error so callers (bootstrap fallback, the /profile picker) can surface
 // the failure.
-func ResolveMainProfile(cfg *config.AppConfig, reg *AgentRegistry, name string, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) (Profile, error) {
+func ResolveMainProfile(cfg *config.Config, reg *AgentRegistry, name string, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) (Profile, error) {
 	if name == "" {
 		name = "evva"
 	}
@@ -202,8 +202,8 @@ func ResolveMainProfile(cfg *config.AppConfig, reg *AgentRegistry, name string, 
 // (loaded from tools.yml). The deferred catalog is rendered into the
 // prompt so disk personas see their lazy-loadable tools the same way
 // built-in evva does.
-func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.AppConfig, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)
+func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
+	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
 	if def.AdvertiseSkills {
 		ctx.Skills = skills
 	}
@@ -269,8 +269,8 @@ func deferredToolSpecs(names []tools.ToolName) []sysprompt.DeferredToolSpec {
 // The Explore prompt is self-contained (mirrors ref TS Explore agent) and
 // does not include EVVA.md / USER_PROFILE.md — sysprompt.ExploreAgent
 // declares OmitMemory: true.
-func Explore(cfg *config.AppConfig, provider constant.LLMProvider, model constant.Model, options []llm.Option) Profile {
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)
+func Explore(cfg *config.Config, provider constant.LLMProvider, model constant.Model, options []llm.Option) Profile {
+	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
 	ctx.Model = string(model)
 	sp := sysprompt.ExploreAgent.BuildSystemPrompt(ctx)
 	options = append(options, llm.WithSystem(sp))
@@ -295,8 +295,8 @@ func Explore(cfg *config.AppConfig, provider constant.LLMProvider, model constan
 // — its job is to explore and recommend, not modify state. Like Explore,
 // the prompt does not include EVVA.md / USER_PROFILE.md
 // (sysprompt.PlanAgent declares OmitMemory: true).
-func Plan(cfg *config.AppConfig, provider constant.LLMProvider, model constant.Model, options []llm.Option) Profile {
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)
+func Plan(cfg *config.Config, provider constant.LLMProvider, model constant.Model, options []llm.Option) Profile {
+	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
 	ctx.Model = string(model)
 	sp := sysprompt.PlanAgent.BuildSystemPrompt(ctx)
 	options = append(options, llm.WithSystem(sp))
@@ -315,8 +315,8 @@ func Plan(cfg *config.AppConfig, provider constant.LLMProvider, model constant.M
 // supplies as active. No deferred tools. Useful for narrow-purpose sub-agents.
 //
 // Like Explore, the General prompt does not include EVVA.md / USER_PROFILE.md.
-func General(cfg *config.AppConfig, provider constant.LLMProvider, model constant.Model, options []llm.Option, toolset ...tools.ToolName) Profile {
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.EvvaHome, cfg.AppEnv)
+func General(cfg *config.Config, provider constant.LLMProvider, model constant.Model, options []llm.Option, toolset ...tools.ToolName) Profile {
+	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
 	ctx.Model = string(model)
 	sp := sysprompt.GeneralAgent.BuildSystemPrompt(ctx)
 	options = append(options, llm.WithSystem(sp))

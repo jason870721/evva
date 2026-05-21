@@ -24,11 +24,11 @@ import (
 // the host (cmd/evva derivative) calls DefaultRegistry().Register(...) at
 // startup before agent.Main constructs the root agent.
 func registerBuiltins(r *Registry) {
-	// --- fs (stateful — share ReadTracker via ToolState) ---
-	r.MustRegister(tools.READ_FILE, func(s *ToolState) (tools.Tool, error) { return fs.NewRead(s.ReadTracker()), nil })
-	r.MustRegister(tools.WRITE_FILE, func(s *ToolState) (tools.Tool, error) { return fs.NewWrite(s.ReadTracker()), nil })
-	r.MustRegister(tools.EDIT_FILE, func(s *ToolState) (tools.Tool, error) { return fs.NewEdit(s.ReadTracker()), nil })
-	r.MustRegister(tools.GLOB, func(s *ToolState) (tools.Tool, error) { return fs.NewGlob(), nil })
+	// --- fs (stateful — share ReadTracker + workdir via ToolState) ---
+	r.MustRegister(tools.READ_FILE, func(s *ToolState) (tools.Tool, error) { return fs.NewRead(s.ReadTracker(), s.workDir()), nil })
+	r.MustRegister(tools.WRITE_FILE, func(s *ToolState) (tools.Tool, error) { return fs.NewWrite(s.ReadTracker(), s.workDir()), nil })
+	r.MustRegister(tools.EDIT_FILE, func(s *ToolState) (tools.Tool, error) { return fs.NewEdit(s.ReadTracker(), s.workDir()), nil })
+	r.MustRegister(tools.GLOB, func(s *ToolState) (tools.Tool, error) { return fs.NewGlob(s.workDir()), nil })
 
 	// --- shell (stateless) ---
 	r.MustRegister(tools.BASH, func(s *ToolState) (tools.Tool, error) { return shell.Bash, nil })
@@ -65,9 +65,9 @@ func registerBuiltins(r *Registry) {
 	r.MustRegister(tools.CRON_DELETE, func(s *ToolState) (tools.Tool, error) { return cron.Delete, nil })
 	r.MustRegister(tools.REMOTE_TRIGGER, func(s *ToolState) (tools.Tool, error) { return cron.Trigger, nil })
 
-	// --- web (stateless) ---
-	r.MustRegister(tools.WEB_FETCH, func(s *ToolState) (tools.Tool, error) { return web.Fetch, nil })
-	r.MustRegister(tools.WEB_SEARCH, func(s *ToolState) (tools.Tool, error) { return web.Search, nil })
+	// --- web (cfg-bound — read TavilyAPIKey / FetchMaxBytes through ToolState) ---
+	r.MustRegister(tools.WEB_FETCH, func(s *ToolState) (tools.Tool, error) { return web.NewFetch(s.Config()), nil })
+	r.MustRegister(tools.WEB_SEARCH, func(s *ToolState) (tools.Tool, error) { return web.NewSearch(s.Config()), nil })
 
 	// --- ux ---
 	// AskUserQuestion is late-bound: the question broker is installed on ToolState
@@ -80,5 +80,5 @@ func registerBuiltins(r *Registry) {
 	r.MustRegister(tools.CALC, func(s *ToolState) (tools.Tool, error) { return util.Calc, nil })
 
 	// --- dev (evva developer tools, gated by config.IsDevelopment) ---
-	r.MustRegister(tools.FEEDBACK, func(s *ToolState) (tools.Tool, error) { return dev.Feedback, nil })
+	r.MustRegister(tools.FEEDBACK, func(s *ToolState) (tools.Tool, error) { return dev.NewFeedback(s.Config()), nil })
 }

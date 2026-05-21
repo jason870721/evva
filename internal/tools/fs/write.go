@@ -14,10 +14,11 @@ import (
 
 type WriteTool struct {
 	tracker *ReadTracker
+	workdir string
 }
 
-func NewWrite(tracker *ReadTracker) *WriteTool {
-	return &WriteTool{tracker: tracker}
+func NewWrite(tracker *ReadTracker, workdir string) *WriteTool {
+	return &WriteTool{tracker: tracker, workdir: workdir}
 }
 
 func (t *WriteTool) Name() string { return string(tools.WRITE_FILE) }
@@ -65,7 +66,7 @@ func (t *WriteTool) Execute(ctx context.Context, logger *slog.Logger, input json
 	}
 	logger.Debug("write.dispatch", "path", in.FilePath, "bytes", len(in.Content))
 
-	resolved, err := resolvePath(in.FilePath)
+	resolved, err := resolvePath(in.FilePath, t.workdir)
 	if err != nil {
 		return tools.Result{IsError: true, Content: "write: " + err.Error()}, nil
 	}

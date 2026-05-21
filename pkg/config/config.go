@@ -1,22 +1,40 @@
+// Package config carries the runtime configuration the evva agent and its
+// bundled tools read at startup and during a session.
+//
+// The package is brand-neutral: a Config is constructed via Load(appName,
+// appHome, workdir) so downstream apps can choose their own home directory
+// (e.g. ~/.myapp/) and binary name. LoadDefault preserves evva's historical
+// behavior (~/.evva/) for the bundled CLI.
+//
+// There is no package-level singleton. Callers construct one Config per
+// process (or per agent, if running multiple agents with different
+// configurations) and pass it through agent.New via WithConfig.
 package config
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
 	"github.com/johnny1110/evva/pkg/constant"
-	"github.com/joho/godotenv"
+	"github.com/johnny1110/evva/pkg/llm"
 )
 
-// AppConfig holds all parsed environment configuration.
-// Fields are read-only after initialization — treat them as constants.
-// Pointer types (e.g. *string) represent "explicitly nullable" values:
-// nil means "not set / intentionally absent", distinguishing from "".
-type AppConfig struct {
+// Default values that appear unchanged across all Config instances.
+const (
+	DefaultAppName    = "evva"
+	DefaultAppVersion = "0.1.0"
+)
+
+// Config holds all parsed runtime configuration. Most fields are populated
+// once during Load and treated as read-only; the small subset that the
+// /config and /model setters mutate at runtime is guarded by c.mu.
+//
+// AppHome-prefixed paths point inside the per-user home dir
+// (~/.<app>/) where skills, USER_PROFILE.md, evva-config.yml, and logs
+// live. WorkDir-prefixed paths point inside the process's current working
+// directory where workdir-local resources (skills, EVVA.md, plans) live.
+type Config struct {
 	// OS / runtime
 	OS string
 
@@ -27,41 +45,42 @@ type AppConfig struct {
 
 	// Application
 	AppEnv     string // default: "development"
-	AppName    string // default: "app"
+	AppName    string // default: "evva" — the binary / brand name; drives AppHome layout.
 	AppVersion string
 
-	// Global config dir
-	EvvaHome             string
-	EvvaHomeSkillsDir    string
-	EvvaHomeUserProfile  string
-	EvvaHomeConfigFile   string // path to evva-config.yml
+	// Per-user home dir layout
+	AppHome            string
+	AppHomeSkillsDir   string
+	AppHomeUserProfile string
+	AppHomeConfigFile  string // absolute path to <app>-config.yml under AppHome/config/
+
 	AutoCompactThreshold float64
 
-	// Work dir
+	// Workdir layout
 	WorkDir          string
 	WorkDirSkillsDir string
 
-	// llm providers(from evva-config.yml) key: provider name, value: provider config
-	LLMProviderConfig map[string]LLMProviderAPIConfig
+	// llm providers(from <app>-config.yml) key: provider name, value: provider APIConfig
+	LLMProviderConfig map[string]llm.APIConfig
 
 	// DefaultProvider / DefaultModel are the (provider, model) the agent
-	// boots with. Sourced from evva-config.yml; phase-3 /model switch will
-	// update these in-memory and persist via SaveFile().
+	// boots with. Sourced from <app>-config.yml; the /model switch updates
+	// them in-memory and persists via SaveFile().
 	DefaultProvider constant.LLMProvider
 	DefaultModel    constant.Model
 
 	// DefaultEffort is the user-facing effort level name: low|medium|high|ultra.
-	// Defaults to "medium". Sourced from evva-config.yml; /effort updates it.
+	// Defaults to "medium". Sourced from <app>-config.yml; /effort updates it.
 	DefaultEffort string
 
 	// DefaultProfile is the persona the root agent boots into ("evva", "nono",
-	// etc). Sourced from evva-config.yml; /profile updates it. Empty falls
+	// etc). Sourced from <app>-config.yml; /profile updates it. Empty falls
 	// back to "evva" at bootstrap so old configs keep working.
 	DefaultProfile string
 
-	// PermissionMode is the startup permission stance. One of
-	// default|accept_edits|plan|bypass|auto. The -permission-mode CLI
-	// flag overrides this at boot; the TUI's Shift+Tab cycle mutates the
+	// PermissionMode is the startup permission stance: one of
+	// default|accept_edits|plan|bypass|auto. The -permission-mode CLI flag
+	// overrides this at boot; the TUI's Shift+Tab cycle mutates the
 	// in-memory value via SetPermissionMode (not yet persisted).
 	PermissionMode string
 
@@ -84,12 +103,12 @@ type AppConfig struct {
 
 	// mu guards the runtime-mutable fields below (DisplayThinking,
 	// AutoCompactThreshold, DefaultMaxIterations, DefaultMaxTokens,
-	// FetchMaxBytes, TavilyAPIKey, LLMProviderConfig) once load() has
-	// returned. Use the Get* / Set* accessors — direct field reads from
-	// outside this package race the UI goroutine's edits.
+	// FetchMaxBytes, TavilyAPIKey, LLMProviderConfig) once Load returns.
+	// Use the Get* / Set* accessors — direct field reads from outside
+	// this package race the UI goroutine's edits.
 	mu sync.RWMutex
 
-	// saveMu serializes write-back to EvvaHomeConfigFile. Separate from
+	// saveMu serializes write-back to AppHomeConfigFile. Separate from
 	// mu so a slow disk write doesn't block agent-loop reads.
 	saveMu sync.Mutex
 }
@@ -97,7 +116,7 @@ type AppConfig struct {
 // GetDisplayThinking returns the current DisplayThinking flag under the
 // read lock. Agent code reads this every turn (state_machine.go,
 // stream.go); the UI may write it via /config.
-func (c *AppConfig) GetDisplayThinking() bool {
+func (c *Config) GetDisplayThinking() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.DisplayThinking
@@ -105,14 +124,14 @@ func (c *AppConfig) GetDisplayThinking() bool {
 
 // GetAutoCompactThreshold returns the current threshold under the read
 // lock. compact.go reads this every turn.
-func (c *AppConfig) GetAutoCompactThreshold() float64 {
+func (c *Config) GetAutoCompactThreshold() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.AutoCompactThreshold
 }
 
 // SetDisplayThinking mutates the in-memory flag and persists to disk.
-func (c *AppConfig) SetDisplayThinking(v bool) error {
+func (c *Config) SetDisplayThinking(v bool) error {
 	c.mu.Lock()
 	c.DisplayThinking = v
 	c.mu.Unlock()
@@ -120,7 +139,7 @@ func (c *AppConfig) SetDisplayThinking(v bool) error {
 }
 
 // SetAutoCompactThreshold validates 0 < v <= 1 and persists.
-func (c *AppConfig) SetAutoCompactThreshold(v float64) error {
+func (c *Config) SetAutoCompactThreshold(v float64) error {
 	if v <= 0 || v > 1 {
 		return fmt.Errorf("auto_compact_threshold must be in (0, 1], got %g", v)
 	}
@@ -133,7 +152,7 @@ func (c *AppConfig) SetAutoCompactThreshold(v float64) error {
 // SetMaxIterations validates >0 and persists. NOTE: this only updates
 // the YAML default; the live cap on a running agent is on Agent itself
 // — call Controller.SetMaxIterations to mutate it.
-func (c *AppConfig) SetMaxIterations(n int) error {
+func (c *Config) SetMaxIterations(n int) error {
 	if n <= 0 {
 		return fmt.Errorf("max_iterations must be > 0, got %d", n)
 	}
@@ -146,7 +165,7 @@ func (c *AppConfig) SetMaxIterations(n int) error {
 // SetMaxTokens validates >=0 and persists. 0 means "provider default".
 // Effective on next launch — the agent's profile snapshots this at
 // construction.
-func (c *AppConfig) SetMaxTokens(n int) error {
+func (c *Config) SetMaxTokens(n int) error {
 	if n < 0 {
 		return fmt.Errorf("max_tokens must be >= 0, got %d", n)
 	}
@@ -157,7 +176,7 @@ func (c *AppConfig) SetMaxTokens(n int) error {
 }
 
 // SetFetchMaxBytes validates > 0 and persists.
-func (c *AppConfig) SetFetchMaxBytes(n int) error {
+func (c *Config) SetFetchMaxBytes(n int) error {
 	if n <= 0 {
 		return fmt.Errorf("fetch_max_bytes must be > 0, got %d", n)
 	}
@@ -172,7 +191,7 @@ func (c *AppConfig) SetFetchMaxBytes(n int) error {
 // rebuilding the Agent's llm.Client so next launch starts with the
 // user's last choice. Validates that the model is actually offered by
 // the provider.
-func (c *AppConfig) SetDefaultModel(provider constant.LLMProvider, model constant.Model) error {
+func (c *Config) SetDefaultModel(provider constant.LLMProvider, model constant.Model) error {
 	found := false
 	for _, m := range provider.Models {
 		if m == model {
@@ -191,14 +210,14 @@ func (c *AppConfig) SetDefaultModel(provider constant.LLMProvider, model constan
 }
 
 // Effort returns the current effort level name under the read lock.
-func (c *AppConfig) Effort() string {
+func (c *Config) Effort() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.DefaultEffort
 }
 
 // SetDefaultEffort validates the effort level name and persists it.
-func (c *AppConfig) SetDefaultEffort(level string) error {
+func (c *Config) SetDefaultEffort(level string) error {
 	switch level {
 	case "low", "medium", "high", "ultra":
 	default:
@@ -212,9 +231,9 @@ func (c *AppConfig) SetDefaultEffort(level string) error {
 
 // SetDefaultProfile persists the chosen persona name. Validation against
 // the agent registry happens at the call site (AgentRegistry lives in
-// internal/agent, which can't be imported from configs without a cycle).
+// internal/agent, which can't be imported from config without a cycle).
 // Empty string is accepted — bootstrap interprets "" as "fall back to evva".
-func (c *AppConfig) SetDefaultProfile(name string) error {
+func (c *Config) SetDefaultProfile(name string) error {
 	c.mu.Lock()
 	c.DefaultProfile = name
 	c.mu.Unlock()
@@ -222,7 +241,7 @@ func (c *AppConfig) SetDefaultProfile(name string) error {
 }
 
 // SetTavilyAPIKey persists the key. Empty string disables web_search.
-func (c *AppConfig) SetTavilyAPIKey(s string) error {
+func (c *Config) SetTavilyAPIKey(s string) error {
 	c.mu.Lock()
 	c.TavilyAPIKey = s
 	c.mu.Unlock()
@@ -233,7 +252,7 @@ func (c *AppConfig) SetTavilyAPIKey(s string) error {
 // persists. Empty key removes the provider from LLMProviderConfig (cloud
 // providers require a key to be listed). The constant.LLMProvider must
 // already be known.
-func (c *AppConfig) SetProviderAPIKey(name, key string) error {
+func (c *Config) SetProviderAPIKey(name, key string) error {
 	pvd, ok := constant.GetProvider(name)
 	if !ok {
 		return fmt.Errorf("unknown provider %q", name)
@@ -256,7 +275,7 @@ func (c *AppConfig) SetProviderAPIKey(name, key string) error {
 
 // SetProviderAPIURL overrides the api_url for the named provider. Empty
 // resets to the provider's built-in default.
-func (c *AppConfig) SetProviderAPIURL(name, url string) error {
+func (c *Config) SetProviderAPIURL(name, url string) error {
 	pvd, ok := constant.GetProvider(name)
 	if !ok {
 		return fmt.Errorf("unknown provider %q", name)
@@ -276,107 +295,13 @@ func (c *AppConfig) SetProviderAPIURL(name, url string) error {
 	return c.SaveFile()
 }
 
-var (
-	instance *AppConfig
-	once     sync.Once
-)
-
-const AppName = "evva"
-const AppVersion = "0.1.0"
-
-// Get returns the singleton AppConfig, initializing it on first call.
-// Safe for concurrent use — subsequent calls after the first are lock-free reads.
-func Get() *AppConfig {
-	once.Do(func() {
-		instance = load()
-	})
-	return instance
-}
-
-// load performs the actual env + YAML parsing.
-// Isolated from Get() so it's independently testable:
-// call load() directly in tests without touching the singleton.
-//
-// Startup failures here (missing/invalid YAML, unknown provider/model)
-// bail with os.Exit so the user gets a clear single-line error rather
-// than a panic stack from deep inside the agent boot path.
-func load() *AppConfig {
-	homeDir, _ := os.UserHomeDir()
-	var EVVA_HOME string
-	if runtime.GOOS == "windows" {
-		EVVA_HOME = homeDir + `\.` + AppName
-	} else {
-		EVVA_HOME = homeDir + "/." + AppName
-	}
-
-	// load deployment-level vars from .env (logging, app env, dir overrides)
-	godotenv.Load(EVVA_HOME + "/.env")
-
-	cfgPath := filepath.Join(EVVA_HOME, "config", "evva-config.yml")
-	fileCfg, created, err := LoadFileConfig(cfgPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "evva: %v\n", err)
-		os.Exit(1)
-	}
-	if created {
-		fmt.Fprintf(os.Stderr,
-			"evva: wrote new config to %s — fill in your API keys to use cloud providers.\n",
-			cfgPath)
-	}
-
-	defProvider, defModel, err := ResolveDefaultModel(fileCfg.DefaultProvider, fileCfg.DefaultModel)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "evva: %v\n", err)
-		os.Exit(1)
-	}
-
-	cfg := &AppConfig{
-		AppName:    AppName,
-		AppVersion: AppVersion,
-		OS:         runtime.GOOS,
-		AppEnv:     getEnvDefaultLowerCase("APP_ENV", "dev"),
-
-		// log
-		LogLevel:  getEnvDefaultLowerCase("LOG_LEVEL", "info"),
-		LogFormat: getEnvDefaultLowerCase("LOG_FORMAT", "text"),
-		LogDir:    resolveLogDir(EVVA_HOME),
-
-		// global config .evva
-		EvvaHome:            EVVA_HOME,
-		EvvaHomeSkillsDir:   EVVA_HOME + "/" + getEnvDefault("SKILLS_DIR", "skills"),
-		EvvaHomeUserProfile: EVVA_HOME + "/" + getEnvDefault("USER_PROFILE", "user_profile.md"),
-		EvvaHomeConfigFile:  cfgPath,
-
-		// from YAML
-		DefaultMaxIterations: fileCfg.MaxIterations,
-		DefaultMaxTokens:     fileCfg.MaxTokens,
-		AutoCompactThreshold: fileCfg.AutoCompactThreshold,
-		DisplayThinking:      fileCfg.DisplayThinking,
-		TavilyAPIKey:         fileCfg.TavilyAPIKey,
-		FetchMaxBytes:        fileCfg.FetchMaxBytes,
-		DefaultProvider:      defProvider,
-		DefaultModel:         defModel,
-		DefaultEffort:        fileCfg.DefaultEffort,
-		DefaultProfile:       fileCfg.DefaultProfile,
-		PermissionMode:       fileCfg.PermissionMode,
-
-		LoadedAt: time.Now(),
-	}
-
-	setupGlobalParam(cfg)
-	setupWorkDirParam(cfg)
-	setupLLMProviderConfig(cfg, fileCfg)
-
-	return cfg
-}
-
-// SaveFile re-serializes the user-tunable subset to EvvaHomeConfigFile.
-// Phase 2's /config setters and phase 3's /model switch both call this.
+// SaveFile re-serializes the user-tunable subset to AppHomeConfigFile.
+// The /config setters and the runtime /model switch both call this.
 //
 // Snapshots all fields under c.mu.RLock, releases that lock before
 // blocking on disk I/O, then takes c.saveMu so concurrent saves don't
 // interleave on the file.
-func (c *AppConfig) SaveFile() error {
+func (c *Config) SaveFile() error {
 	c.mu.RLock()
 	providers := map[string]FileProviderConfig{}
 	for name, p := range c.LLMProviderConfig {
@@ -407,7 +332,7 @@ func (c *AppConfig) SaveFile() error {
 		TavilyAPIKey:         c.TavilyAPIKey,
 		Providers:            providers,
 	}
-	path := c.EvvaHomeConfigFile
+	path := c.AppHomeConfigFile
 	c.mu.RUnlock()
 
 	c.saveMu.Lock()
@@ -417,5 +342,5 @@ func (c *AppConfig) SaveFile() error {
 
 // IsDevelopment / IsProduction — semantic helpers so call sites
 // don't hardcode string literals scattered across the codebase.
-func (c *AppConfig) IsDevelopment() bool { return c.AppEnv == "dev" }
-func (c *AppConfig) IsProduction() bool  { return c.AppEnv == "prod" }
+func (c *Config) IsDevelopment() bool { return c.AppEnv == "dev" }
+func (c *Config) IsProduction() bool  { return c.AppEnv == "prod" }

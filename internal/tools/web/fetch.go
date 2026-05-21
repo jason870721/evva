@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/tools"
+	"github.com/johnny1110/evva/pkg/config"
 )
 
 const (
@@ -31,8 +31,12 @@ const (
 // the model fetches several URLs in a single turn.
 var fetchHTTPClient = &http.Client{Timeout: fetchHTTPTimeout}
 
-// FetchTool implements web_fetch — GET a URL, render readable text. Stateless.
-type FetchTool struct{}
+// FetchTool implements web_fetch — GET a URL, render readable text.
+// The cfg pointer is read at Execute time so runtime mutations of
+// FetchMaxBytes via the /config form take effect on the next call.
+type FetchTool struct {
+	cfg *config.Config
+}
 
 func (t *FetchTool) Name() string { return string(tools.WEB_FETCH) }
 
@@ -86,7 +90,10 @@ func (t *FetchTool) Execute(ctx context.Context, logger *slog.Logger, input json
 	}
 	target := parsed.String()
 
-	maxBytes := config.Get().FetchMaxBytes
+	maxBytes := 0
+	if t.cfg != nil {
+		maxBytes = t.cfg.FetchMaxBytes
+	}
 	if maxBytes <= 0 {
 		maxBytes = 100_000
 	}

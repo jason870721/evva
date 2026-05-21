@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
-	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/tools"
 )
 
@@ -35,9 +34,11 @@ const globTruncationNote = "(Results are truncated. Consider using a more specif
 // matches.
 const globEmptyMessage = "No files found"
 
-type GlobTool struct{}
+type GlobTool struct {
+	workdir string
+}
 
-func NewGlob() *GlobTool { return &GlobTool{} }
+func NewGlob(workdir string) *GlobTool { return &GlobTool{workdir: workdir} }
 
 func (t *GlobTool) Name() string { return string(tools.GLOB) }
 
@@ -85,7 +86,7 @@ func (t *GlobTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	// validateInput before any glob work begins.
 	var searchDir string
 	if in.Path != "" {
-		resolved, err := resolvePath(in.Path)
+		resolved, err := resolvePath(in.Path, t.workdir)
 		if err != nil {
 			return tools.Result{IsError: true, Content: "glob: " + err.Error()}, nil
 		}
@@ -109,7 +110,7 @@ func (t *GlobTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	} else {
 		// Default search dir = configured workdir (same behavior as
 		// resolvePath("") would conceptually give us).
-		cwd, err := resolvePath(".")
+		cwd, err := resolvePath(".", t.workdir)
 		if err != nil {
 			return tools.Result{IsError: true, Content: "glob: " + err.Error()}, nil
 		}
@@ -209,13 +210,16 @@ func (t *GlobTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	// Ref relativizes paths under cwd to save tokens. We do the same:
 	// if the match lives under the configured workdir, return the
 	// relative form; otherwise keep absolute.
-	cfg := config.Get()
+	relRoot := t.workdir
+	if relRoot == "" {
+		relRoot, _ = os.Getwd()
+	}
 	var out strings.Builder
 	for i, m := range matches {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
-		out.WriteString(toRelativeOrAbs(m.Path, cfg.WorkDir))
+		out.WriteString(toRelativeOrAbs(m.Path, relRoot))
 	}
 	if truncated {
 		out.WriteByte('\n')

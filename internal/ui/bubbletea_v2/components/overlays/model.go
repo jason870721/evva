@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/internal/ui"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/theme"

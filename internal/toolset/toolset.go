@@ -30,6 +30,7 @@ import (
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/internal/tools/skill"
 	"github.com/johnny1110/evva/internal/tools/todo"
+	"github.com/johnny1110/evva/pkg/config"
 )
 
 // ToolState carries the shared backing state for stateful tool families.
@@ -67,6 +68,11 @@ type ToolState struct {
 	// a subagent path still resolves; today only root sees SKILL in its
 	// active set, but threading is cheap and future-proof.
 	skillRegistry *skill.Registry
+
+	// cfg is the per-agent runtime configuration. Installed via SetConfig
+	// after agent construction; tools that need runtime settings (web,
+	// fs/glob, dev/feedback) read it through Config() at Execute time.
+	cfg *config.Config
 	// Future: monitorBus, cronService, ...
 
 	// TaskGroup registry — every observable.Store registered here fans its
@@ -238,6 +244,32 @@ func (s *ToolState) QuestionBroker() question.Broker {
 // The agent layer calls this once after construction via WithQuestionBroker.
 func (s *ToolState) SetQuestionBroker(b question.Broker) {
 	s.questionBroker = b
+}
+
+// Config returns the runtime configuration this ToolState was bootstrapped
+// with, or nil if the agent never installed one (tests, narrow harnesses).
+// Tools that need settings (TavilyAPIKey, FetchMaxBytes, AppHome, etc.)
+// read through this accessor instead of importing pkg/config directly.
+func (s *ToolState) Config() *config.Config {
+	return s.cfg
+}
+
+// SetConfig installs the runtime configuration on this ToolState. Called
+// by agent.New after the agent finishes constructing so tool factories
+// don't have to thread cfg explicitly. Subagents inherit the parent's
+// config by getting their own ToolState with the same pointer.
+func (s *ToolState) SetConfig(cfg *config.Config) {
+	s.cfg = cfg
+}
+
+// workDir returns the configured workdir, or "" if no Config is installed.
+// Used by fs/* factories so they don't have to nil-check the Config
+// pointer themselves.
+func (s *ToolState) workDir() string {
+	if s.cfg == nil {
+		return ""
+	}
+	return s.cfg.WorkDir
 }
 
 // HasUserPromptQueue reports whether a UserPromptQueue has already been

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	config "github.com/johnny1110/evva/configs"
 	"github.com/johnny1110/evva/internal/tools"
+	"github.com/johnny1110/evva/pkg/config"
 )
 
 const (
@@ -30,10 +30,12 @@ var tavilyEndpoint = "https://api.tavily.com/search"
 // several searches in a single turn.
 var searchHTTPClient = &http.Client{Timeout: tavilyHTTPTimeout}
 
-// SearchTool implements web_search via the Tavily API. Stateless — the
-// Tavily API key is read from config on each Execute so a host that
-// rotates the key mid-session picks up the new value on the next call.
-type SearchTool struct{}
+// SearchTool implements web_search via the Tavily API. The cfg pointer
+// is read at Execute time so the /config form's TavilyAPIKey rotation
+// takes effect on the next call.
+type SearchTool struct {
+	cfg *config.Config
+}
 
 func (t *SearchTool) Name() string { return string(tools.WEB_SEARCH) }
 
@@ -90,7 +92,10 @@ func (t *SearchTool) Execute(ctx context.Context, logger *slog.Logger, input jso
 	}
 	logger.Debug("search.dispatch", "query", query)
 
-	apiKey := config.Get().TavilyAPIKey
+	apiKey := ""
+	if t.cfg != nil {
+		apiKey = t.cfg.TavilyAPIKey
+	}
 	if apiKey == "" {
 		return tools.Result{
 			IsError: true,

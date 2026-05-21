@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	config "github.com/johnny1110/evva/configs"
+	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
 )
 
@@ -53,7 +53,7 @@ const (
 // buildConfigFields returns the editable field list bound to the given
 // AppConfig + Controller. Order is the display order; grouping is
 // implicit (loop tunables first, web second, providers last).
-func buildConfigFields(cfg *config.AppConfig, ctrl interface {
+func buildConfigFields(cfg *config.Config, ctrl interface {
 	SetMaxIterations(int)
 }) []configField {
 	return []configField{
@@ -137,7 +137,7 @@ func buildConfigFields(cfg *config.AppConfig, ctrl interface {
 	}
 }
 
-func providerKeyField(cfg *config.AppConfig, name string) configField {
+func providerKeyField(cfg *config.Config, name string) configField {
 	return configField{
 		Label: name + ".api_key",
 		Kind:  cfgKindSecret,
@@ -146,7 +146,7 @@ func providerKeyField(cfg *config.AppConfig, name string) configField {
 	}
 }
 
-func providerURLField(cfg *config.AppConfig, name string) configField {
+func providerURLField(cfg *config.Config, name string) configField {
 	return configField{
 		Label: name + ".api_url",
 		Kind:  cfgKindString,
