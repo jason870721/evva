@@ -287,6 +287,32 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.view.MarkDirty()
 		return a, nil
 
+	case overlays.SessionResumedMsg:
+		// Session swap: the agent has rehydrated its transcript + profile
+		// + LLM under the loaded snapshot. Mirror that on the UI side —
+		// rebuild the visible transcript by replaying every persisted
+		// llm.Message as the equivalent set of blocks, refresh the banner
+		// + status pills, and surface a "resumed" hint. The user can
+		// scroll up to see the prior conversation and type a new prompt
+		// to continue; the LLM already has the full history in its
+		// session.Messages.
+		sess := a.controller.Session()
+		a.transcript.LoadFromMessages(sess.GetMessages())
+		a.refreshBanner()
+		// ResumeSnapshot overwrote Agent.ID with the loaded session-id —
+		// refresh every status pill that derives from the agent so the
+		// HUD reflects the rehydrated session instead of the boot one.
+		a.status.SetAgentID(a.controller.AgentID())
+		a.status.SetAgentName(strings.ToUpper(a.controller.ProfileName()))
+		a.status.SetModel(a.controller.Model())
+		a.status.SetEffort(a.controller.Effort())
+		a.status.SetUsage(sess.Usage)
+		a.status.SetContext(sess.LastTurnInputTokens(), status.ContextLimitFor(a.controller.Model()))
+		a.state.SetHint("resumed session " + m.ID + " · type a prompt to continue")
+		a.view.MarkDirty()
+		a.relayout()
+		return a, nil
+
 	case overlays.ApprovalRespondedMsg:
 		// The overlay already closed itself via the close=true return.
 		// Nothing to do here today; reserved for future bookkeeping
@@ -699,6 +725,16 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 		a.input.Reset()
 		a.slash.Reset()
 		if o := overlays.NewEffort(a.controller); o != nil {
+			a.focus.Push(o)
+			a.relayout()
+		} else {
+			a.state.SetHint("no controller attached")
+		}
+		return a, nil
+	case "/resume":
+		a.input.Reset()
+		a.slash.Reset()
+		if o := overlays.NewResume(a.controller); o != nil {
 			a.focus.Push(o)
 			a.relayout()
 		} else {

@@ -166,6 +166,34 @@ type Controller interface {
 	// AskUserQuestion tool goroutine. id is the RequestID from the
 	// KindQuestionNeeded event payload.
 	RespondQuestion(id string, resp QuestionResponse) error
+
+	// ListSessions enumerates persisted sessions scoped to the agent's
+	// current workdir, sorted by last-write time descending. The
+	// /resume picker calls this to populate its rows. Warnings carries
+	// any corrupt-file messages the store collected — the UI may
+	// surface them as hints or ignore them.
+	ListSessions() ([]SessionInfo, []string)
+
+	// ResumeSession swaps the live agent's state with the session
+	// identified by id. Returns ErrRunInProgress (via the agent layer)
+	// when a Run is in flight, or an error when the file is missing or
+	// unreadable. Successful resume invalidates the prior transcript;
+	// the TUI re-renders from Session().Messages.
+	ResumeSession(id string) error
+}
+
+// SessionInfo is one row in the /resume picker. Lightweight by design —
+// only what the picker renders, so the UI can show many entries without
+// loading full message bodies.
+type SessionInfo struct {
+	ID              string // session-id (matches the JSON file basename)
+	FirstUserPrompt string // up to 200 chars; picker truncates to 150 for display
+	UpdatedAt       int64  // unix nano of last save (file mtime); resume picker sorts desc
+	CreatedAt       int64  // unix nano of first save
+	Profile         string // persona name at save time
+	Provider        string // LLM provider name at save time
+	Model           string // LLM model id at save time
+	MessageCount    int    // length of Session.Messages — picker shows "<n> msgs"
 }
 
 // QuestionResponse is the UI-side payload returned through

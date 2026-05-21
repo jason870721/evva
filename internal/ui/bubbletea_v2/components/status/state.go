@@ -183,6 +183,12 @@ func (s *State) Apply(e event.Event) {
 		s.current = StateCompacting
 	case event.KindCompactingEnd:
 		s.current = StateRunning
+	case event.KindIdle:
+		// Agent signalled the loop is fully done (e.g. after a manual
+		// /compact returned). Drop the status pill back to READY so the
+		// user knows it's safe to type.
+		s.current = StateIdle
+		s.hint = ""
 	case event.KindRunCancelled:
 		s.current = StateIdle
 	case event.KindIterLimit:

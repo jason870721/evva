@@ -29,6 +29,7 @@ import (
 type Kind string
 
 const (
+	KindIdle         Kind = "idle"
 	KindRunStart     Kind = "run_start"
 	KindRunResume    Kind = "run_resume"
 	KindRunEnd       Kind = "run_end"
@@ -100,23 +101,23 @@ type Event struct {
 	ParentID string
 	Time     time.Time
 
-	RunStart      *RunStartPayload      `json:",omitempty"`
-	RunResume     *RunResumePayload     `json:",omitempty"`
-	RunEnd        *RunEndPayload        `json:",omitempty"`
-	IterLimit     *IterLimitPayload     `json:",omitempty"`
-	Turn          *TurnPayload          `json:",omitempty"`
-	Thinking      *TextPayload          `json:",omitempty"`
-	Text          *TextPayload          `json:",omitempty"`
+	RunStart       *RunStartPayload       `json:",omitempty"`
+	RunResume      *RunResumePayload      `json:",omitempty"`
+	RunEnd         *RunEndPayload         `json:",omitempty"`
+	IterLimit      *IterLimitPayload      `json:",omitempty"`
+	Turn           *TurnPayload           `json:",omitempty"`
+	Thinking       *TextPayload           `json:",omitempty"`
+	Text           *TextPayload           `json:",omitempty"`
 	ToolUseStart   *ToolUseStartPayload   `json:",omitempty"`
 	ToolUseResult  *ToolUseResultPayload  `json:",omitempty"`
 	ApprovalNeeded *ApprovalNeededPayload `json:",omitempty"`
 	QuestionNeeded *QuestionNeededPayload `json:",omitempty"`
-	Error         *ErrorPayload         `json:",omitempty"`
-	StoreUpdate   *StoreUpdatePayload   `json:",omitempty"`
-	Usage         *UsagePayload         `json:",omitempty"`
-	Compacting    *CompactingPayload    `json:",omitempty"`
-	CompactingEnd *CompactingEndPayload `json:",omitempty"`
-	ModeChanged   *ModeChangedPayload   `json:",omitempty"`
+	Error          *ErrorPayload          `json:",omitempty"`
+	StoreUpdate    *StoreUpdatePayload    `json:",omitempty"`
+	Usage          *UsagePayload          `json:",omitempty"`
+	Compacting     *CompactingPayload     `json:",omitempty"`
+	CompactingEnd  *CompactingEndPayload  `json:",omitempty"`
+	ModeChanged    *ModeChangedPayload    `json:",omitempty"`
 }
 
 // ModeChangedPayload reports a permission-mode transition. PrevMode is the

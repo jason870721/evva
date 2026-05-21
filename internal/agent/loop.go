@@ -143,6 +143,9 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 				"content_bytes", len(resp.Content),
 				"thinking_bytes", len(resp.Thinking),
 			)
+			// Persist before the terminal return so the final assistant
+			// turn lands on disk. Subagent guard lives inside the helper.
+			a.persistSession()
 			return a.done(iter, resp), nil // break loop.
 		}
 
@@ -159,6 +162,10 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 			Role:        llm.RoleTool,
 			ToolResults: toolResults,
 		})
+
+		// Iteration boundary: persist the post-tool-result state so a
+		// crash before the next LLM call doesn't lose this round-trip.
+		a.persistSession()
 
 		a.logger.Debug("turn.end",
 			"iter", iter,

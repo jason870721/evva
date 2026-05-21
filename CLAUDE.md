@@ -181,7 +181,7 @@ UI-heavy port. The tool surface is small; the TUI does most of the work.
 - Integrate with the plan mode, before make the final plan can ask user several questions with suggest answers/solutions (can adjust EnterPlanMode tool desc).
 - Port ref source code UX, allow user choose question's answer or fill by themself, user can edit all answer before submit all. using left right key to switch questions.
 
-### Phase 9 — User-profile and project memory
+### Phase 9 — User-profile and project memory ✅️
 
 The agent that maintains 
 
@@ -302,10 +302,15 @@ Tool family packages move public per the user's "max reuse" choice.
 - Add `examples/minimal-host/main.go` (~50 lines) demonstrating custom home dir + custom tool + custom LLM provider + custom sink.
 - Add `docs/extending.md` covering all the extension points.
 
-### Phase 14 - Session Storage (/resume)
+### Phase 14 - Session Storage (/resume) 
 
 - support `/resume` slash command to resume a session from a previous session file.
-- store session file in `<EVVA_HOME>/sessions/{session_id}/`.
+- store session file in `<EVVA_HOME>/sessions/{session-id}/{timestamp}.json}`.
+- resume list can show the first 150 chars of user input prompt for every session.
+- store the session at the end of each agent loop end.
+- if compact, clean the session file and restart again.
+- notice should store the llm signature for claude. and thinking block for deepseek.
+- correct me if anything is wrong above.
 
 
 ### Phase 15 — MCP support + bundled skills (v2 tier)

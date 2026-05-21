@@ -232,3 +232,29 @@ func convertQuestionAnnotations(m map[string]QuestionAnnotation) map[string]ui.Q
 	}
 	return out
 }
+
+// ListSessions implements Agent. Forwards to the inner *agent.Agent,
+// translating the ui.SessionInfo rows into the public ResumableSession
+// type so downstream apps never see pkg/ui types.
+func (a *agentAdapter) ListSessions() ([]ResumableSession, []string) {
+	rows, warnings := a.inner.ListSessions()
+	out := make([]ResumableSession, len(rows))
+	for i, r := range rows {
+		out[i] = ResumableSession{
+			ID:              r.ID,
+			FirstUserPrompt: r.FirstUserPrompt,
+			UpdatedAt:       r.UpdatedAt,
+			CreatedAt:       r.CreatedAt,
+			Profile:         r.Profile,
+			Provider:        r.Provider,
+			Model:           r.Model,
+			MessageCount:    r.MessageCount,
+		}
+	}
+	return out, warnings
+}
+
+// ResumeSession implements Agent.
+func (a *agentAdapter) ResumeSession(id string) error {
+	return a.inner.ResumeSession(id)
+}

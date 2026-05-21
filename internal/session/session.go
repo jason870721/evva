@@ -67,6 +67,28 @@ func (s *Session) LastTurnInputTokens() int {
 	return s.lastTurnInputTokens
 }
 
+// SetLastTurnInputTokens overrides the cached turn-input figure. Used by
+// the resume path to rehydrate a snapshot's previously-recorded value;
+// production code should prefer RecordTurn so the cumulative Usage is
+// kept in sync.
+func (s *Session) SetLastTurnInputTokens(n int) {
+	s.lastTurnInputTokens = n
+}
+
+// SetUsage overrides the cumulative usage total. Same caveat as
+// SetLastTurnInputTokens: only the resume path should use it. Production
+// turns flow through AddUsage / RecordTurn.
+func (s *Session) SetUsage(u llm.Usage) {
+	s.Usage = u
+}
+
+// SetCompactState rehydrates the micro/full compaction counters. Used by
+// session.FromSnapshot to round-trip persisted state; not for live use.
+func (s *Session) SetCompactState(micro bool, fullCount int) {
+	s.microCompacted = micro
+	s.fullCompactCount = fullCount
+}
+
 func (s *Session) IsMicroCompacted() bool {
 	return s.microCompacted
 }

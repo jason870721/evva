@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/johnny1110/evva/pkg/event"
-	"github.com/johnny1110/evva/pkg/constant"
-	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/internal/session"
+	"github.com/johnny1110/evva/pkg/constant"
+	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/llm"
 )
 
 // Compaction has two levels, escalated lazily:
@@ -65,28 +65,30 @@ func (a *Agent) Compact(ctx context.Context, kind string) error {
 	}
 	defer a.running.Store(false)
 
+	a.status = constant.COMPACTING
+
 	switch kind {
 	case "micro":
-		a.status = constant.COMPACTING
 		a.emit(event.KindCompacting, func(e *event.Event) {
 			e.Compacting = &event.CompactingPayload{Type: "micro"}
 		})
 		a.logger.Info("compact.manual", "kind", "micro")
 		a.microCompact(a.session)
 		a.status = constant.IDLE
-		return nil
 	case "full":
-		a.status = constant.COMPACTING
 		a.emit(event.KindCompacting, func(e *event.Event) {
 			e.Compacting = &event.CompactingPayload{Type: "full"}
 		})
 		a.logger.Info("compact.manual", "kind", "full")
 		a.fullCompact(ctx, a.session)
 		a.status = constant.IDLE
-		return nil
 	default:
+		a.status = constant.IDLE
 		return fmt.Errorf("agent: unknown compact kind %q (want \"micro\" or \"full\")", kind)
 	}
+	a.logger.Info("compact.done")
+	a.emit(event.KindIdle, func(e *event.Event) {})
+	return nil
 }
 
 // compact runs at the top of every iteration. It compares the last
@@ -326,6 +328,12 @@ func (a *Agent) fullCompact(ctx context.Context, s *session.Session) {
 	a.emit(event.KindCompactingEnd, func(e *event.Event) {
 		e.CompactingEnd = &event.CompactingEndPayload{Type: "full", OK: true, BriefTokens: briefTokens}
 	})
+
+	// Overwrite the on-disk snapshot with the post-compact state so
+	// /resume after a compact lands on the brief, not the pre-compact
+	// transcript. Same session-id — the user's resume picker still sees
+	// one entry, now containing the summary.
+	a.persistSession()
 }
 
 // summarizationInstructions is the front-matter the summarizer sees.

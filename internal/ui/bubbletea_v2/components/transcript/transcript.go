@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/fs"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/theme"
@@ -183,6 +184,75 @@ func (t *Transcript) appendKeepingSprite(b Block) {
 		return
 	}
 	t.blocks = append(t.blocks, b)
+}
+
+// LoadFromMessages rehydrates the transcript from a persisted session.
+// Reset() is called first so this replaces the current view rather than
+// appending. Each llm.Message maps to one or more blocks:
+//
+//   - RoleUser{Content}                  → UserPromptBlock
+//   - RoleAssistant{Thinking}            → ThinkingBlock (when non-empty)
+//   - RoleAssistant{Content}             → TextBlock     (when non-empty)
+//   - RoleAssistant{ToolCalls[]}         → one ToolBlock per call
+//   - RoleTool{ToolResults[]}            → SetResult on the matching
+//                                          ToolBlock (paired by Call.ID)
+//
+// System messages are skipped (they don't appear in live transcripts
+// either). Block IDs are freshly allocated — the persisted file does
+// not carry UI-side identifiers.
+//
+// Called by the /resume flow after Controller.ResumeSession swaps the
+// agent's live session with the loaded snapshot.
+func (t *Transcript) LoadFromMessages(msgs []llm.Message) {
+	t.Reset()
+	for _, m := range msgs {
+		switch m.Role {
+		case llm.RoleUser:
+			text := strings.TrimSpace(m.Content)
+			if text == "" {
+				continue
+			}
+			t.appendKeepingSprite(newUserPromptBlock(sanitizeForTranscript(text)))
+			// AppendUserPrompt would also reset toolBlocks; we avoid that
+			// here because the loop may still need to route tool_results
+			// from a *prior* assistant turn (RoleUser messages from
+			// system reminders / queued prompts can interleave on resume).
+		case llm.RoleAssistant:
+			if think := strings.TrimSpace(m.Thinking); think != "" {
+				t.appendKeepingSprite(newThinkingBlock(sanitizeForTranscript(think)))
+			}
+			if text := strings.TrimSpace(m.Content); text != "" {
+				t.appendKeepingSprite(newTextBlock(sanitizeForTranscript(text)))
+			}
+			for _, call := range m.ToolCalls {
+				if call == nil {
+					continue
+				}
+				hideResult := call.Name == string(tools.TOOL_SEARCH)
+				tb := newToolBlock(call.Name, call.ID, call.Input, hideResult)
+				t.appendKeepingSprite(tb)
+				if t.toolBlocks == nil {
+					t.toolBlocks = map[string]*ToolBlock{}
+				}
+				t.toolBlocks[call.ID] = tb
+			}
+		case llm.RoleTool:
+			for _, r := range m.ToolResults {
+				if r == nil {
+					continue
+				}
+				tb, ok := t.toolBlocks[r.ID]
+				if !ok {
+					continue
+				}
+				tb.SetResult(r.Content, r.IsError, nil, r.ContentBlocks)
+			}
+		}
+	}
+	// Inflight bookkeeping is purely a streaming concern. Persisted
+	// transcripts are already terminal — clear it so the next live
+	// turn's first chunk doesn't try to extend a non-existent block.
+	t.resetInflight()
 }
 
 // Reset wipes all blocks except the banner. Used by /clear and by

@@ -162,6 +162,14 @@ type Agent struct {
 	// assistant tool_calls turn followed by a new user message is an
 	// invalid request shape every provider rejects).
 	running atomic.Bool
+
+	// sessionCreatedAt is the wall-clock time the current session began
+	// (first persistSession call after agent creation or after a /resume
+	// load). Used to populate Snapshot.CreatedAt so the resume picker
+	// can show "first saved" alongside the file's mtime ("last activity").
+	// Reset to zero by ResumeSession so the next persist picks up the
+	// loaded snapshot's CreatedAt instead.
+	sessionCreatedAt time.Time
 }
 
 // New constructs an agent with a fresh ID, a per-agent logger, and the given
@@ -425,6 +433,120 @@ func baseLLMOptions(opts []llm.Option) []llm.Option {
 	return out
 }
 
+// ResumeSnapshot swaps the live agent into a previously-persisted session
+// loaded from disk. Structurally mirrors SwitchProfile: enforce the
+// running guard, rebuild profile/tools/LLM under the snapshot's
+// persona+provider+model, then overwrite the session.
+//
+// The snapshot's session-id replaces the live agent's ID so subsequent
+// persistSession writes target the same file (continuing the same
+// resume-list entry rather than orphaning the original).
+//
+// Fallbacks (the snapshot may have been written under a persona or
+// model that's since been removed):
+//   - Missing persona → "evva".
+//   - Unknown provider → current cfg.DefaultProvider.
+//   - Unknown model → provider's first listed model.
+//
+// MUST be called while no Run is in flight. Subagents cannot resume —
+// only the root. The string-keyed ResumeSession wrapper below is what
+// ui.Controller exposes; this method is the testable seam.
+func (a *Agent) ResumeSnapshot(snap *session.Snapshot) error {
+	if a.IsSubagent() {
+		return fmt.Errorf("agent: only the root agent can resume a session")
+	}
+	if a.running.Load() {
+		return ErrRunInProgress
+	}
+	if snap == nil {
+		return fmt.Errorf("agent: nil snapshot")
+	}
+
+	personaName := snap.Profile
+	if personaName == "" {
+		personaName = "evva"
+	}
+	provider, ok := constant.GetProvider(snap.Provider)
+	if !ok {
+		a.logger.Warn("resume: unknown provider; falling back to default",
+			"want", snap.Provider, "fallback", a.cfg.DefaultProvider.Name)
+		provider = a.cfg.DefaultProvider
+	}
+	model := constant.Model(snap.Model)
+	if !modelOfferedByProvider(provider, model) {
+		fallback := provider.Models[0]
+		a.logger.Warn("resume: model not offered by provider; falling back to first listed",
+			"want", string(model), "provider", provider.Name, "fallback", string(fallback))
+		model = fallback
+	}
+
+	newProfile, err := ResolveMainProfile(a.cfg, a.agentRegistry, personaName, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions))
+	if err != nil {
+		a.logger.Warn("resume: persona unavailable; falling back to evva", "want", personaName, "err", err)
+		newProfile, err = ResolveMainProfile(a.cfg, a.agentRegistry, "evva", a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions))
+		if err != nil {
+			return fmt.Errorf("agent: resume fallback to evva failed: %w", err)
+		}
+		personaName = "evva"
+	}
+	// Override the profile's provider/model with the snapshot's so the
+	// rebuilt LLM client matches what wrote the session.
+	newProfile.LLMProvider = provider
+	newProfile.LLMModel = model
+
+	exposeTools, err := toolset.Build(newProfile.ActiveTools, a.toolState)
+	if err != nil {
+		return fmt.Errorf("agent: build active tools: %w", err)
+	}
+	active := make(map[string]tools.Tool, len(exposeTools))
+	for _, t := range exposeTools {
+		active[t.Name()] = t
+	}
+	deferred := make(map[tools.ToolName]struct{}, len(newProfile.DeferredTools))
+	for _, n := range newProfile.DeferredTools {
+		deferred[n] = struct{}{}
+	}
+
+	effortOpts := append(newProfile.LLMOptions, llm.WithEffort(llm.ParseEffort(a.effort)))
+	client, err := buildLLMClient(a.cfg, provider, model, effortOpts)
+	if err != nil {
+		return fmt.Errorf("agent: build llm client: %w", err)
+	}
+
+	a.profile = newProfile
+	a.active = active
+	a.deferredAllowlist = deferred
+	a.exposeTools = exposeTools
+	a.llm = client
+	a.session = session.FromSnapshot(snap.Session)
+	a.activePersona = personaName
+	a.ID = snap.SessionID
+	a.sessionCreatedAt = snap.CreatedAt
+	a.toolState.TodoStore().Clear()
+
+	a.logger.Info("agent: session resumed",
+		"id", snap.SessionID,
+		"persona", personaName,
+		"provider", provider.Name,
+		"model", string(model),
+		"messages", len(snap.Session.Messages),
+	)
+	return nil
+}
+
+// modelOfferedByProvider reports whether `m` appears in provider.Models.
+func modelOfferedByProvider(provider constant.LLMProvider, m constant.Model) bool {
+	if string(m) == "" {
+		return false
+	}
+	for _, candidate := range provider.Models {
+		if candidate == m {
+			return true
+		}
+	}
+	return false
+}
+
 // SwitchLLM rebuilds a.llm with a new (provider, model) pair, updates
 // a.profile so subagents inherit the new provider, and clears the
 // session — provider-specific in-flight state (Anthropic
@@ -684,6 +806,62 @@ func (a *Agent) RespondQuestion(id string, resp ui.QuestionResponse) error {
 		r.Annotations[k] = question.Annotation{Notes: v.Notes, Preview: v.Preview}
 	}
 	return a.questionBroker.Respond(id, r)
+}
+
+// ListSessions enumerates persisted sessions for this agent's workdir,
+// sorted by file mtime descending. Implements ui.Controller. Subagents
+// never persist, so this returns an empty slice for them — the /resume
+// command is only meaningful for the root.
+func (a *Agent) ListSessions() ([]ui.SessionInfo, []string) {
+	if a.IsSubagent() || a.cfg == nil || a.workdir == "" {
+		return nil, nil
+	}
+	slug := memdir.ProjectKey(a.workdir)
+	if slug == "" {
+		return nil, nil
+	}
+	entries, warnings, err := session.List(a.cfg.AppHome, slug)
+	if err != nil {
+		a.logger.Warn("session.list", "err", err, "slug", slug)
+		return nil, []string{err.Error()}
+	}
+	out := make([]ui.SessionInfo, 0, len(entries))
+	for _, e := range entries {
+		s := e.Snapshot
+		out = append(out, ui.SessionInfo{
+			ID:              s.SessionID,
+			FirstUserPrompt: s.FirstUserPrompt,
+			UpdatedAt:       e.MTime,
+			CreatedAt:       s.CreatedAt.UnixNano(),
+			Profile:         s.Profile,
+			Provider:        s.Provider,
+			Model:           s.Model,
+			MessageCount:    len(s.Session.Messages),
+		})
+	}
+	return out, warnings
+}
+
+// ResumeSession loads the snapshot with `id` off disk and swaps the
+// live agent into it. Implements ui.Controller. The actual state-swap
+// logic lives in ResumeSnapshot — this wrapper handles the disk read
+// and the workdir-slug resolution.
+func (a *Agent) ResumeSession(id string) error {
+	if a.IsSubagent() {
+		return fmt.Errorf("agent: only the root agent can resume a session")
+	}
+	if a.cfg == nil || a.workdir == "" {
+		return fmt.Errorf("agent: cannot resume without cfg + workdir")
+	}
+	slug := memdir.ProjectKey(a.workdir)
+	if slug == "" {
+		return fmt.Errorf("agent: cannot derive workdir slug")
+	}
+	snap, err := session.Load(a.cfg.AppHome, slug, id)
+	if err != nil {
+		return fmt.Errorf("agent: load session %q: %w", id, err)
+	}
+	return a.ResumeSnapshot(snap)
 }
 
 // Sink returns the agent's event sink. Used by the AGENT tool to wrap with

@@ -22,6 +22,19 @@ type SessionInfo struct {
 	LastInputTokens int
 }
 
+// ResumableSession is one row in /resume — a persisted session the host
+// can present to the user and rehydrate via Agent.ResumeSession.
+type ResumableSession struct {
+	ID              string
+	FirstUserPrompt string
+	UpdatedAt       int64 // unix nano of last save
+	CreatedAt       int64 // unix nano of first save
+	Profile         string
+	Provider        string
+	Model           string
+	MessageCount    int
+}
+
 // Agent is the public API for creating and driving an evva agent
 // programmatically. It is implemented by a wrapper around the internal agent.
 type Agent interface {
@@ -88,6 +101,17 @@ type Agent interface {
 	// RespondQuestion delivers the user's answers back to the blocked
 	// AskUserQuestion tool goroutine.
 	RespondQuestion(id string, resp QuestionResponse) error
+
+	// ListSessions enumerates persisted sessions for the agent's workdir,
+	// sorted by mtime descending. The second return is a slice of
+	// non-fatal warnings collected while scanning (corrupt files, etc.).
+	ListSessions() ([]ResumableSession, []string)
+
+	// ResumeSession reloads a session by id, swapping the live agent's
+	// transcript + profile + LLM with the persisted state. Returns an
+	// error when the file is missing, unreadable, or a Run is currently
+	// in flight.
+	ResumeSession(id string) error
 }
 
 // QuestionResponse is the payload returned through Agent.RespondQuestion.

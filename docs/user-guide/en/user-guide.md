@@ -8,6 +8,7 @@
   - [/model — Switch Provider/Model](#model--switch-providermodel)
   - [/profile — Switch Persona](#profile--switch-persona)
   - [/effort — Thinking Effort](#effort--thinking-effort)
+  - [/resume — Resume a Previous Session](#resume--resume-a-previous-session)
 - [3. Keybindings](#3-keybindings)
 - [4. Yank Mode — Copying from the Transcript](#4-yank-mode--copying-from-the-transcript)
 - [5. Transcript Search](#5-transcript-search)
@@ -78,6 +79,7 @@ Available commands:
 | `/profile` | switch agent persona (evva, nono, …) — **clears conversation history** |
 | `/effort` | set thinking effort (low / medium / high / ultra) |
 | `/compact` | compact the transcript — pick micro or full |
+| `/resume` | resume a previous session from this workdir |
 | `/clear` | clear the transcript (keeps the banner) |
 | `/exit`, `/quit` | quit |
 
@@ -204,6 +206,55 @@ Adjusts the model's reasoning depth. Four tiers:
 | `ultra` | architectural calls, subtle bug hunts |
 
 Each provider maps these onto its own knob — Anthropic effort levels, DeepSeek thinking on/off + tier, OpenAI reasoning effort, etc. Providers with only a coarse on/off switch map `low` → off and the rest → on. The chosen tier persists as `default_effort` and is shown in the status bar (`▸ model · ⚡high`).
+
+### /resume — Resume a Previous Session
+
+Reload a previous session from this workdir. Every iteration's state is persisted to `~/.evva/sessions/<workdir-slug>/<session-id>.json`, so closing the TUI and reopening it doesn't lose work — `/resume` brings the conversation back exactly where you left it.
+
+The picker lists the 10 most-recently-touched sessions per page, sorted by last-write time descending. Each row shows the first user prompt of that session as a one-line preview plus the persona, message count, and model:
+
+```
+┌─ /RESUME ────────────────────────────────────────────────────┐
+│ Reload a previous session — same workdir only, most recent   │
+│ first. Resuming clears the live transcript and replaces it   │
+│ with the saved one.                                          │
+│                                                              │
+│ ▶ wire up the /resume slash command and overlay              │
+│     5m ago · evva · 42 msgs · claude-opus-4-7                │
+│   add update_user_profile + update_project_memory tools      │
+│     2h ago · evva · 87 msgs · claude-opus-4-7                │
+│   verify the multi-platform release workflow                 │
+│     1d ago · evva · 18 msgs · deepseek-v4-pro                │
+│   …                                                          │
+│                                                              │
+│ page 1 / 3                                                   │
+│ [↑↓] cursor · [←→] page · [Enter] resume · [Esc] cancel      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+| key | effect |
+| --- | --- |
+| `↑` / `↓` | move the cursor within the current page |
+| `←` / `→` | flip to the previous / next page (10 entries per page) |
+| `Enter` | resume the highlighted session |
+| `Esc` | cancel |
+
+**What gets restored:**
+
+- The full message history — every user prompt, assistant reply, thinking block, tool call, and tool result is replayed into the transcript so you can scroll up and read prior work.
+- The persona, provider, and model the session was running under. If any of those are no longer available (you deleted the persona, swapped to a build without that model) the resume falls back to `evva` / your current default and logs a warning.
+- The session-id — subsequent saves overwrite the same file rather than creating a new one, so a resumed session keeps a single entry in the picker.
+- The cumulative usage and context bar in the status pill.
+
+**Scope:** sessions are scoped to the workdir they were started from. Running `evva` in a different directory shows that directory's sessions; the global pool lives under `~/.evva/sessions/` organised by workdir slug (e.g. `-Users-alice-lab-myrepo`).
+
+**Save cadence:** the file is rewritten after every loop iteration (i.e. after each tool round-trip) so a crashed evva loses at most one in-flight LLM call's worth of work.
+
+**Compact behavior:** a full `/compact` overwrites the same session file with the post-compact brief — the picker still shows one entry, now containing the summary instead of the original transcript.
+
+**Subagents:** only the root agent's session is persisted. Subagents spawned via the Agent tool are ephemeral by design and never appear in `/resume`.
+
+Resuming is refused if a run is in flight; press Esc first to cancel, then `/resume` again.
 
 ---
 
