@@ -404,13 +404,18 @@ func (a *Agent) permissionGate(ctx context.Context, call *tools.Call) (bool, *ll
 			}
 		}
 		a.logger.Info("permission.ask", "tool", call.Name, "mode", string(mode), "reason", d.Reason)
+		desc := ""
+		if t, ok := a.active[call.Name]; ok {
+			desc = t.Description()
+		}
 		req := permission.ApprovalRequest{
-			AgentID:   a.ID,
-			ToolName:  call.Name,
-			ToolInput: call.Input,
-			Mode:      mode,
-			Reason:    d.Reason,
-			Hint:      hint,
+			AgentID:     a.ID,
+			ToolName:    call.Name,
+			ToolInput:   call.Input,
+			Description: desc,
+			Mode:        mode,
+			Reason:      d.Reason,
+			Hint:        hint,
 		}
 		resp, err := a.permissionBroker.Request(ctx, req)
 		if err != nil {

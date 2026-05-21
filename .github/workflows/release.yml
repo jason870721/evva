@@ -22,8 +22,6 @@ jobs:
             goarch: amd64
           - goos: linux
             goarch: arm64
-          - goos: windows
-            goarch: amd64
 
     steps:
       - name: Checkout
@@ -39,20 +37,13 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          BIN="evva"
-          if [ "$GOOS" = "windows" ]; then BIN="evva.exe"; fi
           go build \
             -ldflags "-s -w -X github.com/johnny1110/evva/pkg/config.Version=${{ github.ref_name }} -X github.com/johnny1110/evva/pkg/config.CommitSHA=${{ github.sha }} -X github.com/johnny1110/evva/pkg/config.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -o "$BIN" \
+            -o evva \
             ./cmd/evva
 
       - name: Package (tar.gz)
-        if: matrix.goos != 'windows'
         run: tar -czf "evva-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" evva
-
-      - name: Package (zip)
-        if: matrix.goos == 'windows'
-        run: zip "evva-windows-amd64.zip" evva.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

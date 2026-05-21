@@ -256,6 +256,11 @@ func (a *Approval) View(width int, th *theme.Theme) string {
 	b.WriteString(th.StatusValue.Render(a.req.ToolName))
 	b.WriteByte('\n')
 
+	if a.req.Description != "" {
+		b.WriteString(th.DimText.Render(wrapDesc(a.req.Description, innerWidth-2)))
+		b.WriteByte('\n')
+	}
+
 	b.WriteString(th.StatusKey.Render("mode: "))
 	b.WriteString(th.StatusValue.Render(a.req.Mode))
 	if a.req.RiskHint != "" {
@@ -433,4 +438,35 @@ func truncateOneLine(s string, max int) string {
 		return s[:max]
 	}
 	return s[:max-1] + "…"
+}
+
+// wrapDesc word-wraps a tool description for display in the approval
+// overlay. The description can be multi-line; we split on newlines, then
+// wrap each line to the given width.
+func wrapDesc(desc string, width int) string {
+	if width <= 0 {
+		return desc
+	}
+	lines := strings.Split(desc, "\n")
+	var out []string
+	for _, ln := range lines {
+		if len(ln) <= width {
+			out = append(out, ln)
+			continue
+		}
+		// Break long lines at word boundaries.
+		remaining := ln
+		for len(remaining) > width {
+			brk := width
+			if idx := strings.LastIndexByte(remaining[:width+1], ' '); idx > 0 {
+				brk = idx
+			}
+			out = append(out, remaining[:brk])
+			remaining = strings.TrimLeft(remaining[brk:], " ")
+		}
+		if remaining != "" {
+			out = append(out, remaining)
+		}
+	}
+	return strings.Join(out, "\n")
 }

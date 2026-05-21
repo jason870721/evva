@@ -256,6 +256,7 @@ func buildApprovalEvent(req permission.ApprovalRequest) event.Event {
 			RequestID:   req.ID,
 			ToolName:    req.ToolName,
 			ToolInput:   req.ToolInput,
+			Description: req.Description,
 			Mode:        string(req.Mode),
 			Reason:      req.Reason,
 			RiskHint:    riskHint,

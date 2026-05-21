@@ -43,6 +43,7 @@ type ApprovalRequest struct {
 	AgentID     string // who's asking (root or subagent ID)
 	ToolName    string
 	ToolInput   []byte // raw JSON; UI summarises to ~200 chars
+	Description string // human-readable tool description from the tool registry
 	Mode        Mode
 	Reason      string // from Decide() — why we're asking
 	Hint        Hint   // pre-computed classification (Bash only today)
