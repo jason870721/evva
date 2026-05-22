@@ -470,6 +470,7 @@ R2-6 (broker promotion / `PermissionPrompter` callback shape) stays deferred —
 Saving these for future phases so the scope stays shippable:
 
 - **Skill SDK** (pkg/skill so downstream can ship custom skills). The skill loader has internal coupling that needs its own decoupling pass.
+- **Custom AppConfig** Support consumer config key-value into AppConfig (let user keep their tool api secret or some config in it).
 - **Custom Kind events** (consumer-declared event kinds). The Phase 13 invariant — "downstream apps cannot add new Kinds" — stays.
 - **Pluggable agent loops**. The loop logic stays in internal/agent for v1.0.
 - **gRPC / network surface**. SDK stays in-process for v1.0.
