@@ -5,7 +5,72 @@ here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
 Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
-## [Unreleased]
+## [v0.2.5-alpha.1] — Phase 19 (Out of scope) — Skill SDK + Custom AppConfig
+
+Phase 19 (Out of scope) — public Skill SDK, downstream-owned config
+slot, and an end-to-skill-registry-bootstrap-from-the-host shift. The
+skill catalog now loads itself from inside `agent.New`; downstream
+hosts stop hand-wiring `skill.LoadRegistry` + `WithSkillRegistry`
+unless they want a programmatic-only catalog.
+
+### Breaking
+
+- `internal/tools/skill` → `pkg/skill`. The Registry, SkillMeta,
+  SkillSource constants, LoadRegistry, and SkillTool are now public.
+  Downstream apps that imported the internal path update the import to
+  `github.com/johnny1110/evva/pkg/skill`. The new path ships the same
+  identifiers plus the additive items listed below.
+- `agent.New` now auto-loads the skill registry from
+  `cfg.AppHomeSkillsDir + cfg.WorkDirSkillsDir` when no
+  `WithSkillRegistry` override is provided. Behaviour for hosts that
+  passed their own registry is unchanged; hosts that previously
+  *didn't* pass one (e.g. the minimal-host example) now get disk
+  skills out of the box. Hosts that want zero skills can pass
+  `WithSkillRegistry(skill.NewRegistry())`.
+
+### Added
+
+- `pkg/skill.NewRegistry() *Registry` — empty registry constructor for
+  programmatic-only catalogs.
+- `pkg/skill.Registry.Add(SkillMeta) error` — registers an in-code
+  skill. Validates non-empty name, non-nil BodyFunc, duplicate-name
+  rejection. The skill's Source is force-set to `SourceProgrammatic`.
+- `pkg/skill.SourceProgrammatic` — third SkillSource value alongside
+  `SourceHome` / `SourceWorkDir`.
+- `pkg/skill.SkillMeta.BodyFunc func() (string, error)` — lazy body
+  loader for programmatic skills. When non-nil, `LoadBody` calls it
+  instead of reading from `SkillMeta.Path`. Use this to back skills
+  with `embed.FS`, network fetches, or generators.
+- `pkg/agent.WithSkillRegistry(*skill.Registry) Option` — public
+  override path for the auto-load. The internal helper has existed
+  since Phase 6; this exposes it on the SDK surface.
+- `pkg/config.Config.CustomConfig map[string]any` — downstream-app
+  extension slot. Stores arbitrary key/value pairs that round-trip
+  through YAML under the `custom:` section. evva itself never reads
+  from this map; consumers cast at use-site.
+- `pkg/config.Config.GetCustom(key) (any, bool)` / `SetCustom(key, value) error` /
+  `DeleteCustom(key) error` — thread-safe accessors guarded by
+  `c.mu`. SetCustom persists via SaveFile so values survive restarts.
+- `pkg/config.FileConfig.Custom map[string]any` (yaml tag
+  `custom,omitempty`) — on-disk representation of the custom slot.
+
+### Internal
+
+- `internal/agent/skills.go` — new file. Exports
+  `loadDiskSkillRegistry(cfg)` and `refsFromRegistry(*skill.Registry)`
+  helpers shared by `agent.New`'s auto-load path and `Main`'s
+  `nil → auto-load` fallback.
+- `cmd/evva/main.go`: removed manual `skill.LoadRegistry`,
+  `skillRefsFromRegistry`, `agent.WithSkillRegistry`, and
+  `agent.WithSkillRefs` wiring. `runTUI` / `runCLI` signatures
+  trimmed by ~20 LOC.
+- `pkg/config/config.go`: `Clone()` deep-copies `CustomConfig`.
+  `SaveFile()` snapshots and writes the `custom:` section through
+  `FileConfig.Custom`.
+
+---
+
+## [v0.2.4-alpha.3] — Round 2 friday follow-up
 
 Round 2 of friday's SDK feedback — five fresh ergonomics fixes
 landing on top of Phase 19. Each one collapses a multi-step bootstrap

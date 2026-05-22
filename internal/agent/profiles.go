@@ -29,8 +29,8 @@ import (
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/pkg/tools/monitor"
 	"github.com/johnny1110/evva/pkg/tools/notebook"
+	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools/shell"
-	"github.com/johnny1110/evva/internal/tools/skill"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/tools/util"
 	"github.com/johnny1110/evva/internal/tools/ux"
@@ -116,6 +116,13 @@ type Profile struct {
 // Callers who want the old buffered behavior can pass WithStream(false) at
 // agent construction.
 func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
+	// nil skills means "auto-load from cfg's skill dirs" — keeps downstream
+	// SDK callers (pkg/agent.New passes nil) and cmd/evva from having to
+	// re-implement the disk walk. An explicit empty slice still suppresses
+	// the # Skills section.
+	if skills == nil {
+		skills = refsFromRegistry(loadDiskSkillRegistry(cfg))
+	}
 	activeTools := slices.Concat(fs.Names(), shell.Names(), meta.Names(), skill.Names(), todo.Names())
 	// enter/exit_plan_mode are always-active on Main so the model can flip
 	// the session into ModePlan without a tool_search round-trip. The

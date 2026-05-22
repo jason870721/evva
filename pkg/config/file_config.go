@@ -46,6 +46,11 @@ type FileConfig struct {
 	EnableAutoMemory *bool `yaml:"enable_auto_memory,omitempty"`
 
 	Providers map[string]FileProviderConfig `yaml:"providers"`
+
+	// Custom is the downstream-app extension slot. Values round-trip through
+	// YAML as the `custom:` section. Empty / nil produces no `custom:` key in
+	// the output. Decoded as map[string]any — consumers cast at use-site.
+	Custom map[string]any `yaml:"custom,omitempty"`
 }
 
 // FileProviderConfig carries per-provider credentials. Empty ApiURL falls

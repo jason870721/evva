@@ -1,5 +1,8 @@
 // Package skill implements user-installed Markdown skills and the SKILL tool
-// that invokes them.
+// that invokes them. The package is public so downstream apps embedding the
+// evva agent runtime can build their own skill catalogs — either by dropping
+// SKILL.md files under a directory (the disk path) or by registering skills
+// programmatically through Registry.Add (the SDK path).
 //
 // Skills live in two directories. Both layouts are identical:
 //
@@ -7,12 +10,18 @@
 //	  <skill-name>/
 //	    SKILL.md
 //
-// LoadRegistry reads EvvaHome first then WorkDir, so a workdir-local skill
+// LoadRegistry reads AppHome first then WorkDir, so a workdir-local skill
 // transparently overrides a same-named home skill. The first line of every
 // SKILL.md is parsed as `# <skill-name> <description>`; the body is whatever
 // follows. The SKILL tool wraps the body as "Follow these instructions" when
 // the model invokes a skill, so the file content is treated as opaque
 // Markdown — the package does not impose structure beyond the title line.
+//
+// Programmatic skills (added via Registry.Add) skip the filesystem entirely:
+// they carry a BodyFunc the registry calls when the model dispatches the
+// skill. This is the path SDK consumers use to bundle skills inside their
+// binary via go:embed, fetch them over the network, or generate them on the
+// fly.
 package skill
 
 import (
@@ -24,34 +33,89 @@ import (
 	"strings"
 )
 
-// SkillSource identifies which directory a skill was loaded from. WorkDir
-// always wins on a name clash; this field is exposed mostly for logging
-// and a future `/skills` slash command that wants to surface the origin.
+// SkillSource identifies where a skill was loaded from. WorkDir always wins
+// over Home on a name clash; Programmatic always wins over both because it
+// represents an explicit SDK choice the host made at startup. The field is
+// exposed mostly for logging and a future `/skills` slash command that
+// wants to surface origin.
 type SkillSource string
 
 const (
-	SourceHome    SkillSource = "home"
-	SourceWorkDir SkillSource = "workdir"
+	SourceHome         SkillSource = "home"
+	SourceWorkDir      SkillSource = "workdir"
+	SourceProgrammatic SkillSource = "programmatic"
 )
 
 // SkillMeta is the resolved metadata for a single skill. Body content is
 // loaded on demand via Registry.LoadBody so the prompt path stays cheap.
+//
+// For disk-loaded skills, Path points to SKILL.md and BodyFunc is nil — the
+// registry reads the file at dispatch time. For programmatic skills, Path
+// is empty and BodyFunc returns the body string when invoked; the host can
+// back it with any source (embed.FS, network, generator, ...).
 type SkillMeta struct {
 	Name        string
 	Description string
-	Path        string // absolute path to SKILL.md
+	Path        string // absolute path to SKILL.md; empty for programmatic skills
 	Source      SkillSource
+	// BodyFunc, when non-nil, is the lazy body loader the registry calls
+	// instead of reading Path. Programmatic skills MUST set this; disk
+	// skills MUST leave it nil.
+	BodyFunc func() (string, error)
 }
 
 // Registry is the merged catalog of installed skills. Construct via
-// LoadRegistry; methods are safe to call from any goroutine because the map
-// is set once at construction and only read afterwards.
+// LoadRegistry (disk) or NewRegistry (programmatic-only); methods are safe
+// to call from any goroutine because the map is set once at construction
+// and only mutated through Add — which runs at host bootstrap time before
+// the agent starts dispatching tools.
 type Registry struct {
 	skills map[string]SkillMeta
 	// Warnings collects non-fatal load issues (malformed first lines, name
 	// mismatches, unreadable files). Callers may surface these at startup;
 	// the loader never blocks boot on them.
 	Warnings []string
+}
+
+// NewRegistry returns an empty registry for programmatic-only use. Hosts
+// that want the on-disk override behavior should call LoadRegistry; hosts
+// that bundle every skill in code can construct here and call Add.
+//
+// Mixed use is fine: LoadRegistry first, then Add for any programmatic
+// extras the host wants alongside the disk catalog.
+func NewRegistry() *Registry {
+	return &Registry{skills: map[string]SkillMeta{}}
+}
+
+// Add inserts a programmatic skill into the registry. The skill's Source
+// field is force-set to SourceProgrammatic so the origin is always honest
+// regardless of how the caller filled the struct.
+//
+// Validation:
+//   - Name must be non-empty.
+//   - BodyFunc must be non-nil (the SKILL tool would have nothing to return).
+//   - A name already present in the registry is rejected. To override a
+//     disk skill the caller should use a different name or delete the
+//     disk entry before adding.
+func (r *Registry) Add(m SkillMeta) error {
+	if r == nil {
+		return fmt.Errorf("skill: nil registry")
+	}
+	if strings.TrimSpace(m.Name) == "" {
+		return fmt.Errorf("skill: name is required")
+	}
+	if m.BodyFunc == nil {
+		return fmt.Errorf("skill: %q has no BodyFunc (programmatic skills must supply one)", m.Name)
+	}
+	if _, dup := r.skills[m.Name]; dup {
+		return fmt.Errorf("skill: %q already registered", m.Name)
+	}
+	if r.skills == nil {
+		r.skills = map[string]SkillMeta{}
+	}
+	m.Source = SourceProgrammatic
+	r.skills[m.Name] = m
+	return nil
 }
 
 // LoadRegistry scans homeSkillsDir then workdirSkillsDir and returns the
@@ -202,12 +266,21 @@ func (r *Registry) Names() []string {
 	return out
 }
 
-// LoadBody reads the full SKILL.md content for the named skill verbatim.
-// The SKILL tool wraps this output before returning it to the model.
+// LoadBody returns the full body content for the named skill. Disk-loaded
+// skills are read from SkillMeta.Path; programmatic skills invoke
+// SkillMeta.BodyFunc. The SKILL tool wraps the output before handing it
+// back to the model.
 func (r *Registry) LoadBody(name string) (string, error) {
 	m, ok := r.Get(name)
 	if !ok {
 		return "", fmt.Errorf("skill %q not found", name)
+	}
+	if m.BodyFunc != nil {
+		body, err := m.BodyFunc()
+		if err != nil {
+			return "", fmt.Errorf("skill %q body: %w", name, err)
+		}
+		return body, nil
 	}
 	b, err := os.ReadFile(m.Path)
 	if err != nil {

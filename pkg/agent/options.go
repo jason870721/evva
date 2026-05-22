@@ -4,6 +4,7 @@ import (
 	agent_impl "github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/skill"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 	"github.com/johnny1110/evva/pkg/tools"
 )
@@ -62,5 +63,25 @@ func WithStream(stream bool) Option {
 // it.
 func WithCustomTool(name tools.ToolName, factory pubtoolset.ToolFactory) Option {
 	return agent_impl.WithCustomTool(name, factory)
+}
+
+// WithSkillRegistry installs a pre-built skill catalog on the agent's
+// ToolState. The SKILL tool reads through it at Execute time, and the
+// agent's system prompt advertises every registered skill on the
+// available-skills list.
+//
+// When omitted, agent.New auto-loads from cfg.AppHomeSkillsDir and
+// cfg.WorkDirSkillsDir — the same disk path cmd/evva uses. Pass an
+// override for either of:
+//
+//  1. Programmatic-only catalogs: build with skill.NewRegistry() + Add(...)
+//     to ship skills inside the binary via go:embed, fetch them at boot,
+//     or generate them on the fly.
+//  2. Mixed catalogs: start from skill.LoadRegistry(home, workdir) and
+//     Add programmatic extras alongside.
+//  3. Suppression: pass skill.NewRegistry() to disable disk auto-load
+//     when the host wants the SKILL tool to surface no skills at all.
+func WithSkillRegistry(r *skill.Registry) Option {
+	return agent_impl.WithSkillRegistry(r)
 }
 

@@ -1,9 +1,11 @@
-// Minimal-host is a ~80 line program showing how to embed evva's agent
+// Minimal-host is a small program showing how to embed evva's agent
 // runtime in a downstream Go app:
 //
 //   - Load runtime config from a custom AppHome (~/.minimal-host/ here).
 //   - Register a custom LLM provider against pkg/llm.DefaultRegistry.
 //   - Register a custom tool against the agent via WithCustomTool.
+//   - Register a programmatic skill via pkg/skill.NewRegistry + Add.
+//   - Stash a downstream-private secret in cfg.CustomConfig.
 //   - Wire a stdout event sink that prints each agent event.
 //   - Build the agent via pkg/agent.NewWithProfile and run one prompt.
 //
@@ -11,9 +13,9 @@
 //
 //	cd examples/minimal-host && go run .
 //
-// No internal/* imports — this file proves the Phase 13 public surface
-// is sufficient on its own. Build it from outside the evva module and
-// the compiler enforces that.
+// No internal/* imports — this file proves the Phase 13 / 19 public
+// surface is sufficient on its own. Build it from outside the evva
+// module and the compiler enforces that.
 package main
 
 import (
@@ -28,6 +30,7 @@ import (
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/pkg/llm"
+	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
 )
 
@@ -96,9 +99,26 @@ func main() {
 			return &echoClient{model: model}, nil
 		})
 	}
-	cfg.LLMProviderConfig["echo"] = config.APIConfig{ApiURL: "http://example", ApiSecret: "n/a"}
+	_ = cfg.SetProviderCredentials("echo", "http://example", "n/a")
 
-	// 3. Build a Profile pinned to the echo provider. The agent will
+	// 3. Stash a downstream-private setting in cfg.CustomConfig — survives
+	//    restarts via YAML round-trip; evva itself never reads from it.
+	_ = cfg.SetCustom("minimal-host.session-tag", "demo-run")
+
+	// 4. Build a programmatic skill catalog so the SKILL tool can dispatch
+	//    "hello" without dropping a SKILL.md on disk. agent.New would
+	//    otherwise auto-load from cfg.AppHomeSkillsDir; passing this
+	//    registry overrides the auto-load with our in-code catalog.
+	skills := skill.NewRegistry()
+	_ = skills.Add(skill.SkillMeta{
+		Name:        "hello",
+		Description: "respond with a friendly greeting",
+		BodyFunc: func() (string, error) {
+			return "Say hi back to the user in one sentence.", nil
+		},
+	})
+
+	// 5. Build a Profile pinned to the echo provider. The agent will
 	//    expose the ping tool we register via WithCustomTool below.
 	prof, err := agent.NewProfile("minimal", "you are an echo bot",
 		nil, // ActiveTools — ping is added via WithCustomTool
@@ -109,11 +129,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 4. Build the agent with the public option API.
+	// 6. Build the agent with the public option API.
 	ag, err := agent.NewWithProfile(prof,
 		agent.WithConfig(cfg),
 		agent.WithSink(stdoutSink{}),
 		agent.WithMaxIterations(5),
+		agent.WithSkillRegistry(skills),
 		agent.WithCustomTool("ping", func(tools.State) (tools.Tool, error) {
 			return pingTool{}, nil
 		}),

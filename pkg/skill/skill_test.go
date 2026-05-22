@@ -103,3 +103,24 @@ func TestSkillTool_MissingSkillField(t *testing.T) {
 		t.Errorf("expected required-field message; got %q", out)
 	}
 }
+
+func TestSkillTool_ProgrammaticDispatch(t *testing.T) {
+	reg := NewRegistry()
+	_ = reg.Add(SkillMeta{
+		Name:        "prog",
+		Description: "in-code skill",
+		BodyFunc:    func() (string, error) { return "PROG_BODY", nil },
+	})
+	tool := NewSkill(func() *Registry { return reg })
+
+	out, isErr := mustExec(t, tool, `{"skill":"prog","args":"x"}`)
+	if isErr {
+		t.Fatalf("unexpected error: %s", out)
+	}
+	if !strings.Contains(out, "PROG_BODY") {
+		t.Errorf("body missing; got %q", out)
+	}
+	if !strings.Contains(out, "args: x") {
+		t.Errorf("args missing; got %q", out)
+	}
+}

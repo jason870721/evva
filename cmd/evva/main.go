@@ -16,7 +16,6 @@ import (
 	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/pkg/event"
-	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/pkg/llm"
 	_ "github.com/johnny1110/evva/pkg/llm/builtins" // register anthropic/deepseek/ollama into llm.DefaultRegistry()
 	"github.com/johnny1110/evva/internal/memdir"
@@ -24,7 +23,6 @@ import (
 	"github.com/johnny1110/evva/internal/question"
 	"github.com/johnny1110/evva/pkg/tools/fs"
 	"github.com/johnny1110/evva/internal/tools/meta"
-	"github.com/johnny1110/evva/internal/tools/skill"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/internal/update"
 	"github.com/johnny1110/evva/pkg/ui"
@@ -71,11 +69,9 @@ func main() {
 	permModeFlag := flag.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
 	flag.Parse()
 
-	registry, _ := skill.LoadRegistry(cfg.AppHomeSkillsDir, cfg.WorkDirSkillsDir)
-	for _, w := range registry.Warnings {
-		fmt.Fprintln(os.Stderr, "evva:", w)
-	}
-	skillRefs := skillRefsFromRegistry(registry)
+	// Skill registry is auto-loaded inside agent.New from cfg.AppHomeSkillsDir
+	// + cfg.WorkDirSkillsDir. Hosts that want a programmatic catalog pre-build
+	// one and pass agent.WithSkillRegistry; this binary uses the default.
 
 	// Load project memory (<workdir>/EVVA.md) and user memory
 	// (<EVVA_HOME>/USER_PROFILE.md) once at startup; the snapshot threads
@@ -107,10 +103,13 @@ func main() {
 	if profName == "" {
 		profName = "evva"
 	}
-	prof, profErr := agent.ResolveMainProfile(cfg, agentReg, profName, skillRefs, memSnap, buildOptions(*temp, *maxTokens))
+	// nil skills → ResolveMainProfile auto-loads from cfg's skill dirs so
+	// the system prompt's # Skills section matches whatever agent.New
+	// installs on the toolState.
+	prof, profErr := agent.ResolveMainProfile(cfg, agentReg, profName, nil, memSnap, buildOptions(*temp, *maxTokens))
 	if profErr != nil {
 		fmt.Fprintln(os.Stderr, "evva:", profErr, "— falling back to evva")
-		prof, _ = agent.ResolveMainProfile(cfg, agentReg, "evva", skillRefs, memSnap, buildOptions(*temp, *maxTokens))
+		prof, _ = agent.ResolveMainProfile(cfg, agentReg, "evva", nil, memSnap, buildOptions(*temp, *maxTokens))
 		profName = "evva"
 	}
 
@@ -130,10 +129,10 @@ func main() {
 
 	useTUI := !*noTUI && isTTY(os.Stdout)
 	if useTUI {
-		runTUI(ctx, prof, profName, skillRefs, memSnap, *maxIters, cfg.AppName, cfg.AppHome, registry, agentReg, permStore, permBroker, permMode, qBroker, *uiKind)
+		runTUI(ctx, prof, profName, memSnap, *maxIters, cfg.AppName, cfg.AppHome, agentReg, permStore, permBroker, permMode, qBroker, *uiKind)
 		return
 	}
-	runCLI(ctx, prof, profName, skillRefs, memSnap, *maxIters, cfg.AppName, registry, agentReg, permStore, permBroker, permMode, qBroker)
+	runCLI(ctx, prof, profName, memSnap, *maxIters, cfg.AppName, agentReg, permStore, permBroker, permMode, qBroker)
 }
 
 // resolvePermissionMode picks the active mode using CLI > YAML > "default"
@@ -152,22 +151,6 @@ func resolvePermissionMode(cliFlag, yamlValue string) permission.Mode {
 	return permission.ModeDefault
 }
 
-// skillRefsFromRegistry flattens the merged skill catalog into the
-// sysprompt-facing struct list used by Profile constructors. The sysprompt
-// package intentionally does not depend on internal/tools/skill, so the
-// caller does the conversion.
-func skillRefsFromRegistry(r *skill.Registry) []sysprompt.SkillRef {
-	if r == nil {
-		return nil
-	}
-	list := r.List()
-	out := make([]sysprompt.SkillRef, 0, len(list))
-	for _, m := range list {
-		out = append(out, sysprompt.SkillRef{Name: m.Name, Description: m.Description})
-	}
-	return out
-}
-
 // runTUI is the interactive path. The bubbletea UI owns the screen; the
 // agent emits events into it; the user drives prompts from the textarea.
 // evvaHome lets the TUI resolve banner.txt (and any future user config).
@@ -176,7 +159,7 @@ func skillRefsFromRegistry(r *skill.Registry) []sysprompt.SkillRef {
 // or "v2" (clean-architecture rewrite, in active development). Both
 // satisfy the same ui.UI contract, so the agent-side wiring is
 // identical.
-func runTUI(ctx context.Context, prof agent.Profile, profName string, skillRefs []sysprompt.SkillRef, memSnap memdir.Snapshot, maxIters int, name, evvaHome string, skills *skill.Registry, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode, qBroker question.Broker, kind string) {
+func runTUI(ctx context.Context, prof agent.Profile, profName string, memSnap memdir.Snapshot, maxIters int, name, evvaHome string, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode, qBroker question.Broker, kind string) {
 	var tui ui.UI
 	switch kind {
 	default:
@@ -201,10 +184,8 @@ func runTUI(ctx context.Context, prof agent.Profile, profName string, skillRefs 
 		agent.WithName(name),
 		agent.WithSink(tui),
 		agent.WithMaxIterations(maxIters),
-		agent.WithSkillRegistry(skills),
 		agent.WithAgentRegistry(agents),
 		agent.WithPersona(profName),
-		agent.WithSkillRefs(skillRefs),
 		agent.WithMemorySnapshot(memSnap),
 		agent.WithPermissionStore(permStore),
 		agent.WithPermissionBroker(permBroker),
@@ -278,7 +259,7 @@ func buildApprovalEvent(req permission.ApprovalRequest) event.Event {
 // Preserves the original behavior: read prompt → run → stream events as
 // plain text → exit. ErrIterLimit triggers a synchronous "press Enter to
 // continue" prompt on stderr.
-func runCLI(ctx context.Context, prof agent.Profile, profName string, skillRefs []sysprompt.SkillRef, memSnap memdir.Snapshot, maxIters int, name string, skills *skill.Registry, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode, qBroker question.Broker) {
+func runCLI(ctx context.Context, prof agent.Profile, profName string, memSnap memdir.Snapshot, maxIters int, name string, agents *agent.AgentRegistry, permStore *permission.Store, permBroker permission.Broker, permMode permission.Mode, qBroker question.Broker) {
 	prompt, err := readPrompt(flag.Args())
 	if err != nil {
 		exitf(2, "evva: %v", err)
@@ -306,10 +287,8 @@ func runCLI(ctx context.Context, prof agent.Profile, profName string, skillRefs 
 		agent.WithName(name),
 		agent.WithSink(cliSink{out: os.Stdout}),
 		agent.WithMaxIterations(maxIters),
-		agent.WithSkillRegistry(skills),
 		agent.WithAgentRegistry(agents),
 		agent.WithPersona(profName),
-		agent.WithSkillRefs(skillRefs),
 		agent.WithMemorySnapshot(memSnap),
 		agent.WithPermissionStore(permStore),
 		agent.WithPermissionBroker(permBroker),

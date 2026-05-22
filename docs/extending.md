@@ -25,6 +25,7 @@ proof-of-concept lives at [`examples/minimal-host/`](../examples/minimal-host/ma
 | `pkg/tools` | `Tool` interface, `Result`, `ContentBlock`, `Descriptor`, `Call`, `State`, `ToolName` constants | Authoring custom tools |
 | `pkg/tools/{fs,shell,web,util,notebook,monitor,cron,todo}` | Bundled tool family implementations | Reusing the bundled tools directly (rare; most callers use them via the registry) |
 | `pkg/tools/kits` | `GeneralPurposeKit`, `ReadOnlyKit`, `CodingKit`, `ResearchKit` | Pre-composed tool-name lists for common agent shapes (Phase 19d) |
+| `pkg/skill` | `Registry`, `SkillMeta`, `LoadRegistry`, `NewRegistry`, `Registry.Add`, `SkillTool` | Building custom skill catalogs (disk-loaded, programmatic, or mixed) |
 | `pkg/constant` | `LLMProvider`, `Model`, `AgentStatus`, `MODEL_CONTEXT_SIZE` | Referencing built-in provider / model identifiers |
 
 Internal packages (`internal/`) remain inaccessible from outside the
@@ -145,6 +146,85 @@ internal types — you can call methods on them but cannot fully implement
 `Controller` from outside the module. This is a known follow-up;
 downstream UIs that need to render todos / subagents today should
 subscribe to `event.KindStoreUpdate` events through the sink instead.
+
+### Custom skills (Skill SDK)
+
+A **skill** is a Markdown instruction document the model can invoke
+through the SKILL tool. evva ships two ways to install skills:
+
+1. **Disk** — drop `SKILL.md` files under
+   `<AppHome>/skills/<name>/SKILL.md` (and optionally
+   `<workdir>/.evva/skills/<name>/SKILL.md` for workdir-local overrides).
+   `agent.New` auto-loads this catalog at boot — downstream apps get it
+   for free without any wiring.
+2. **Programmatic** — register skills in Go via `skill.NewRegistry()` +
+   `Add(...)`. The `BodyFunc` field is called lazily when the model
+   dispatches the skill, so the body can come from `embed.FS`, a
+   network fetch, or a generator.
+
+```go
+import (
+    "embed"
+
+    "github.com/johnny1110/evva/pkg/agent"
+    "github.com/johnny1110/evva/pkg/skill"
+)
+
+//go:embed skills/commit.md
+var skills embed.FS
+
+func main() {
+    reg := skill.NewRegistry()
+    _ = reg.Add(skill.SkillMeta{
+        Name:        "commit",
+        Description: "Generate a conventional-commits message from the staged diff",
+        BodyFunc: func() (string, error) {
+            b, err := skills.ReadFile("skills/commit.md")
+            return string(b), err
+        },
+    })
+
+    ag, _ := agent.NewWithProfile(prof,
+        agent.WithSkillRegistry(reg),  // skips disk auto-load
+        // ...
+    )
+}
+```
+
+Mixed catalogs are supported: start with `skill.LoadRegistry(home, workdir)`
+and call `Add(...)` for any programmatic extras. To disable skills
+entirely, pass `agent.WithSkillRegistry(skill.NewRegistry())` — an empty
+registry suppresses both the SKILL tool's dispatch list and the system
+prompt's `# Skills` section.
+
+### Custom AppConfig — `CustomConfig`
+
+`config.Config` carries a generic key/value extension slot for
+downstream-private settings that don't fit the typed fields. Values
+round-trip through YAML as a `custom:` section under `<AppHome>/config/<app>-config.yml`.
+
+```go
+cfg, _ := config.Load(config.LoadOptions{AppName: "friday"})
+
+// Set — thread-safe; persists via SaveFile() automatically.
+_ = cfg.SetCustom("broker.url", "https://broker.internal")
+_ = cfg.SetCustom("flags", map[string]any{"beta_ui": true, "tier": "pro"})
+
+// Read at use-site. Values come back as `any`; cast at boundary.
+if v, ok := cfg.GetCustom("broker.url"); ok {
+    brokerURL := v.(string)
+    _ = brokerURL
+}
+
+// Remove.
+_ = cfg.DeleteCustom("flags")
+```
+
+evva itself never reads from `CustomConfig`. After a YAML reload, the
+concrete value types are whatever `yaml.v3` decoded into (typically
+`string`, `int`, `float64`, `bool`, `[]any`, or `map[string]any`) —
+hosts that need stable typed structs should layer their own typed
+accessors over `Get/SetCustom`.
 
 ## SDK polish (Phase 19)
 

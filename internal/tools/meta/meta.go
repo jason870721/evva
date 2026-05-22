@@ -3,9 +3,10 @@
 // iterations). Each needs an agent-side hook supplied via constructor
 // injection from the toolset Builders.
 //
-// SKILL lives in its own package (internal/tools/skill) because it owns a
-// registry of user-installed skill files; co-locating it there keeps the
-// loader and the tool adjacent.
+// SKILL lives in its own package (pkg/skill) because it owns a registry of
+// user-installed skill files; co-locating it there keeps the loader and the
+// tool adjacent. The package is public so downstream SDK consumers can
+// register programmatic skills via skill.NewRegistry + Add.
 package meta
 
 import "github.com/johnny1110/evva/pkg/tools"

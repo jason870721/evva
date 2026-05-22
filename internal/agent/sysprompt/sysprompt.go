@@ -10,7 +10,7 @@
 // caller (cmd/evva/main.go via agent.Main) reads memory files through the
 // memdir package and threads them into PromptContext.ProjectMemory /
 // .UserProfile. The skill registry is similarly flattened by the caller into
-// []SkillRef so sysprompt does not depend on internal/tools/skill.
+// []SkillRef so sysprompt does not depend on pkg/skill.
 //
 // Tool names interpolated into prompts live in toolnames.go and are
 // drift-checked against internal/tools/name.go by toolnames_link_test.go.
@@ -41,7 +41,7 @@ type DeferredToolSpec struct {
 
 // SkillRef is the prompt-side view of a user-installed skill — just the
 // name and description we advertise to the model. The sysprompt package
-// deliberately does not depend on internal/tools/skill; the caller
+// deliberately does not depend on pkg/skill; the caller
 // flattens the skill registry into this struct.
 type SkillRef struct {
 	Name        string

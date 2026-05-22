@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,5 +178,90 @@ func TestLoadRegistry_LoadBodyUnknown(t *testing.T) {
 	r, _ := LoadRegistry("", "")
 	if _, err := r.LoadBody("nope"); err == nil {
 		t.Error("expected error for unknown skill")
+	}
+}
+
+func TestProgrammaticSkill_AddAndLoadBody(t *testing.T) {
+	r := NewRegistry()
+	err := r.Add(SkillMeta{
+		Name:        "hello",
+		Description: "say hi",
+		BodyFunc:    func() (string, error) { return "hello body", nil },
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	got, ok := r.Get("hello")
+	if !ok {
+		t.Fatal("hello not registered")
+	}
+	if got.Source != SourceProgrammatic {
+		t.Errorf("source: got %v want programmatic", got.Source)
+	}
+	body, err := r.LoadBody("hello")
+	if err != nil {
+		t.Fatalf("LoadBody: %v", err)
+	}
+	if body != "hello body" {
+		t.Errorf("body: got %q want %q", body, "hello body")
+	}
+}
+
+func TestProgrammaticSkill_Validation(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Add(SkillMeta{Name: "", BodyFunc: func() (string, error) { return "", nil }}); err == nil {
+		t.Error("expected error for empty name")
+	}
+	if err := r.Add(SkillMeta{Name: "no-body"}); err == nil {
+		t.Error("expected error for missing BodyFunc")
+	}
+	bf := func() (string, error) { return "x", nil }
+	if err := r.Add(SkillMeta{Name: "dup", BodyFunc: bf}); err != nil {
+		t.Fatalf("first Add: %v", err)
+	}
+	if err := r.Add(SkillMeta{Name: "dup", BodyFunc: bf}); err == nil {
+		t.Error("expected duplicate-name error on second Add")
+	}
+}
+
+func TestProgrammaticSkill_BodyFuncError(t *testing.T) {
+	r := NewRegistry()
+	sentinel := errors.New("boom")
+	_ = r.Add(SkillMeta{Name: "bad", BodyFunc: func() (string, error) { return "", sentinel }})
+	_, err := r.LoadBody("bad")
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("expected wrapped BodyFunc error; got %v", err)
+	}
+}
+
+func TestProgrammaticSkill_MixedWithDisk(t *testing.T) {
+	home := t.TempDir()
+	writeSkill(t, home, "disk-skill", "# disk-skill from disk\nbody\n")
+	r, _ := LoadRegistry(home, "")
+	if err := r.Add(SkillMeta{
+		Name:     "prog-skill",
+		BodyFunc: func() (string, error) { return "prog body", nil },
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	names := r.Names()
+	want := []string{"disk-skill", "prog-skill"}
+	if len(names) != len(want) {
+		t.Fatalf("Names len: got %v want %v", names, want)
+	}
+	for i, n := range want {
+		if names[i] != n {
+			t.Errorf("Names[%d]: got %q want %q", i, names[i], n)
+		}
+	}
+}
+
+func TestNewRegistry_EmptyByDefault(t *testing.T) {
+	r := NewRegistry()
+	if len(r.List()) != 0 {
+		t.Errorf("expected empty registry; got %v", r.List())
+	}
+	if len(r.Names()) != 0 {
+		t.Errorf("expected empty names; got %v", r.Names())
 	}
 }

@@ -21,17 +21,6 @@ The reference TypeScript source lives at `evva/ref/src/`. Treat it as the source
 
 ---
 
-## Memory model
-
-Two files, two scopes:
-
-- `<workdir>/EVVA.md` — **project memory**. User-authored conventions, repo-specific rules, hot facts about the codebase. Injected into the system prompt at session start. Same role as Claude Code's `CLAUDE.md`.
-- `<EVVA_HOME>/USER_PROFILE.md` — **user memory**. Long-running notes about the user: preferences, working style, recurring topics, projects they care about. Curated by a dedicated background agent (Phase 9) that reviews the session transcript at session end and merges new observations into the file under a fixed shape (`## Preferences`, `## Working style`, `## Recurring topics`).
-
-Both files are read on every session start. Either can be missing — the prompt builder skips empty sections cleanly.
-
----
-
 ## Agent definitions
 
 All agents — main personas and subagent kinds alike — share one on-disk layout:
@@ -78,45 +67,6 @@ Port `ref/src/tools/FileReadTool / FileEditTool / FileWriteTool / GlobTool` desc
 - New `internal/tools/fs/glob.go` — mtime-sorted file matching. Today evva has `shell.Grep` + `shell.Tree` but no dedicated Glob.
 - TUI diff render parity for `Edit` and `Write` — match Claude Code's hunk layout.
 - Tighten `ReadTracker` semantics to match Claude Code's "must Read before Edit / overwrite-Write."
-
-**Phase 0 dev log — what Phase 1 must keep in sync:**
-
-- Tool names interpolated into agent prompts live in `internal/agent/sysprompt/toolnames.go` (prompt-side constants like `nameRead`, `nameEdit`, `nameWrite`, `nameGrep`, `nameTree`). When Phase 1 changes a wire value in `internal/tools/name.go` or adds a new fs tool, mirror it in `toolnames.go`. Drift is caught by `internal/agent/sysprompt/toolnames_link_test.go` at CI — that test interpolates each canonical `tools.ToolName` into the rendered main prompt and fails if the wire string is absent.
-- Add `nameGlob = "glob"` to `toolnames.go` when introducing the Glob tool. Reference it from `main_agent.go:mainToolsGuideSection()` next to `nameTree` / `nameGrep`, and from `explore_agent.go:buildExplorePrompt` (the Explore subagent should prefer Glob over `tree` for broad pattern matching once it lands). Append `tools.GLOB` to the required-names list in `toolnames_link_test.go:TestToolNamesAppearInMainPrompt`.
-- The Main agent's tools-guide section in `internal/agent/sysprompt/main_agent.go:mainToolsGuideSection()` describes Read/Write/Edit/Bash usage. After porting the ref TS descriptions, rewrite this section against the new tool guidance so the main agent advertises the new behavior — keep the hardcoded examples (`{"query": "select:task_create,..."}`) in sync with whatever Phase 1's tool descriptions reference.
-- `internal/agent/profiles.go:Explore()` lists the active tools for the Explore subagent: currently `READ_FILE, WEB_SEARCH, TREE, GREP, JSON_QUERY`. When Glob lands, swap (or augment) TREE → GLOB. The Explore subagent prompt at `explore_agent.go` also mentions `tree` in its guidelines — update both.
-- The new fs tool descriptions should be ported from `ref/src/tools/FileReadTool/prompt.ts`, `FileEditTool/constants.ts`, `FileWriteTool/prompt.ts`, `GlobTool/prompt.ts`. Each ref TS file exports a `*_TOOL_NAME` constant; the prompt-side mirror in `toolnames.go` is evva's equivalent of that pattern (Go can't do the prompt↔tool round-trip without creating an import cycle, which is why the link test exists).
-
-### Phase 1b — Image returns via multimodal `tool_result` blocks ✅️
-
-Phase 1 ships text-only reads (UTF-8 text, PDF page extraction, Jupyter cell rendering) because returning **image bytes** to the LLM requires a cross-cutting refactor that goes beyond `internal/tools/fs/`. This phase delivers that refactor.
-
-Today `tools.Result.Content` is a plain `string`, and every provider serializes `tool_result` blocks as text-only (see `internal/llm/claude/client.go` — `Content: tr.Content` is a string field, no `[{type:"image", source:{...}}]` support). Until that changes, `read` of a `.png`/`.jpg` will return an "image reads not yet supported" error pointing at this phase.
-
-Work:
-
-- Widen `tools.Result` (and the wire-shape `llm.ToolResult`) to carry a content **list** of typed blocks — text and image at minimum — alongside the existing `IsError` + `Metadata` fields.
-- Update each provider's tool-result serialization:
-  - **Anthropic** (`internal/llm/claude/client.go`): emit `content: [{type:"text",...},{type:"image",source:{type:"base64",media_type,data}}]`.
-  - **DeepSeek / OpenAI / Ollama**: providers that don't natively accept multimodal tool results need a documented fallback (text caption + base-64-as-text, or refusal). Decide per-provider.
-- Extend `internal/tools/fs/read.go` to dispatch on image MIME (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) and emit a base-64-encoded image block. Resize/downsample to a token budget if needed (mirror `ref/src/tools/FileReadTool/imageUtils.ts`).
-- Round-trip multimodal tool results through `internal/session/` so transcripts persist correctly.
-- TUI: render the inline image block in the transcript (terminal protocol support is best-effort — Kitty / iTerm2 / Sixel where available, fallback to "[image: <path>, <bytes>B]").
-
-Prerequisite for any "look at this screenshot" workflow. Out of Phase 1 because it touches four LLM clients and the session store, not just `fs/`.
-
-### Phase 1c - Add agent's logger into tool ✅️
-- Currently the agent's logger is not pass into tools, so tool error or debug info can't be logged.
-- let tools Execute function add logger param.
-
-### Phase 2 — ToolSearch + AgentTool polish + agent loader ✅️
-
-Both tools already exist in evva (`internal/tools/meta/`) and roughly match Claude Code's behavior. This phase finishes parity and lays the **extensibility seam** Phase 6 and external projects depend on.
-
-- Port 1:1 the latest ToolSearch (`ref/src/tools/ToolSearchTool`).
-- Port 1:1 the AgentTool (`ref/src/tools/AgentTool`), including the "writing the prompt" / "never delegate understanding" guidance.
-- New `internal/agent/loader/` — reads `<EVVA_HOME>/agents/{name}/` definitions and registers them. Built-ins stay as Go-defined structs; the loader merges Go + disk into one `AgentRegistry`.
-- Replace `toolset.buildOne`'s hard-coded switch (currently ~370 LOC closed enum) with a `Registry.Register(name, factory)` API so external projects can register their own tools at startup.
 
 ### Phase 3 — Permission system + Bash classifier + safe/auto modes ✅️
 
@@ -470,7 +420,7 @@ R2-6 (broker promotion / `PermissionPrompter` callback shape) stays deferred —
 Saving these for future phases so the scope stays shippable:
 
 - **Skill SDK** (pkg/skill so downstream can ship custom skills). The skill loader has internal coupling that needs its own decoupling pass.
-- **Custom AppConfig** Support consumer config key-value into AppConfig (let user keep their tool api secret or some config in it).
+- **Custom AppConfig** Support consumer config key-value into AppConfig (let user keep their own secret or some config in it).
 - **Custom Kind events** (consumer-declared event kinds). The Phase 13 invariant — "downstream apps cannot add new Kinds" — stays.
 - **Pluggable agent loops**. The loop logic stays in internal/agent for v1.0.
 - **gRPC / network surface**. SDK stays in-process for v1.0.

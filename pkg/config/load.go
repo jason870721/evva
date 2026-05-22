@@ -236,6 +236,7 @@ func Load(opts LoadOptions) (*Config, error) {
 		DefaultEffort:        fileCfg.DefaultEffort,
 		DefaultProfile:       fileCfg.DefaultProfile,
 		PermissionMode:       fileCfg.PermissionMode,
+		CustomConfig:         fileCfg.Custom,
 
 		LoadedAt: time.Now(),
 	}

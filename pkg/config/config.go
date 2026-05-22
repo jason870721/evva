@@ -140,11 +140,23 @@ type Config struct {
 	TavilyAPIKey  string // empty → web_search reports "not configured"
 	FetchMaxBytes int    // cap on extracted text returned by web_fetch
 
+	// CustomConfig holds downstream-app-defined settings. Reads/writes go
+	// through GetCustom / SetCustom / DeleteCustom under c.mu. Values
+	// round-trip through YAML as a `custom:` section; complex types are
+	// encoded as whatever gopkg.in/yaml.v3 produces for any (typically a
+	// map[string]any tree). Consumers cast at use-site — pkg/config does
+	// not know the value shapes.
+	//
+	// Use this slot for downstream-private secrets/settings that don't fit
+	// the typed fields above (e.g. friday's broker URL, a billing token,
+	// feature flags). evva itself never reads from CustomConfig.
+	CustomConfig map[string]any
+
 	// mu guards the runtime-mutable fields below (DisplayThinking,
 	// AutoCompactThreshold, DefaultMaxIterations, DefaultMaxTokens,
-	// FetchMaxBytes, TavilyAPIKey, LLMProviderConfig) once Load returns.
-	// Use the Get* / Set* accessors — direct field reads from outside
-	// this package race the UI goroutine's edits.
+	// FetchMaxBytes, TavilyAPIKey, LLMProviderConfig, CustomConfig) once
+	// Load returns. Use the Get* / Set* accessors — direct field reads
+	// from outside this package race the UI goroutine's edits.
 	mu sync.RWMutex
 
 	// saveMu serializes write-back to AppHomeConfigFile. Separate from
@@ -195,7 +207,61 @@ func (c *Config) Clone() *Config {
 		TavilyAPIKey:         c.TavilyAPIKey,
 		FetchMaxBytes:        c.FetchMaxBytes,
 	}
+	if c.CustomConfig != nil {
+		clone.CustomConfig = make(map[string]any, len(c.CustomConfig))
+		for k, v := range c.CustomConfig {
+			clone.CustomConfig[k] = v
+		}
+	}
 	return clone
+}
+
+// GetCustom returns the value stored under key in CustomConfig.
+// ok=false when the key is absent. Reads under c.mu.RLock.
+//
+// Values are stored as `any` — cast at use-site. After a YAML reload the
+// concrete type is whatever yaml.v3 decoded into (typically string, int,
+// float64, bool, []any, or map[string]any). Round-tripping through SaveFile
+// is lossy for typed Go structs unless the caller (or yaml tags on a
+// value-type) preserves the shape.
+func (c *Config) GetCustom(key string) (any, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.CustomConfig == nil {
+		return nil, false
+	}
+	v, ok := c.CustomConfig[key]
+	return v, ok
+}
+
+// SetCustom stores value under key in CustomConfig and persists the change
+// to AppHomeConfigFile via SaveFile. An empty key is rejected.
+//
+// Nil values are stored as-is — call DeleteCustom to remove the entry.
+// Concurrent SetCustom calls are serialized by c.mu.
+func (c *Config) SetCustom(key string, value any) error {
+	if key == "" {
+		return fmt.Errorf("config: custom key is required")
+	}
+	c.mu.Lock()
+	if c.CustomConfig == nil {
+		c.CustomConfig = map[string]any{}
+	}
+	c.CustomConfig[key] = value
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// DeleteCustom removes key from CustomConfig and persists. A missing key
+// is a no-op (no error). Persists via SaveFile so the YAML reflects the
+// removal immediately.
+func (c *Config) DeleteCustom(key string) error {
+	c.mu.Lock()
+	if c.CustomConfig != nil {
+		delete(c.CustomConfig, key)
+	}
+	c.mu.Unlock()
+	return c.SaveFile()
 }
 
 // GetDisplayThinking returns the current DisplayThinking flag under the
@@ -457,6 +523,13 @@ func (c *Config) SaveFile() error {
 		}
 	}
 	enableAutoMem := c.EnableAutoMemory
+	var customCopy map[string]any
+	if len(c.CustomConfig) > 0 {
+		customCopy = make(map[string]any, len(c.CustomConfig))
+		for k, v := range c.CustomConfig {
+			customCopy[k] = v
+		}
+	}
 	fc := FileConfig{
 		MaxIterations:        c.DefaultMaxIterations,
 		MaxTokens:            c.DefaultMaxTokens,
@@ -471,6 +544,7 @@ func (c *Config) SaveFile() error {
 		TavilyAPIKey:         c.TavilyAPIKey,
 		EnableAutoMemory:     &enableAutoMem,
 		Providers:            providers,
+		Custom:               customCopy,
 	}
 	path := c.AppHomeConfigFile
 	c.mu.RUnlock()

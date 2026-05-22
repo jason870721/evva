@@ -16,16 +16,17 @@ func Names() []tools.ToolName {
 	return []tools.ToolName{tools.SKILL}
 }
 
-// Lookup is the late-binding shape NewSkill accepts. The host (cmd/evva) loads
-// the registry at startup and installs it on the agent's ToolState; the
-// SkillTool reads it through Lookup at Execute time so construction order
-// between the tool and the registry doesn't matter — mirrors meta.SpawnerLookup
-// and meta.DeferredLookup.
+// Lookup is the late-binding shape NewSkill accepts. The host loads the
+// registry at startup (LoadRegistry or NewRegistry+Add) and installs it on
+// the agent's ToolState; the SkillTool reads it through Lookup at Execute
+// time so construction order between the tool and the registry doesn't
+// matter — mirrors meta.SpawnerLookup and meta.DeferredLookup.
 type Lookup func() *Registry
 
 // SkillTool is the LLM-facing tool that invokes a user-installed skill by
-// name. Execute returns the SKILL.md body wrapped as an instruction block so
-// the model treats it as guidance to follow, not raw content to summarize.
+// name. Execute returns the SKILL.md body (or BodyFunc output) wrapped as
+// an instruction block so the model treats it as guidance to follow, not
+// raw content to summarize.
 type SkillTool struct {
 	lookup Lookup
 }
@@ -41,7 +42,7 @@ func (t *SkillTool) Name() string { return string(tools.SKILL) }
 
 func (t *SkillTool) Description() string {
 	return "Execute a user-installed skill within the main conversation. " +
-		"Skills are Markdown documents under EVVA_HOME/skills/<name>/SKILL.md " +
+		"Skills are Markdown documents under <AppHome>/skills/<name>/SKILL.md " +
 		"(or <workdir>/.evva/skills/<name>/SKILL.md, which overrides) that " +
 		"give the agent task-specific instructions. " +
 		"Set `skill` to the exact name from the available-skills list; " +

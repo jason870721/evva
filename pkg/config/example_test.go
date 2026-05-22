@@ -62,3 +62,28 @@ func ExampleConfig_SetProviderCredentials() {
 	// api_url: https://api.deepseek.com
 	// api_secret_present: true
 }
+
+// ExampleConfig_SetCustom shows the CustomConfig extension slot. Use it
+// for downstream-private settings that don't fit the typed Config fields
+// (broker URLs, feature flags, tenant secrets). Values round-trip through
+// YAML as a `custom:` section under the AppHome config file; consumers
+// cast at use-site.
+func ExampleConfig_SetCustom() {
+	tmp, _ := filepath.Abs("/tmp/evva-example-custom")
+	cfg, _ := config.Load(config.LoadOptions{
+		AppName: "friday", AppHome: tmp, WorkDir: tmp,
+	})
+
+	_ = cfg.SetCustom("broker.url", "https://broker.internal")
+	_ = cfg.SetCustom("flags", map[string]any{"beta_ui": true})
+
+	if v, ok := cfg.GetCustom("broker.url"); ok {
+		fmt.Println("broker:", v.(string))
+	}
+	if v, ok := cfg.GetCustom("flags"); ok {
+		fmt.Println("beta_ui:", v.(map[string]any)["beta_ui"])
+	}
+	// Output:
+	// broker: https://broker.internal
+	// beta_ui: true
+}

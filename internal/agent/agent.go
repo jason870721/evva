@@ -255,6 +255,23 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	}
 	a.logger = lgr
 
+	// Auto-load the skill registry from disk if no override was injected
+	// via WithSkillRegistry. Downstream apps that want a programmatic-only
+	// catalog pre-install their own (skill.NewRegistry + Add) before
+	// agent.New runs; passing an empty registry disables auto-load. Done
+	// here (not in cmd/evva/main.go) so every host — bundled CLI, SDK
+	// consumers, examples — gets disk skills for free.
+	if a.toolState.SkillRegistry() == nil {
+		reg := loadDiskSkillRegistry(a.cfg)
+		for _, w := range reg.Warnings {
+			lgr.Warn("skill: load", "msg", w)
+		}
+		a.toolState.SetSkillRegistry(reg)
+		if a.skillRefs == nil {
+			a.skillRefs = refsFromRegistry(reg)
+		}
+	}
+
 	// Register any custom tools the caller staged via WithCustomTool, and
 	// extend the profile's active list so they show up to the LLM. Duplicate
 	// registrations are silently absorbed — agents constructed back-to-back
