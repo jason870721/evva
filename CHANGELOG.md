@@ -7,6 +7,25 @@ Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
 ## [Unreleased]
 
+### Known issues
+
+- `task_stop` and `task_list` do not recognize monitor IDs created by
+  the `monitor` tool. Monitors can currently only be stopped by killing
+  the underlying shell process (e.g., `pkill`).
+
+## [v0.2.6-alpha.2]
+
+### Fixed
+
+- TUI status bar stuck on "Running" after background task or monitor
+  event completes (signal-wake path now transitions to Idle).
+- Transcript now renders background task completion notifications
+  (`BgResultBlock`) and monitor stream events (`MonitorEventBlock`).
+- Added debug logging to `agent.done()` for subagent and main-agent
+  completion paths.
+
+## [v0.2.6-alpha.1]
+
 Phase 16 + 17 (merged) — Bash `run_in_background`, real MonitorTool,
 event-driven agent. The agent gains a long-lived signal channel + pump
 goroutine so detached bash tasks and streaming monitors can wake an
@@ -302,6 +321,10 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v0.2.4-alpha.2...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v0.2.6-alpha.2...HEAD
+[v0.2.6-alpha.2]: https://github.com/johnny1110/evva/releases/tag/v0.2.6-alpha.2
+[v0.2.6-alpha.1]: https://github.com/johnny1110/evva/releases/tag/v0.2.6-alpha.1
+[v0.2.5-alpha.1]: https://github.com/johnny1110/evva/releases/tag/v0.2.5-alpha.1
+[v0.2.4-alpha.3]: https://github.com/johnny1110/evva/releases/tag/v0.2.4-alpha.3
 [v0.2.4-alpha.2]: https://github.com/johnny1110/evva/releases/tag/v0.2.4-alpha.2
 [v0.2.4-alpha.1]: https://github.com/johnny1110/evva/releases/tag/v0.2.4-alpha.1
