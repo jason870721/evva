@@ -567,6 +567,18 @@ func (t *Transcript) IngestEvent(e event.Event) bool {
 			t.appendKeepingSprite(newIterLimitBlock(e.IterLimit.Iters))
 			return true
 		}
+	case event.KindBgResult:
+		if e.BgResult != nil {
+			t.resetInflight()
+			t.appendKeepingSprite(newBgResultBlock(e.BgResult))
+			return true
+		}
+	case event.KindMonitorEvent:
+		if e.MonitorEvent != nil {
+			t.resetInflight()
+			t.appendKeepingSprite(newMonitorEventBlock(e.MonitorEvent))
+			return true
+		}
 	}
 	return false
 }

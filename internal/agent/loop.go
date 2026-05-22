@@ -221,10 +221,12 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 }
 
 func (a *Agent) done(iter int, resp llm.Response) string {
+	a.logger.Debug("run.done", "iter", iter, "content_bytes", len(resp.Content))
 	if a.IsSubagent() {
 		// subagent done -> ready to report.
 		a.status = constant.READY_REPORT
 		a.getParentSpawnGroup().Report(a.ID, resp.Content)
+		a.logger.Debug("run.done.subagent", "status", a.status)
 	} else {
 		// main agent done -> idle.
 		a.status = constant.IDLE
@@ -235,6 +237,7 @@ func (a *Agent) done(iter int, resp llm.Response) string {
 				Thinking: resp.Thinking,
 			}
 		})
+		a.logger.Debug("run.done.mainagent", "status", a.status)
 	}
 
 	return resp.Content

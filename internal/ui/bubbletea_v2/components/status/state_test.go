@@ -53,6 +53,7 @@ func TestApplyTracksSubPhases(t *testing.T) {
 		{"tool start", event.Event{Kind: event.KindToolUseStart, ToolUseStart: &event.ToolUseStartPayload{Name: "bash"}}, StateExecuting},
 		{"tool result", event.Event{Kind: event.KindToolUseResult, ToolUseResult: &event.ToolUseResultPayload{}}, StateRunning},
 		{"draining", event.Event{Kind: event.KindDrainingInfo}, StateDraining},
+		{"run end", event.Event{Kind: event.KindRunEnd, RunEnd: &event.RunEndPayload{Iters: 3}}, StateIdle},
 		{"compacting", event.Event{Kind: event.KindCompacting, Compacting: &event.CompactingPayload{Type: "micro"}}, StateCompacting},
 		{"compact end", event.Event{Kind: event.KindCompactingEnd, CompactingEnd: &event.CompactingEndPayload{Type: "micro", OK: true}}, StateRunning},
 	}

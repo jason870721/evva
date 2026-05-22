@@ -167,6 +167,14 @@ func (s *State) Apply(e event.Event) {
 	switch e.Kind {
 	case event.KindRunStart, event.KindRunResume, event.KindTurnStart, event.KindTurnEnd:
 		s.current = StateRunning
+	case event.KindRunEnd:
+		// Run finished. Drop back to idle — the agent loop is done and the
+		// user can type again. This covers both the user-prompt path (whose
+		// RunDoneMsg does the same transition redundantly) and the
+		// signal-wake path (background task / monitor event triggers runLoop
+		// without going through startRun→RunDoneMsg).
+		s.current = StateIdle
+		s.hint = ""
 	case event.KindThinking, event.KindThinkingChunk:
 		s.current = StateThinking
 	case event.KindText, event.KindTextChunk:

@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/theme"
 )
 
@@ -413,4 +414,44 @@ func (b *TurnEndBlock) Render(ctx RenderContext) string {
 	right := dashCount - left
 	line := strings.Repeat("─", left) + label + strings.Repeat("─", right)
 	return applyLineGutter(ctx.Theme.TurnSep.Render(line), ctx.Width, ctx.Theme, ctx.Opts.Focused, len(ctx.Opts.Highlights) > 0)
+}
+
+// ============================================================================
+// BgResultBlock — background task completion notification.
+// ============================================================================
+
+func newBgResultBlock(p *event.BgResultPayload) *SystemBlock {
+	return &SystemBlock{
+		id:   allocID(),
+		rev:  1,
+		text: fmt.Sprintf("task-%s %s", p.TaskID, p.Status),
+		styleFn: func(th *theme.Theme) lipgloss.Style {
+			return th.DimText
+		},
+	}
+}
+
+// ============================================================================
+// MonitorEventBlock — streamed line from a running monitor.
+// ============================================================================
+
+func newMonitorEventBlock(p *event.MonitorEventPayload) *SystemBlock {
+	var text string
+	if p.Closing {
+		text = fmt.Sprintf("monitor-%s closed", p.MonitorID)
+	} else {
+		line := p.Line
+		if len(line) > 50 {
+			line = line[:50] + "..."
+		}
+		text = fmt.Sprintf("monitor-%s: %s", p.MonitorID, line)
+	}
+	return &SystemBlock{
+		id:   allocID(),
+		rev:  1,
+		text: text,
+		styleFn: func(th *theme.Theme) lipgloss.Style {
+			return th.DimText
+		},
+	}
 }
