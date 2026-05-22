@@ -145,24 +145,24 @@ func TestLoadEnvAliases(t *testing.T) {
 	}
 }
 
-// TestLoadEnvOverrides verifies Phase 19b LoadOptions.EnvOverrides:
+// TestLoadEnvOverrides verifies LoadOptions.EnvOverrides:
 // post-Load mutations applied in declaration order, first error short-
-// circuits the rest.
+// circuits the rest, and the wrapped error names the failing override.
 func TestLoadEnvOverrides(t *testing.T) {
 	called := 0
 	cfg, err := Load(LoadOptions{
 		AppName: "alpha",
 		AppHome: t.TempDir(),
 		WorkDir: t.TempDir(),
-		EnvOverrides: []func(*Config) error{
-			func(c *Config) error {
+		EnvOverrides: []EnvOverride{
+			{Name: "set_max_iters", Fn: func(c *Config) error {
 				called++
 				return c.SetMaxIterations(99)
-			},
-			func(c *Config) error {
+			}},
+			{Name: "noop", Fn: func(c *Config) error {
 				called++
 				return nil
-			},
+			}},
 		},
 	})
 	if err != nil {
@@ -175,22 +175,120 @@ func TestLoadEnvOverrides(t *testing.T) {
 		t.Errorf("override didn't mutate MaxIterations: got %d", cfg.DefaultMaxIterations)
 	}
 
-	// First error short-circuits.
+	// First error short-circuits AND the wrapped error names the override.
 	called = 0
 	_, err = Load(LoadOptions{
 		AppName: "beta",
 		AppHome: t.TempDir(),
 		WorkDir: t.TempDir(),
-		EnvOverrides: []func(*Config) error{
-			func(c *Config) error { called++; return fmt.Errorf("boom") },
-			func(c *Config) error { called++; return nil },
+		EnvOverrides: []EnvOverride{
+			{Name: "failing_one", Fn: func(c *Config) error {
+				called++
+				return fmt.Errorf("boom")
+			}},
+			{Name: "never_runs", Fn: func(c *Config) error { called++; return nil }},
 		},
 	})
 	if err == nil {
-		t.Error("expected first override's error to short-circuit Load")
+		t.Fatal("expected first override's error to short-circuit Load")
+	}
+	if !strings.Contains(err.Error(), "failing_one") {
+		t.Errorf("wrapped error should name the failing override; got %q", err.Error())
 	}
 	if called != 1 {
 		t.Errorf("override #2 should not have run; called=%d", called)
+	}
+}
+
+// TestLoadEnvOverridesRejectEmptyName covers the validation check —
+// an EnvOverride entry without a Name produces an unhelpful
+// "EnvOverrides[]" wrapper, so Load rejects it at validation time.
+func TestLoadEnvOverridesRejectEmptyName(t *testing.T) {
+	_, err := Load(LoadOptions{
+		AppName: "alpha",
+		AppHome: t.TempDir(),
+		WorkDir: t.TempDir(),
+		EnvOverrides: []EnvOverride{
+			{Name: "", Fn: func(c *Config) error { return nil }},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected Load to reject nameless EnvOverride")
+	}
+	if !strings.Contains(err.Error(), "Name is required") {
+		t.Errorf("error should mention Name is required; got %q", err.Error())
+	}
+}
+
+// TestLoadProviderCredentials covers the declarative provider-creds
+// wiring. EnvAliases promote the friendly name, ProviderCredentials
+// reads the canonical env var and installs the result on cfg.
+func TestLoadProviderCredentials(t *testing.T) {
+	os.Setenv("DEEPSEEK_API_KEY_TEST", "sk-from-env")
+	defer os.Unsetenv("DEEPSEEK_API_KEY_TEST")
+
+	cfg, err := Load(LoadOptions{
+		AppName: "alpha",
+		AppHome: t.TempDir(),
+		WorkDir: t.TempDir(),
+		ProviderCredentials: map[string]ProviderCredsFromEnv{
+			"deepseek": {
+				APIKeyEnv:     "DEEPSEEK_API_KEY_TEST",
+				APIURLDefault: "https://api.example/v1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := cfg.LLMProviderConfig["deepseek"]
+	if got.ApiSecret != "sk-from-env" {
+		t.Errorf("ApiSecret: got %q, want %q", got.ApiSecret, "sk-from-env")
+	}
+	if got.ApiURL != "https://api.example/v1" {
+		t.Errorf("ApiURL: got %q, want default URL", got.ApiURL)
+	}
+}
+
+// TestLoadSeedEnvTemplate covers the first-run .env seeding: a missing
+// .env file is created from the template; an existing one is never
+// overwritten.
+func TestLoadSeedEnvTemplate(t *testing.T) {
+	home := t.TempDir()
+	template := "DEEPSEEK_API_KEY=\nLOG_LEVEL=info\n"
+
+	_, err := Load(LoadOptions{
+		AppName:         "alpha",
+		AppHome:         home,
+		WorkDir:         t.TempDir(),
+		SeedEnvTemplate: template,
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	envPath := filepath.Join(home, ".env")
+	got, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("read seeded .env: %v", err)
+	}
+	if string(got) != template {
+		t.Errorf("seeded .env mismatch:\ngot:  %q\nwant: %q", got, template)
+	}
+
+	// Second Load with a different template must NOT overwrite the
+	// existing file.
+	_, err = Load(LoadOptions{
+		AppName:         "alpha",
+		AppHome:         home,
+		WorkDir:         t.TempDir(),
+		SeedEnvTemplate: "OVERWRITE_ATTEMPT=yes",
+	})
+	if err != nil {
+		t.Fatalf("Load (second): %v", err)
+	}
+	got2, _ := os.ReadFile(envPath)
+	if string(got2) != template {
+		t.Errorf("second Load clobbered .env:\ngot:  %q\nwant: %q", got2, template)
 	}
 }
 

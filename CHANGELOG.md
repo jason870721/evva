@@ -7,11 +7,58 @@ Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
 ## [Unreleased]
 
-Phase 19 — SDK Support sweep. evva is still pre-1.0 so the cleanup
-pass removed the legacy aliases that Phase 19a–19d carried for one
-release; the surface is now lean and typed end-to-end. Downstream
-consumers pinned to v0.2.4-alpha.1 need one-line call-site updates
-when they bump (see "Removed" below).
+Round 2 of friday's SDK feedback — five fresh ergonomics fixes
+landing on top of Phase 19. Each one collapses a multi-step bootstrap
+pattern into a declarative `LoadOptions` field.
+
+### Breaking
+
+- `config.LoadOptions.EnvOverrides` type changed from
+  `[]func(*Config) error` to `[]EnvOverride{Name string, Fn func(*Config) error}`.
+  Empty `Name` is rejected at Load time. Wrapped errors now read
+  `config: EnvOverrides[<Name>]: <err>` for diagnostics. Friday-style
+  migration: wrap each existing closure as `{Name: "...", Fn: closure}`.
+
+### Added
+
+- `config.LoadOptions.ProviderCredentials map[string]ProviderCredsFromEnv` —
+  declarative LLM-credential wiring. Reads env vars (after EnvAliases
+  promotion) and calls `cfg.SetProviderCredentials` for each entry.
+  Replaces the "alias env var + EnvOverride that reads it + setter"
+  three-step dance.
+- `config.LoadOptions.SeedEnvTemplate string` — first-run `.env`
+  body. Written to `<AppHome>/.env` when missing; never overwrites
+  an existing file. Closes the chicken-and-egg gap where the YAML
+  was auto-created but the `.env` was left for the user to discover.
+- `kits.GeneralPurposeActive() []ToolName` — sibling of
+  `GeneralPurposeKit`. Returns the active half WITHOUT `tool_search`,
+  for callers who drop the deferred companion. (Active + tool_search +
+  no deferred is pure overhead — the model has nothing to discover.)
+- `version.Bare() string` — bare semver without the leading `v`
+  prefix. Composes cleanly into hosts that produce their own tag
+  formats (`evva 0.2.4-alpha.3` rather than `evva v0.2.4-alpha.3`).
+- `docs/extending.md`: new "LoadOptions — the declarative host
+  surface" section framing `LoadOptions` as the single declarative
+  surface for runtime tuning, with a per-field table.
+
+### Internal
+
+- `pkg/config/load.go`: `applyProviderCredentials` walks
+  `ProviderCredentials` and installs creds via
+  `cfg.SetProviderCredentials`.
+- `pkg/config/load.go`: `seedEnvTemplate` writes `<AppHome>/.env` on
+  first launch when the file is missing.
+- `pkg/version/version.go`: `Version` bumped to `0.2.4-alpha.3`.
+
+---
+
+## [v0.2.4-alpha.2] — Phase 19 SDK Support sweep
+
+evva is still pre-1.0 so the cleanup pass removed the legacy aliases
+that Phase 19a–19d carried for one release; the surface is now lean
+and typed end-to-end. Downstream consumers pinned to v0.2.4-alpha.1
+needed one-line call-site updates when they bumped to alpha.2 (see
+"Removed" below).
 
 ### Breaking
 
@@ -122,5 +169,6 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v0.2.4-alpha.1...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v0.2.4-alpha.2...HEAD
+[v0.2.4-alpha.2]: https://github.com/johnny1110/evva/releases/tag/v0.2.4-alpha.2
 [v0.2.4-alpha.1]: https://github.com/johnny1110/evva/releases/tag/v0.2.4-alpha.1

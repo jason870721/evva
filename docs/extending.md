@@ -211,10 +211,24 @@ agent.WithHeadlessBypass()                       // convenience for the bypass c
 If your config layer reads a mode from a YAML / CLI string, convert
 at the boundary: `agent.PermissionMode(s)`.
 
-### Env-var aliasing via LoadOptions
+### `LoadOptions` — the declarative host surface
 
-A downstream app that wants friendlier env-var spellings can declare
-them on `LoadOptions` instead of pre/post-Load shim code:
+`LoadOptions` is the single config object every downstream app fills
+in. Each field handles one class of runtime customisation:
+
+| Field | Purpose |
+| --- | --- |
+| `AppName` | Brand identifier; drives the AppHome layout. |
+| `AppHome` | Absolute path to the per-user dir (`~/.<AppName>/`). |
+| `WorkDir` | Process cwd. Defaults to `os.Getwd()`. |
+| `AppVersion` | Version string for diagnostics. |
+| `EnvAliases` | Promote friendlier env-var names → evva canonicals before godotenv runs. |
+| `ProviderCredentials` | Declaratively wire LLM provider creds from env vars. |
+| `EnvOverrides` | Named post-Load mutations for env vars without a YAML hook. |
+| `SeedEnvTemplate` | First-run `.env` body — written next to the YAML if missing. |
+
+Together they let a host declare every "what does this app want from
+its environment" detail in one block, no pre/post-Load shim functions.
 
 ```go
 cfg, _ := config.Load(config.LoadOptions{
@@ -225,26 +239,47 @@ cfg, _ := config.Load(config.LoadOptions{
     EnvAliases: map[string]string{
         "LOGDIR":   "LOG_DIR",
         "LOGLEVEL": "LOG_LEVEL",
-        "APIKEY":   "DEEPSEEK_API_KEY", // app-specific aliases
+        "APIKEY":   "DEEPSEEK_API_KEY",
     },
 
-    // Apply post-Load mutations for env vars without a YAML hook.
-    EnvOverrides: []func(*config.Config) error{
-        func(c *config.Config) error {
+    // Declaratively wire provider credentials from env vars.
+    // Replaces hand-rolled "read env + call SetProviderCredentials" code.
+    ProviderCredentials: map[string]config.ProviderCredsFromEnv{
+        "deepseek": {
+            APIKeyEnv:     "DEEPSEEK_API_KEY",
+            APIURLDefault: constant.DEEPSEEK.ApiUrl,
+        },
+    },
+
+    // Named overrides for vars without a YAML hook. The Name field
+    // surfaces in the wrapped error: `config: EnvOverrides[<name>]: ...`
+    EnvOverrides: []config.EnvOverride{
+        {Name: "max_iters_from_env", Fn: func(c *config.Config) error {
             if v := os.Getenv("MAX_ITERS"); v != "" {
                 if n, err := strconv.Atoi(v); err == nil && n > 0 {
                     return c.SetMaxIterations(n)
                 }
             }
             return nil
-        },
+        }},
     },
+
+    // First-run `.env` seed. Written to <AppHome>/.env when missing;
+    // never overwrites an existing file.
+    SeedEnvTemplate: "DEEPSEEK_API_KEY=\nLOG_LEVEL=info\n",
 })
 ```
 
-Both promotions are non-overriding: existing canonical exports win.
-The first error from any override short-circuits the rest and is
-returned from `Load`.
+Behaviour notes:
+
+- `EnvAliases` is non-overriding: an existing canonical export wins.
+- `ProviderCredentials` runs after the YAML loader populates
+  `LLMProviderConfig` but before `EnvOverrides`, so an override can
+  still mutate the installed creds.
+- `EnvOverrides` short-circuits on the first error and wraps it with
+  the failing override's Name. Nameless entries are rejected at
+  validation time.
+- `SeedEnvTemplate` writes once on first launch; never overwrites.
 
 ### Tool kits
 

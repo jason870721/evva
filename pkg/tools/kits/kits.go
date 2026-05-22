@@ -41,6 +41,12 @@ import (
 //	         + todo (todo_write) + util (json_query, calc) + tool_search
 //	deferred = web (web_search, web_fetch)
 //
+// The active list includes tool_search because the model needs it to
+// discover the deferred companions. If your downstream profile passes
+// active WITHOUT deferred (no lazy-loadable tools), use
+// GeneralPurposeActive instead — that variant omits tool_search since
+// there would be nothing for it to find.
+//
 // Pass the returned slices to agent.ProfileOptions / agent.NewProfile:
 //
 //	active, deferred := kits.GeneralPurposeKit()
@@ -48,15 +54,28 @@ import (
 //	    "deepseek", constant.DEEPSEEK_V4_PRO,
 //	    agent.ProfileOptions{DeferredTools: deferred})
 func GeneralPurposeKit() (active, deferred []tools.ToolName) {
-	active = make([]tools.ToolName, 0, 16)
+	active = GeneralPurposeActive()
+	active = append(active, tools.TOOL_SEARCH)
+	deferred = append([]tools.ToolName{}, web.Names()...)
+	return active, deferred
+}
+
+// GeneralPurposeActive returns the active half of GeneralPurposeKit
+// WITHOUT tool_search. Use this when your profile has no deferred
+// tools — tool_search active with nothing deferred is pure overhead
+// (the model has nothing to discover).
+//
+// Mirrors GeneralPurposeKit's active membership minus tool_search:
+//
+//	fs (read, write, edit, glob) + shell (bash, grep, tree)
+//	  + todo (todo_write) + util (json_query, calc)
+func GeneralPurposeActive() []tools.ToolName {
+	active := make([]tools.ToolName, 0, 16)
 	active = append(active, fs.Names()...)
 	active = append(active, shell.Names()...)
 	active = append(active, todo.Names()...)
 	active = append(active, util.Names()...)
-	active = append(active, tools.TOOL_SEARCH)
-
-	deferred = append([]tools.ToolName{}, web.Names()...)
-	return active, deferred
+	return active
 }
 
 // ReadOnlyKit returns a read-only tool list for audit / exploration

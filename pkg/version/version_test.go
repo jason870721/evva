@@ -42,3 +42,31 @@ func TestString_WithStamp(t *testing.T) {
 		t.Errorf("String() = %q; expected suffix +abc1234", got)
 	}
 }
+
+// TestBare_NoStamp returns Version verbatim with no "v" prefix.
+func TestBare_NoStamp(t *testing.T) {
+	prev := BuildStamp
+	BuildStamp = ""
+	defer func() { BuildStamp = prev }()
+
+	if got := Bare(); got != Version {
+		t.Errorf("Bare() = %q; want %q", got, Version)
+	}
+}
+
+// TestBare_WithStamp appends "+<stamp>" without the "v" prefix —
+// matches SemVer 2.0 build-metadata syntax.
+func TestBare_WithStamp(t *testing.T) {
+	prev := BuildStamp
+	BuildStamp = "abc1234"
+	defer func() { BuildStamp = prev }()
+
+	got := Bare()
+	want := Version + "+abc1234"
+	if got != want {
+		t.Errorf("Bare() = %q; want %q", got, want)
+	}
+	if strings.HasPrefix(got, "v") {
+		t.Errorf("Bare() should NOT carry the leading 'v'; got %q", got)
+	}
+}

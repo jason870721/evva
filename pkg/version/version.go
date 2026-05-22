@@ -15,7 +15,7 @@ import "fmt"
 // release. Pre-1.0 versions carry the `-alpha.N` / `-beta.N` suffix;
 // once Phase 19f completes the surface promise, this drops to a clean
 // semver string.
-const Version = "0.3.0-alpha.1"
+const Version = "0.2.4-alpha.3"
 
 // BuildStamp is an optional build-identifying string populated at link
 // time via -ldflags. Empty for `go build` / `go run` invocations off
@@ -23,12 +23,26 @@ const Version = "0.3.0-alpha.1"
 // + build date.
 var BuildStamp = ""
 
-// String returns "vX.Y.Z" (Phase 19f and after) or "vX.Y.Z-<stamp>"
-// when a build stamp is present. Suitable for status bars, log lines,
-// and "--version" CLI output.
+// String returns "vX.Y.Z" (Phase 19f and after) or "vX.Y.Z+<stamp>"
+// when a build stamp is present. The leading "v" matches git tag
+// conventions; use Bare for the unprefixed semver.
 func String() string {
 	if BuildStamp == "" {
 		return "v" + Version
 	}
 	return fmt.Sprintf("v%s+%s", Version, BuildStamp)
+}
+
+// Bare returns the bare semver without the leading "v" prefix
+// ("0.3.0-alpha.1"). Useful for callers that compose their own tag
+// format (e.g. "release/0.3.0-alpha.1") or fold the version into a
+// JSON field where the `v` prefix would be non-idiomatic.
+//
+// The build stamp, if set, is appended with "+" — matching the
+// SemVer 2.0 build-metadata syntax: `0.3.0-alpha.1+abc1234`.
+func Bare() string {
+	if BuildStamp == "" {
+		return Version
+	}
+	return Version + "+" + BuildStamp
 }
