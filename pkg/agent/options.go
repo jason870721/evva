@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+
 	agent_impl "github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/event"
@@ -63,6 +65,17 @@ func WithStream(stream bool) Option {
 // it.
 func WithCustomTool(name tools.ToolName, factory pubtoolset.ToolFactory) Option {
 	return agent_impl.WithCustomTool(name, factory)
+}
+
+// WithRootContext installs the agent-lifetime context. The signal pump
+// goroutine, background bash tasks, and Monitor goroutines all bind to
+// this ctx, so cancelling it (or calling Agent.Shutdown) cleans up
+// every detached worker the agent ever spawned.
+//
+// Pass the host's session-level cancellable ctx (e.g. signal.NotifyContext)
+// so Ctrl-C reaches every long-lived goroutine.
+func WithRootContext(ctx context.Context) Option {
+	return agent_impl.WithRootContext(ctx)
 }
 
 // WithSkillRegistry installs a pre-built skill catalog on the agent's

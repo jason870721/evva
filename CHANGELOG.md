@@ -5,6 +5,74 @@ here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
 Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
+## [Unreleased]
+
+Phase 16 + 17 (merged) — Bash `run_in_background`, real MonitorTool,
+event-driven agent. The agent gains a long-lived signal channel + pump
+goroutine so detached bash tasks and streaming monitors can wake an
+idle loop or fold their results into the next iteration when the loop
+is busy. Three companion tools (`task_list`, `task_output`,
+`task_stop`) let the model introspect/control bg tasks between fire
+and notification.
+
+### Added
+
+- `pkg/tools/shell`:
+  - `BgTaskStore`, `BgTaskSnapshot`, `BgTaskStatus` (running / completed /
+    failed / killed), `BgTaskHost` interface, `GenerateID()`.
+  - `NewBashWithHost(workdir, host)` constructor — the production path
+    that powers `bash run_in_background:true`.
+  - `task_list` / `task_output` / `task_stop` tools.
+- `pkg/tools/monitor`:
+  - Real `MonitorTool` (replaces the stub). Spawns a shell command,
+    streams stdout line-by-line as agent notifications.
+  - `MonitorTaskStore`, `MonitorTaskSnapshot`, `MonitorStatus`,
+    `MonitorEvent`, `MonitorEventQueue`, `MonitorHost` interface.
+- `pkg/tools.TASK_LIST` / `TASK_OUTPUT` / `TASK_STOP` tool-name constants.
+- `pkg/event.KindBgResult`, `KindMonitorEvent`,
+  `KindDrainBackgroundTask`, `KindDrainMonitorEvents` + matching
+  `*Payload` structs; `Event.Payload()` switch updated.
+- `pkg/agent.WithRootContext(ctx)` option — installs the agent-lifetime
+  context. The signal pump + every detached bg/monitor goroutine binds
+  to this ctx; cancelling it (or calling `Agent.Shutdown`) tears them
+  all down.
+- `Agent.Shutdown()` method on the public surface (idempotent).
+- Two new TUI strips: `bgtasks` (background tasks) and `monitors`
+  (streaming watchers). Mirror the agents strip; render below it in
+  the layout. Empty strips collapse cleanly.
+
+### Behaviour changes
+
+- `Bash` description now teaches the model about `run_in_background`
+  (verbatim ref-Claude-Code copy). The schema description for the
+  flag explains the task-id return and points at the companion tools.
+- The agent loop's iteration-boundary drains gain
+  `drainBackgroundTaskResults` and `drainMonitorEvents` alongside the
+  existing wakeup / user-prompt drains.
+- Terminal turns (no tool_calls) now re-check `BgTaskStore.HasPending`
+  + `MonitorEventQueue.HasPending` before returning. Any pending
+  signal triggers one more iteration so the model sees the result
+  before idle resumes.
+- `cmd/evva` threads its session ctx into `agent.WithRootContext(ctx)`
+  and defers `Shutdown()` so Ctrl-C cleans up every detached
+  goroutine.
+
+### Internal
+
+- `internal/agent/signal.go` — `AgentSignal`, `SignalKind`,
+  `signalPump`, `handleSignal`, `runFromSignal`, `composeBgReminder`,
+  `composeMonitorReminder`, `signalReminderMessage`.
+- `internal/agent/drain_signals.go` — `drainBackgroundTaskResults`,
+  `drainMonitorEvents`, `hasPendingSignals`.
+- `internal/toolset/toolset.go` — new fields + accessors:
+  `BgTaskStore`, `MonitorTaskStore`, `MonitorEventQueue`, plus the
+  narrow `SignalSender` bundle the agent installs in `New`. The
+  toolset implements both `shell.BgTaskHost` and
+  `monitor.MonitorHost`.
+- `pkg/version.Version` bumped to `0.2.6-alpha.1`.
+
+---
+
 ## [v0.2.5-alpha.1] — Phase 19 (Out of scope) — Skill SDK + Custom AppConfig
 
 Phase 19 (Out of scope) — public Skill SDK, downstream-owned config

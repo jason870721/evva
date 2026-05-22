@@ -36,15 +36,35 @@ const (
 // so each agent (including subagents spawned with isolation: "worktree")
 // gets a tool that runs in its own directory. The bash process is fresh
 // per call — shell env state does NOT persist between invocations.
+//
+// When run_in_background=true and a BgTaskHost is installed on the
+// agent's ToolState, Execute returns immediately with a task id and
+// the command runs in a detached goroutine. Completion routes back to
+// the agent's signal pump for idle-wake + drain-at-iter-start delivery
+// (see Phase 16 design).
 type BashTool struct {
 	workdir string
+	host    BgTaskHost
 }
 
 // NewBash constructs a BashTool bound to workdir. An empty workdir means
 // "use the process's current directory" (cmd.Dir = "" — exec defaults).
 // Use this for tests / narrow callers; production tooling always passes
 // the agent's workdir.
+//
+// host may be nil — in that case run_in_background falls back to the
+// historical "not supported" error path. Production callers (the
+// toolset builtins factory) pass a non-nil host so the Phase 16
+// detached path works.
 func NewBash(workdir string) *BashTool { return &BashTool{workdir: workdir} }
+
+// NewBashWithHost is the production constructor used by the toolset
+// builtins factory. The host supplies the BgTaskStore + signal sender
+// run_in_background needs; without it the flag is rejected with a
+// clear message.
+func NewBashWithHost(workdir string, host BgTaskHost) *BashTool {
+	return &BashTool{workdir: workdir, host: host}
+}
 
 func (t *BashTool) Name() string { return string(tools.BASH) }
 
@@ -54,8 +74,12 @@ func (t *BashTool) Description() string {
 		"each call runs in a fresh shell.\n\n" +
 		"Prefer dedicated tools when one fits: Read for known paths, Edit for edits, Write for new files. " +
 		"Reserve Bash for shell-only operations.\n\n" +
-		"Timeout defaults to 120000 ms (2 min), max 600000 ms (10 min). " +
-		"run_in_background is reserved for future implementations and currently rejected. " +
+		"Timeout defaults to 120000 ms (2 min), max 600000 ms (10 min).\n\n" +
+		"You can use the `run_in_background` parameter to run the command in the background. " +
+		"Only use this if you don't need the result immediately and are OK being notified when the command completes later. " +
+		"You do not need to check the output right away — you'll be notified when it finishes. " +
+		"You do not need to use '&' at the end of the command when using this parameter. " +
+		"The tool returns a task id; use task_list to enumerate active tasks, task_output to read captured output, and task_stop to terminate a running task.\n\n" +
 		"dangerouslyDisableSandbox is accepted but ignored — the permission gate now mediates execution."
 }
 
@@ -68,7 +92,7 @@ func (t *BashTool) Schema() json.RawMessage {
 			"command":{"type":"string","description":"The command to execute"},
 			"description":{"type":"string","description":"Clear, concise description of what this command does in active voice."},
 			"timeout":{"type":"number","description":"Optional timeout in milliseconds (max 600000, default 120000)"},
-			"run_in_background":{"type":"boolean","description":"Reserved — currently rejected. Use Monitor for background streaming once available."},
+			"run_in_background":{"type":"boolean","description":"Set true to fire-and-forget. Returns a task id; completion is delivered as a notification on a later turn. Use Monitor instead for per-line streaming."},
 			"dangerouslyDisableSandbox":{"type":"boolean","description":"Reserved — currently rejected."}
 		}
 	}`)
@@ -95,12 +119,15 @@ func (t *BashTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	if in.Timeout != nil {
 		timeoutMs = *in.Timeout
 	}
-	logger.Debug("bash.dispatch", "cmd", in.Command, "timeout_ms", timeoutMs, "desc", in.Description)
+	logger.Debug("bash.dispatch", "cmd", in.Command, "timeout_ms", timeoutMs, "desc", in.Description, "bg", in.RunInBackground)
 	if in.RunInBackground {
-		return tools.Result{
-			IsError: true,
-			Content: "bash: run_in_background is not implemented yet — use Monitor (deferred) when it lands",
-		}, nil
+		if t.host == nil || t.host.BgTaskStore() == nil {
+			return tools.Result{
+				IsError: true,
+				Content: "bash: run_in_background is not available in this context (no BgTaskHost)",
+			}, nil
+		}
+		return t.runBackground(logger, in)
 	}
 	// dangerouslyDisableSandbox is accepted as a no-op now that the
 	// permission gate (internal/permission) mediates execution. Drop the
@@ -182,4 +209,88 @@ func (t *BashTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	}
 
 	return tools.Result{Content: out}, nil
+}
+
+// runBackground spawns the bash command in a detached goroutine bound
+// to the host's RootCtx (not the per-call ctx — the bg task must
+// survive the LLM call that spawned it). The goroutine captures
+// stdout+stderr, updates the BgTaskStore with the terminal status when
+// the process exits, and signals the agent's pump so an idle agent
+// wakes up to react.
+//
+// Returns immediately with the task id wrapped in a model-friendly
+// status line. The model is expected to come back via task_output or
+// the auto-delivered system-reminder when the task completes.
+func (t *BashTool) runBackground(logger *slog.Logger, in bashInput) (tools.Result, error) {
+	id := GenerateID()
+	store := t.host.BgTaskStore()
+	rootCtx := t.host.RootCtx()
+	cctx, cancel := context.WithCancel(rootCtx)
+
+	snap := BgTaskSnapshot{
+		ID:          id,
+		Command:     in.Command,
+		Description: in.Description,
+		Status:      BgRunning,
+		StartedAt:   time.Now(),
+		AgentID:     t.host.AgentID(),
+	}
+	store.Add(snap, cancel)
+
+	workdir := t.workdir
+	cmdText := in.Command
+
+	go func() {
+		defer cancel() // release the ctx tree no matter how we exit
+
+		cmd := exec.CommandContext(cctx, "/bin/sh", "-c", cmdText)
+		cmd.Dir = workdir
+		var buf bytes.Buffer
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error {
+			if cmd.Process == nil {
+				return nil
+			}
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			return nil
+		}
+		cmd.WaitDelay = bashKillGrace
+
+		runErr := cmd.Run()
+		output := buf.String()
+
+		status := BgCompleted
+		exitCode := 0
+		switch {
+		case errors.Is(cctx.Err(), context.Canceled):
+			// task_stop or root-ctx cancellation — the producer chose to
+			// terminate, so the snapshot reads "killed" regardless of how
+			// the command exited.
+			status = BgKilled
+			exitCode = -1
+		case runErr != nil:
+			status = BgFailed
+			var exitErr *exec.ExitError
+			if errors.As(runErr, &exitErr) {
+				exitCode = exitErr.ExitCode()
+			} else {
+				exitCode = -1
+				output = fmt.Sprintf("%s\nbg: spawn error: %v", output, runErr)
+			}
+		}
+
+		store.Complete(id, status, exitCode, output)
+		// Re-read the updated snapshot to surface the post-Complete fields
+		// (output cap, completed_at) downstream.
+		if finalSnap, ok := store.Get(id); ok {
+			t.host.NotifyBgResult(finalSnap)
+		} else {
+			logger.Warn("bash.bg.notify.missing", "task_id", id)
+		}
+	}()
+
+	msg := fmt.Sprintf("Task %s started in background. You will be notified when it completes; use task_output to read its captured output sooner, task_stop to terminate it.", id)
+	return tools.Result{Content: msg}, nil
 }

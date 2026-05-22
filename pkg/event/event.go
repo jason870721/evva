@@ -123,6 +123,29 @@ const (
 	// render. Emitted only by the root agent; subagent mode changes
 	// stay internal.
 	KindModeChanged Kind = "mode_changed"
+
+	// KindBgResult fires when a background bash task transitions to a
+	// terminal state (completed / failed / killed). Emitted whether the
+	// agent loop is busy or idle — the TUI uses this to render the
+	// "task-xxx completed." transcript line. Loop-side drain folds the
+	// result into the conversation separately via KindDrainBackgroundTask.
+	KindBgResult Kind = "bg_result"
+
+	// KindMonitorEvent fires for every stdout line a running MonitorTool
+	// streams plus the closing event when the monitor stops. The TUI
+	// renders these inline in the transcript; loop-side drain folds the
+	// queued events into the conversation via KindDrainMonitorEvents.
+	KindMonitorEvent Kind = "monitor_event"
+
+	// KindDrainBackgroundTask fires at the moment the agent loop folds
+	// drained background-task results into the session as a synthetic
+	// user message. Payload carries the task ids that were folded in.
+	KindDrainBackgroundTask Kind = "drain_background_task"
+
+	// KindDrainMonitorEvents fires at the moment the agent loop folds
+	// queued monitor events into the session. Payload carries the line
+	// count drained (events from multiple monitors are interleaved).
+	KindDrainMonitorEvents Kind = "drain_monitor_events"
 )
 
 // Event is the envelope. Exactly one of the *Payload fields is non-nil per
@@ -155,6 +178,11 @@ type Event struct {
 	Compacting     *CompactingPayload     `json:",omitempty"`
 	CompactingEnd  *CompactingEndPayload  `json:",omitempty"`
 	ModeChanged    *ModeChangedPayload    `json:",omitempty"`
+
+	BgResult            *BgResultPayload            `json:",omitempty"`
+	MonitorEvent        *MonitorEventPayload        `json:",omitempty"`
+	DrainBackgroundTask *DrainBackgroundTaskPayload `json:",omitempty"`
+	DrainMonitorEvents  *DrainMonitorEventsPayload  `json:",omitempty"`
 }
 
 // ModeChangedPayload reports a permission-mode transition. PrevMode is the
@@ -389,6 +417,70 @@ type StoreUpdatePayload struct {
 	Time time.Time
 }
 
+// BgResultPayload reports one background bash task's terminal outcome.
+// Emitted from the agent's signal pump regardless of loop idle/busy
+// state — the conversation-side fold-in happens separately via
+// KindDrainBackgroundTask. The TUI uses BgResultPayload to render the
+// "task-xxx completed." transcript line and update the bg-tasks strip.
+type BgResultPayload struct {
+	// TaskID is the wire-stable id (e.g. "b4x9z1kp") the model received
+	// from the original `bash run_in_background:true` call.
+	TaskID string
+	// Status is the terminal lifecycle state: completed / failed / killed.
+	Status string
+	// ExitCode is the process exit code (0 for completed; non-zero for
+	// failed; -1 or os-defined for killed).
+	ExitCode int
+	// Output is the captured stdout+stderr, capped at the bg path's
+	// output ceiling (~64 KiB).
+	Output string
+	// AgentID is the spawning agent — copied so subagent bubble-up can
+	// label rows without inferring from event metadata.
+	AgentID string
+}
+
+// MonitorEventPayload reports one streamed line from a running Monitor.
+// Closing=true marks the final event when the underlying process exits
+// or task_stop is called; the TUI strip flips the monitor chip to
+// Stopped on the closing event.
+type MonitorEventPayload struct {
+	// MonitorID is the wire-stable id (e.g. "m4x9z1kp") the model
+	// received from the original Monitor call.
+	MonitorID string
+	// Line is one stdout line from the monitored command (newline
+	// stripped). Empty when Closing is true.
+	Line string
+	// Closing reports whether this is the last event for the monitor
+	// (process exited or task_stop fired).
+	Closing bool
+	// AgentID is the spawning agent.
+	AgentID string
+}
+
+// DrainBackgroundTaskPayload reports the batch of bg-task ids the agent
+// loop folded into the session as a synthetic user message on the
+// current iteration boundary. Used by debug telemetry / log inspectors;
+// the TUI does not render this directly (the per-result KindBgResult
+// already rendered the chip transition).
+type DrainBackgroundTaskPayload struct {
+	// TaskIDs are the ids drained on this iteration boundary, in
+	// completion order.
+	TaskIDs []string
+}
+
+// DrainMonitorEventsPayload reports the batch of monitor events the
+// agent loop folded into the session as a synthetic user message.
+// EventCount is the total number of streamed lines drained (events
+// from multiple monitors are interleaved by arrival time).
+type DrainMonitorEventsPayload struct {
+	// EventCount is the total number of monitor events folded into the
+	// session on this iteration boundary.
+	EventCount int
+	// MonitorIDs are the unique monitor ids the drained events came
+	// from, in first-occurrence order.
+	MonitorIDs []string
+}
+
 // UsagePayload reports token usage for the LLM call that just completed.
 // Turn is the just-completed call; Cumulative is the running session total
 // after Turn has been folded in. The TUI typically shows both — Turn for
@@ -452,6 +544,14 @@ func (e Event) Payload() any {
 		return e.CompactingEnd
 	case KindModeChanged:
 		return e.ModeChanged
+	case KindBgResult:
+		return e.BgResult
+	case KindMonitorEvent:
+		return e.MonitorEvent
+	case KindDrainBackgroundTask:
+		return e.DrainBackgroundTask
+	case KindDrainMonitorEvents:
+		return e.DrainMonitorEvents
 	}
 	return nil
 }

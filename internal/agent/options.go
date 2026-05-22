@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+
 	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/memdir"
@@ -204,5 +206,26 @@ func WithSkillRefs(refs []sysprompt.SkillRef) Option {
 func WithMemorySnapshot(snap memdir.Snapshot) Option {
 	return func(a *Agent) {
 		a.memSnap = snap
+	}
+}
+
+// WithRootContext installs the agent-lifetime context. The signal pump
+// goroutine binds to this ctx; cancelling it (or calling
+// Agent.Shutdown) tears the pump down. Background bash tasks and
+// Monitor goroutines also bind their per-process ctx as a child of
+// this one, so a host that cancels the root ctx cleans up every
+// detached worker the agent ever spawned.
+//
+// When omitted, agent.New derives a fresh background context internally
+// — the agent is still healthy but the host loses the ability to shut
+// down the pump from outside. cmd/evva and friday-style hosts thread
+// the session ctx (signal.NotifyContext) through here so Ctrl-C
+// reaches every long-lived goroutine.
+func WithRootContext(ctx context.Context) Option {
+	return func(a *Agent) {
+		if ctx == nil {
+			return
+		}
+		a.rootCtx, a.rootCancel = context.WithCancel(ctx)
 	}
 }

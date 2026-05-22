@@ -141,6 +141,7 @@ func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Mode
 	}
 	deferredTools := slices.Concat(
 		monitor.Names(),
+		shell.TaskNames(), // task_list / task_output / task_stop
 		modeDeferredNames(),
 		notebook.Names(),
 		ux.Names(),

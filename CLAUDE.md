@@ -282,7 +282,7 @@ Goal: proof evva is easy to use as SDK and fast build. and find something we can
 - configurable agent param through ~/.friday/.env like (LOGDIR, LOGLEVEL, APIKEY, MAX_ITERS...)
 - customized agent profile with same tool registry as general type (read, write, edit, bash...) create a simple system prompt for friday.
 
-### Phase 16 - Bash `run_in_background` param implement
+### Phase 16 - Bash `run_in_background` param implement ✅️ (merged with Phase 17)
 
 Goal: port ref source code to implement evva's bash `run_in_background`
 
@@ -296,7 +296,7 @@ Goal: port ref source code to implement evva's bash `run_in_background`
 - be careful about agent status changing (race problem).
 - update agent loop, check drain queue is empty before leave, if not empty, keep that loop again.
 
-### Phase 17 -  MonitorTool
+### Phase 17 -  MonitorTool ✅️ (merged with Phase 16)
 
 Goal: port ref source code MonitorTool.ts let evva can be a event driven agent.
 
@@ -419,8 +419,6 @@ R2-6 (broker promotion / `PermissionPrompter` callback shape) stays deferred —
 
 Saving these for future phases so the scope stays shippable:
 
-- **Skill SDK** (pkg/skill so downstream can ship custom skills). The skill loader has internal coupling that needs its own decoupling pass.
-- **Custom AppConfig** Support consumer config key-value into AppConfig (let user keep their own secret or some config in it).
 - **Custom Kind events** (consumer-declared event kinds). The Phase 13 invariant — "downstream apps cannot add new Kinds" — stays.
 - **Pluggable agent loops**. The loop logic stays in internal/agent for v1.0.
 - **gRPC / network surface**. SDK stays in-process for v1.0.

@@ -15,7 +15,7 @@ import "fmt"
 // release. Pre-1.0 versions carry the `-alpha.N` / `-beta.N` suffix;
 // once Phase 19f completes the surface promise, this drops to a clean
 // semver string.
-const Version = "0.2.5-alpha.1"
+const Version = "0.2.6-alpha.1"
 
 // BuildStamp is an optional build-identifying string populated at link
 // time via -ldflags. Empty for `go build` / `go run` invocations off

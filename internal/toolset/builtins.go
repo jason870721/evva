@@ -55,11 +55,30 @@ func init() {
 	// subagent spawned with isolation: "worktree") runs commands in its
 	// own directory. Grep and Tree remain stateless singletons because
 	// they accept an absolute path as a parameter.
+	//
+	// run_in_background needs the BgTaskHost (BgTaskStore + signal
+	// sender) — type-assert here so the production path is wired by
+	// default. Tests that build with NewBash directly still get the
+	// historical sync-only behaviour.
 	r.MustRegister(tools.BASH, func(s tools.State) (tools.Tool, error) {
-		return shell.NewBash(s.Workdir()), nil
+		ts := s.(*ToolState)
+		return shell.NewBashWithHost(ts.Workdir(), ts), nil
 	})
 	r.MustRegister(tools.GREP, func(tools.State) (tools.Tool, error) { return shell.Grep, nil })
 	r.MustRegister(tools.TREE, func(tools.State) (tools.Tool, error) { return shell.Tree, nil })
+
+	// task_* read/control surface for background bash tasks. All three
+	// reach through ToolState (BgTaskHost) — they fail clean when no
+	// bg task has ever been spawned.
+	r.MustRegister(tools.TASK_LIST, func(s tools.State) (tools.Tool, error) {
+		return shell.NewTaskList(s.(*ToolState)), nil
+	})
+	r.MustRegister(tools.TASK_OUTPUT, func(s tools.State) (tools.Tool, error) {
+		return shell.NewTaskOutput(s.(*ToolState)), nil
+	})
+	r.MustRegister(tools.TASK_STOP, func(s tools.State) (tools.Tool, error) {
+		return shell.NewTaskStop(s.(*ToolState)), nil
+	})
 
 	// --- meta ---
 	// Lookups are late-bound: the agent installs itself via SetSubagentSpawner /
@@ -89,7 +108,9 @@ func init() {
 	})
 
 	// --- monitor / mode / notebook ---
-	r.MustRegister(tools.MONITOR, func(tools.State) (tools.Tool, error) { return monitor.Monitor, nil })
+	r.MustRegister(tools.MONITOR, func(s tools.State) (tools.Tool, error) {
+		return monitor.NewMonitor(s.(*ToolState)), nil
+	})
 	r.MustRegister(tools.ENTER_PLAN_MODE, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
 		return mode.NewEnterPlanMode(ts.PlanController), nil

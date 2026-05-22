@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -23,6 +24,8 @@ import (
 	"github.com/johnny1110/evva/internal/tools/mode"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 	"github.com/johnny1110/evva/pkg/tools"
+	monitorpkg "github.com/johnny1110/evva/pkg/tools/monitor"
+	shellpkg "github.com/johnny1110/evva/pkg/tools/shell"
 	"github.com/johnny1110/evva/internal/toolset"
 	"github.com/johnny1110/evva/pkg/ui"
 	"github.com/johnny1110/evva/pkg/common"
@@ -181,6 +184,22 @@ type Agent struct {
 	// Reset to zero by ResumeSession so the next persist picks up the
 	// loaded snapshot's CreatedAt instead.
 	sessionCreatedAt time.Time
+
+	// signalCh + rootCtx carry the event-driven side of the agent
+	// (Phase 16). Background bash tasks and Monitor goroutines write
+	// terminal results / stream events through signalCh; the signal
+	// pump goroutine started in New listens for them and either
+	// CAS-acquires a.running to spawn a new runLoop (idle-wake) or
+	// relies on the running loop's iteration-boundary drain.
+	//
+	// rootCtx is the agent-lifetime context — set via WithRootContext
+	// (or context.Background() when omitted). The pump exits when this
+	// context is cancelled; long-lived bg / monitor goroutines bind
+	// here rather than the per-call ctx so they survive past the LLM
+	// call that spawned them.
+	signalCh   chan AgentSignal
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
 }
 
 // New constructs an agent with a fresh ID, a per-agent logger, and the given
@@ -212,6 +231,7 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		session:           session.New(),
 		toolState:         toolState,
 		deferredAllowlist: deferred,
+		signalCh:          make(chan AgentSignal, signalChanCap),
 	}
 	a.permissionMode.Store(permission.ModeDefault)
 	a.planModeState = permission.NewPlanModeState()
@@ -222,6 +242,13 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	// adapt options params (e.g. name, sink, cfg, maxIters..)
 	for _, opt := range opts {
 		opt(a)
+	}
+
+	// Default rootCtx if no caller installed one. Production hosts
+	// (cmd/evva, friday, etc.) thread their cancellable ctx via
+	// WithRootContext so Shutdown() can tear the pump down with them.
+	if a.rootCtx == nil {
+		a.rootCtx, a.rootCancel = context.WithCancel(context.Background())
 	}
 
 	// Backward compat: callers that don't pass WithConfig boot against the
@@ -318,6 +345,22 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	// sink as KindStoreUpdate events.
 	bindToolStateEvents(a)
 
+	// Bind the ToolState's signal hook to the agent's signal channel so
+	// background-task and monitor tools can deliver results without
+	// reaching into internal/agent directly. The ToolState exposes this
+	// as a narrow callback set; the agent owns the chan.
+	a.toolState.SetSignalSender(toolset.SignalSender{
+		NotifyBg:      func(snap shellpkg.BgTaskSnapshot) { a.SendSignal(AgentSignal{Kind: SignalBgResult, BgResult: &snap}) },
+		NotifyMonitor: func(ev monitorpkg.MonitorEvent) { a.SendSignal(AgentSignal{Kind: SignalMonitorEvent, MonitorEvent: &ev}) },
+		RootCtx:       func() context.Context { return a.rootCtx },
+		AgentID:       func() string { return a.ID },
+	})
+
+	// Spawn the signal pump goroutine. Lives for the agent's rootCtx
+	// lifetime; cancelled via Shutdown() or by the caller cancelling
+	// the ctx threaded via WithRootContext.
+	go a.signalPump()
+
 	// Install ourselves as the subagent spawner and the deferred-tool
 	// lookup. Only the root agent does this — subagents leave the slots
 	// nil, so the corresponding tools (AGENT, TOOL_SEARCH, ENTER/EXIT_PLAN_MODE)
@@ -354,6 +397,21 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 
 func (a *Agent) AgentID() string {
 	return a.ID
+}
+
+// Shutdown cancels the agent's root context, which:
+//   - tears down the signal pump goroutine,
+//   - propagates cancellation to every detached background bash task
+//     and Monitor goroutine that bound to RootCtx at spawn time.
+//
+// Safe to call multiple times — the underlying CancelFunc is idempotent.
+// Call this from the host's process-exit path (cmd/evva does so when
+// its TUI ctx is cancelled) to avoid leaking goroutines that outlive
+// the session.
+func (a *Agent) Shutdown() {
+	if a.rootCancel != nil {
+		a.rootCancel()
+	}
 }
 
 // MaxIterations returns the current loop cap. Safe to call from any

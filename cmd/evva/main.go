@@ -191,10 +191,12 @@ func runTUI(ctx context.Context, prof agent.Profile, profName string, memSnap me
 		agent.WithPermissionBroker(permBroker),
 		agent.WithPermissionMode(permMode),
 		agent.WithQuestionBroker(qBroker),
+		agent.WithRootContext(ctx), // signal pump + bg tasks track the TUI ctx
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)
 	}
+	defer ag.Shutdown()
 	tui.Attach(ag)
 	if err := tui.Run(ctx); err != nil {
 		exitf(1, "evva: %v", err)
@@ -294,10 +296,12 @@ func runCLI(ctx context.Context, prof agent.Profile, profName string, memSnap me
 		agent.WithPermissionBroker(permBroker),
 		agent.WithPermissionMode(permMode),
 		agent.WithQuestionBroker(qBroker),
+		agent.WithRootContext(ctx),
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)
 	}
+	defer ag.Shutdown()
 
 	resp, err := ag.Run(ctx, prompt)
 	for errors.Is(err, agent.ErrIterLimit) {

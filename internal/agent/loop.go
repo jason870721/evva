@@ -112,6 +112,17 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 		// assistant tool_calls are already answered).
 		a.drainUserPrompts()
 
+		// Drain terminal background-task results into the session as
+		// <system-reminder> blocks. Phase 16 — the SignalPump may have
+		// already emitted KindBgResult to the TUI; this drain is the
+		// model-side delivery vehicle.
+		a.drainBackgroundTaskResults()
+
+		// Drain queued monitor events (streamed stdout lines from the
+		// MonitorTool). Same shape as drainBackgroundTaskResults; the
+		// per-event KindMonitorEvent already fired for the TUI.
+		a.drainMonitorEvents()
+
 		a.logger.Debug("turn.start", "iter", iter, "messages", len(a.session.Messages))
 		resp, err := a.thinking(ctx, iter)
 		if err != nil {
@@ -138,6 +149,23 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 
 		// no tool calls -> done.
 		if len(resp.ToolCalls) == 0 {
+			// Before releasing the run flag, check whether a bg-task
+			// result or monitor event arrived during this terminal LLM
+			// call. If so, loop one more iteration so the model can
+			// react before we hand control back to the user. Same
+			// safety as the drain at iter start — we're between turns,
+			// every prior assistant tool_calls is answered.
+			if a.hasPendingSignals() {
+				a.session.Append(llm.Message{
+					Role:              llm.RoleAssistant,
+					Content:           resp.Content,
+					Thinking:          resp.Thinking,
+					ThinkingSignature: resp.ThinkingSignature,
+				})
+				a.persistSession()
+				a.logger.Debug("run.continue.pending_signals", "iter", iter)
+				continue
+			}
 			a.logger.Debug("run.end",
 				"iter", iter,
 				"content_bytes", len(resp.Content),

@@ -19,6 +19,8 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/ui"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/components/agents"
+	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/components/bgtasks"
+	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/components/monitors"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/components/input"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/components/overlays"
 	"github.com/johnny1110/evva/internal/ui/bubbletea_v2/components/slash"
@@ -475,6 +477,12 @@ func (a *App) relayout() {
 		if strip := agents.Render(a.controller.ToolState(), a.transcriptWidth(), a.theme, a.state.Frame()); strip != "" {
 			used += strings.Count(strip, "\n") + 1
 		}
+		if strip := bgtasks.Render(a.controller.ToolState(), a.transcriptWidth(), a.theme, a.state.Frame()); strip != "" {
+			used += strings.Count(strip, "\n") + 1
+		}
+		if strip := monitors.Render(a.controller.ToolState(), a.transcriptWidth(), a.theme, a.state.Frame()); strip != "" {
+			used += strings.Count(strip, "\n") + 1
+		}
 	}
 	// Overlay (modal panel) and slash suggestion are mutually
 	// exclusive in the layout — overlay wins. Both can shift the
@@ -884,6 +892,14 @@ func (a *App) View() string {
 			b.WriteString(panel)
 		}
 		if strip := agents.Render(a.controller.ToolState(), width, a.theme, a.state.Frame()); strip != "" {
+			b.WriteByte('\n')
+			b.WriteString(strip)
+		}
+		if strip := bgtasks.Render(a.controller.ToolState(), width, a.theme, a.state.Frame()); strip != "" {
+			b.WriteByte('\n')
+			b.WriteString(strip)
+		}
+		if strip := monitors.Render(a.controller.ToolState(), width, a.theme, a.state.Frame()); strip != "" {
 			b.WriteByte('\n')
 			b.WriteString(strip)
 		}

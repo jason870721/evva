@@ -148,6 +148,9 @@ func mainToolsGuideSection() string {
 		"Rules:\n" +
 		"- Don't `" + nameToolSearch + "` before every deferred call. Schemas are already loaded — invoke the tool directly.\n" +
 		"- Don't waste a search if you already know the tool name. Skip straight to invoking it.\n\n" +
+		"## Background tasks (`" + nameBash + " run_in_background:true`, `" + nameTaskList + "`, `" + nameTaskOutput + "`, `" + nameTaskStop + "`, `" + nameMonitor + "`)\n" +
+		"For commands you don't need the result of immediately (long builds, watch loops, dev servers, background fetches), set `run_in_background: true` on `" + nameBash + "`. The tool returns a task id; the process keeps running while you continue other work. When the task completes, you'll receive a `<system-reminder>` on a later turn carrying the final status + captured output — there's no need to poll.\n" +
+		"Use `" + nameTaskList + "` to enumerate active tasks, `" + nameTaskOutput + "` to read captured stdout/stderr (running or completed), and `" + nameTaskStop + "` to terminate a runner. For per-line streaming (log watchers, file-change loops) use `" + nameMonitor + "` instead — each stdout line becomes its own notification.\n\n" +
 		"## Web tools (`" + nameWebSearch + "` / `" + nameWebFetch + "`)\n" +
 		"Reach for these when the answer depends on info past your training cutoff: latest financial news, library versions, new APIs, current events, or a verbatim error-message lookup.\n\n" +
 		"## Json tools (`" + nameJSONQuery + "`)\n" +

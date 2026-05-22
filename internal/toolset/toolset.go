@@ -20,6 +20,7 @@
 package toolset
 
 import (
+	"context"
 	"sync"
 
 	"github.com/johnny1110/evva/pkg/observable"
@@ -31,6 +32,8 @@ import (
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/fs"
+	"github.com/johnny1110/evva/pkg/tools/monitor"
+	"github.com/johnny1110/evva/pkg/tools/shell"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 )
 
@@ -75,7 +78,25 @@ type ToolState struct {
 	// after agent construction; tools that need runtime settings (web,
 	// fs/glob, dev/feedback) read it through Config() at Execute time.
 	cfg *config.Config
-	// Future: monitorBus, cronService, ...
+
+	// bgTaskStore holds detached Bash tasks spawned with run_in_background.
+	// Lazy-allocated on first BgTaskStore() access; registers itself with
+	// the unified change stream so the TUI's bg strip + the agent's
+	// KindStoreUpdate bridge see lifecycle transitions.
+	bgTaskStore *shell.BgTaskStore
+	// monitorTaskStore + monitorEventQueue carry MonitorTool state.
+	// monitorTaskStore tracks per-monitor metadata + status; the queue is
+	// the shared FIFO every running monitor's goroutine writes streamed
+	// stdout lines into.
+	monitorTaskStore  *monitor.MonitorTaskStore
+	monitorEventQueue *monitor.MonitorEventQueue
+
+	// signalSender carries the callbacks the agent installs in New so
+	// tool families can deliver event-driven results without importing
+	// internal/agent (no cycle). Filled by SetSignalSender; consumed by
+	// the BgTaskHost / MonitorHost methods below.
+	signalSender SignalSender
+	// Future: cronService, ...
 
 	// TaskGroup registry — every observable.Store registered here fans its
 	// changes into the ToolState's observers. The agent subscribes once
@@ -289,6 +310,115 @@ func (s *ToolState) Workdir() string {
 		return ""
 	}
 	return s.cfg.WorkDir
+}
+
+// SignalSender is the narrow callback bundle the agent installs on the
+// ToolState in agent.New so background-task and monitor tools can
+// deliver event-driven results without importing internal/agent (which
+// would create an import cycle, since internal/agent imports
+// internal/toolset). Each callback is set by SetSignalSender; the
+// BgTaskHost / MonitorHost methods below invoke them.
+type SignalSender struct {
+	NotifyBg      func(snap shell.BgTaskSnapshot)
+	NotifyMonitor func(ev monitor.MonitorEvent)
+	RootCtx       func() context.Context
+	AgentID       func() string
+}
+
+// SetSignalSender installs the signal-delivery callbacks. Called once
+// per agent by agent.New; subagents get their own bundle (subagent bg
+// results bubble up through the parent's sink, not the parent's
+// signalCh — only root signals trigger idle-wake).
+func (s *ToolState) SetSignalSender(sender SignalSender) {
+	s.signalSender = sender
+}
+
+// --- BgTaskHost implementation -------------------------------------------
+
+// BgTaskStore returns the agent's background-task catalog, allocating
+// on first use. Registers the store with the unified change stream so
+// TUI strips + the KindStoreUpdate bridge see lifecycle transitions.
+func (s *ToolState) BgTaskStore() *shell.BgTaskStore {
+	if s.bgTaskStore == nil {
+		s.bgTaskStore = shell.NewBgTaskStore()
+		s.RegisterStore(s.bgTaskStore)
+	}
+	return s.bgTaskStore
+}
+
+// HasBgTaskStore reports whether a store has been allocated. The agent
+// loop uses this to skip the drain in runs that never spawned a bg
+// task (avoids forcing the lazy allocation).
+func (s *ToolState) HasBgTaskStore() bool { return s.bgTaskStore != nil }
+
+// RootCtx returns the agent-lifetime context the bg / monitor goroutines
+// bind to. nil-safe when the agent hasn't installed a sender yet (tests).
+func (s *ToolState) RootCtx() context.Context {
+	if s.signalSender.RootCtx == nil {
+		return context.Background()
+	}
+	return s.signalSender.RootCtx()
+}
+
+// AgentID returns the spawning agent's id, used to label snapshot rows.
+// Empty when no sender is installed.
+func (s *ToolState) AgentID() string {
+	if s.signalSender.AgentID == nil {
+		return ""
+	}
+	return s.signalSender.AgentID()
+}
+
+// NotifyBgResult delivers one terminal bg-task snapshot to the agent's
+// signal pump. No-op when the host never installed a sender.
+func (s *ToolState) NotifyBgResult(snap shell.BgTaskSnapshot) {
+	if s.signalSender.NotifyBg == nil {
+		return
+	}
+	s.signalSender.NotifyBg(snap)
+}
+
+// --- MonitorHost implementation ------------------------------------------
+
+// MonitorTaskStore returns the agent's monitor catalog, allocating on
+// first use.
+func (s *ToolState) MonitorTaskStore() *monitor.MonitorTaskStore {
+	if s.monitorTaskStore == nil {
+		s.monitorTaskStore = monitor.NewMonitorTaskStore()
+		s.RegisterStore(s.monitorTaskStore)
+	}
+	return s.monitorTaskStore
+}
+
+// HasMonitorTaskStore reports whether a monitor store has been
+// allocated. Mirrors HasBgTaskStore.
+func (s *ToolState) HasMonitorTaskStore() bool { return s.monitorTaskStore != nil }
+
+// MonitorEventQueue returns the per-agent queue every running monitor
+// writes streamed events into. Lazy-allocated on first use; the agent
+// loop's drain helper reads through it at iter start.
+func (s *ToolState) MonitorEventQueue() *monitor.MonitorEventQueue {
+	if s.monitorEventQueue == nil {
+		s.monitorEventQueue = monitor.NewMonitorEventQueue()
+	}
+	return s.monitorEventQueue
+}
+
+// HasMonitorEventQueue reports whether the event queue has been
+// allocated. The loop uses this to short-circuit the drain when no
+// monitor has ever been spawned.
+func (s *ToolState) HasMonitorEventQueue() bool { return s.monitorEventQueue != nil }
+
+// NotifyMonitorEvent delivers one streamed monitor event to the
+// agent's signal pump AND enqueues it on the durable queue. The queue
+// is the backstop the drain reads at iter start; the signal pump
+// triggers idle-wake.
+func (s *ToolState) NotifyMonitorEvent(ev monitor.MonitorEvent) {
+	s.MonitorEventQueue().Enqueue(ev)
+	if s.signalSender.NotifyMonitor == nil {
+		return
+	}
+	s.signalSender.NotifyMonitor(ev)
 }
 
 // HasUserPromptQueue reports whether a UserPromptQueue has already been
