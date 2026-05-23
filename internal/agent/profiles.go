@@ -124,10 +124,15 @@ func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Mode
 	if skills == nil {
 		skills = refsFromRegistry(loadDiskSkillRegistry(cfg))
 	}
-	activeTools := slices.Concat(fs.Names(), shell.Names(), meta.Names(), skill.Names(), todo.Names())
+	activeTools := slices.Concat(fs.Names(), shell.Names(), meta.Names(), skill.Names(), todo.Names(), daemon.Names())
 	// enter/exit_plan_mode are always-active on Main so the model can flip
 	// the session into ModePlan without a tool_search round-trip. The
 	// worktree pair stays deferred (Phase 10).
+	// daemon_list / daemon_stop / daemon_output are active too — the agent
+	// spawns daemons via active tools (bash run_in_background, agent
+	// async_mode), so the control surface stays one-call-away on every
+	// signal-wake (no tool_search round-trip to react to a terminal
+	// lifecycle).
 	activeTools = append(activeTools, tools.ENTER_PLAN_MODE, tools.EXIT_PLAN_MODE)
 	// Auto-memory tools — registered only when the user has the feature
 	// enabled. The sysprompt's auto-memory guidance section is gated on the
@@ -142,7 +147,6 @@ func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Mode
 	}
 	deferredTools := slices.Concat(
 		monitor.Names(),
-		daemon.Names(), // daemon_list / daemon_output / daemon_stop (replaces shell.TaskNames)
 		modeDeferredNames(),
 		notebook.Names(),
 		ux.Names(),
