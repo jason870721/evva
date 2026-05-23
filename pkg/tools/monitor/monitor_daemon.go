@@ -228,10 +228,13 @@ func (d *monitorDaemon) run() {
 		// daemon_stop, root-ctx cancel, or timeout — externally terminated.
 		status = daemon.StatusKilled
 	case waitErr != nil:
+		// Non-zero exit OR non-exit wait failure both flip the monitor to
+		// Failed. Mirrors bash_daemon's classification so a wrong command
+		// surfaces as red across both tools instead of looking like a clean
+		// completion. ExitCode() == 0 with a non-nil ExitError shouldn't
+		// happen in practice, but treat it as Completed for safety.
 		var exitErr *exec.ExitError
-		if errors.As(waitErr, &exitErr) {
-			// Non-zero exit — monitors emit until exit; a failing script is
-			// still a "completed monitor" from our POV (the stream ended cleanly).
+		if errors.As(waitErr, &exitErr) && exitErr.ExitCode() == 0 {
 			status = daemon.StatusCompleted
 		} else {
 			status = daemon.StatusFailed

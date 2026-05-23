@@ -129,6 +129,33 @@ func TestMonitor_RejectsEmptyCommand(t *testing.T) {
 	}
 }
 
+func TestMonitorDaemon_NonZeroExitTransitionsToFailed(t *testing.T) {
+	// A wrong command yields a non-zero shell exit. The monitor must
+	// classify that as Failed (red chip in the TUI) — not Completed —
+	// so the user sees the crash and the model's reminder reads "failed".
+	host := newFakeHost(context.Background())
+	tool := NewMonitor(host)
+
+	res, err := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(`{
+		"command":"echo bad-input; exit 127",
+		"description":"wrong command",
+		"persistent":false,
+		"timeout_ms":5000
+	}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected IsError: %q", res.Content)
+	}
+	id := extractMonitorID(t, res.Content)
+
+	_, status := pollEvents(t, host, id, 3*time.Second)
+	if status != daemon.StatusFailed {
+		t.Errorf("status: got %q want %q", status, daemon.StatusFailed)
+	}
+}
+
 func TestMonitorDaemon_KillTransitionsToKilled(t *testing.T) {
 	host := newFakeHost(context.Background())
 	tool := NewMonitor(host)
@@ -178,4 +205,3 @@ func TestGenerateID_MonitorPrefix(t *testing.T) {
 		t.Errorf("monitor ID shape wrong: %q", id)
 	}
 }
-
