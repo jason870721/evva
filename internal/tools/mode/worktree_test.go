@@ -97,6 +97,15 @@ func (f *fakeWorktreeController) Logger() *slog.Logger {
 func newFakeRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+	// macOS t.TempDir() returns a logical path under /var/folders/…, but
+	// `git rev-parse --show-toplevel` resolves /var → /private/var, so any
+	// assertion comparing the test's dir against a session.Path derived from
+	// git would mismatch. Canonicalize up front so both sides line up.
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("eval symlinks on tempdir: %v", err)
+	}
+	dir = resolved
 	run := func(args ...string) {
 		cmd := exec.Command(args[0], args[1:]...)
 		cmd.Dir = dir
