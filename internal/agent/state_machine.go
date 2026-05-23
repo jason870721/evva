@@ -128,7 +128,7 @@ func (a *Agent) computePlanModeAttachments() []string {
 	if a.planModeState == nil {
 		return nil
 	}
-	planPath := mode.PlanFilePath(a.workdir)
+	planPath := mode.PlanFilePath(a.workdir, a.planModeState.PlanName())
 	planExists := false
 	if planPath != "" {
 		if info, err := os.Stat(planPath); err == nil && !info.IsDir() && info.Size() > 0 {

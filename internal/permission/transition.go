@@ -50,6 +50,12 @@ type PlanModeState struct {
 	// throttle reminders (default: one reminder every 4 user turns once
 	// the first turn has elapsed). Resets to 0 on every emission.
 	turnsSinceLastAttachment int
+
+	// planName is the user-provided plan name set by enter_plan_mode.
+	// When empty, PlanFilePath falls back to "current.md". This field
+	// is intentionally NOT cleared on plan→non-plan transitions so the
+	// plan file path remains stable for the remainder of the session.
+	planName string
 }
 
 // NewPlanModeState constructs an empty plan-mode state holder. Cheap; the
@@ -214,4 +220,26 @@ func (s *PlanModeState) RecordTurnWithoutAttachment() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.turnsSinceLastAttachment++
+}
+
+// PlanName returns the user-provided plan name set by enter_plan_mode.
+// Empty string means "current" — PlanFilePath resolves the default.
+func (s *PlanModeState) PlanName() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.planName
+}
+
+// SetPlanName stores the user-provided plan name. Called by enter_plan_mode
+// when the model supplies a plan_name in its input.
+func (s *PlanModeState) SetPlanName(name string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.planName = name
 }

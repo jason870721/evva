@@ -986,6 +986,14 @@ func (a *Agent) PrePlanMode() permission.Mode { return a.planModeState.PrePlanMo
 // runs the transition hub and stashes the prior mode automatically).
 func (a *Agent) SetPrePlanMode(m permission.Mode) { a.planModeState.SetPrePlanMode(m) }
 
+// PlanName returns the user-provided plan name, set by enter_plan_mode.
+// Empty means "current" — PlanFilePath resolves the default.
+func (a *Agent) PlanName() string { return a.planModeState.PlanName() }
+
+// SetPlanName stores the user-provided plan name. Called by enter_plan_mode
+// when the model supplies a plan_name in its input.
+func (a *Agent) SetPlanName(name string) { a.planModeState.SetPlanName(name) }
+
 // PlanModeState exposes the unified plan-mode state holder so the
 // attachment computer (internal/agent/attachments) can read the
 // reminder-cycle counters without going through the agent's narrow

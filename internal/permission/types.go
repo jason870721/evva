@@ -70,9 +70,10 @@ func IsPlanFilePath(workdir, absPath string) bool {
 //   - ModeAcceptEdits: ModeDefault + edit/write/notebook_edit auto-allow,
 //     plus common filesystem bash commands (mkdir, touch, mv, cp, ln,
 //     chmod, chown, rmdir). Best for iterating on code under review.
-//   - ModePlan: same read-only safelist as ModeDefault, but any non-safelist
-//     tool is denied outright (no prompt). Best for exploring a codebase
-//     before deciding what to change.
+//   - ModePlan: same read-only safelist as ModeDefault, plus read-only bash
+//     commands via the classifier. Any other non-safelist tool is denied
+//     outright (no prompt). Best for exploring a codebase before deciding
+//     what to change.
 //   - ModeBypass: every tool call runs with no prompting. Dangerous-command
 //     classification still happens and is logged, but never blocks. Use
 //     only inside isolated containers or VMs.

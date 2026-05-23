@@ -71,6 +71,8 @@ func (c *fakeController) PrePlanMode() permission.Mode {
 	return v.(permission.Mode)
 }
 func (c *fakeController) SetPrePlanMode(m permission.Mode) { c.prePlan.Store(m) }
+func (c *fakeController) PlanName() string                  { return "" }
+func (c *fakeController) SetPlanName(name string)           {}
 func (c *fakeController) Workdir() string                  { return c.workdir }
 func (c *fakeController) Broker() permission.Broker        { return c.broker }
 func (c *fakeController) AgentID() string                  { return c.agentID }
@@ -119,7 +121,7 @@ func TestEnterPlanMode_FlipsModeAndStashesPrev(t *testing.T) {
 		t.Errorf("prePlanMode: want accept_edits, got %q", c.PrePlanMode())
 	}
 	// Plan file should exist (empty).
-	planPath := PlanFilePath(c.workdir)
+	planPath := PlanFilePath(c.workdir, c.PlanName())
 	if _, err := os.Stat(planPath); err != nil {
 		t.Errorf("plan file not created: %v", err)
 	}
@@ -172,7 +174,7 @@ func TestExitPlanMode_RejectsEmptyPlanFile(t *testing.T) {
 	c.broker = newScriptedBroker(permission.Decision{Behavior: permission.BehaviorAllow})
 
 	// Create an empty plan file.
-	planPath := PlanFilePath(c.workdir)
+	planPath := PlanFilePath(c.workdir, c.PlanName())
 	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +199,7 @@ func TestExitPlanMode_ApprovalRestoresMode(t *testing.T) {
 	c.broker = broker
 
 	// Write a non-empty plan file.
-	planPath := PlanFilePath(c.workdir)
+	planPath := PlanFilePath(c.workdir, c.PlanName())
 	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +240,7 @@ func TestExitPlanMode_RejectionStaysInPlan(t *testing.T) {
 	c.SetPrePlanMode(permission.ModeDefault)
 	c.broker = newScriptedBroker(permission.Decision{Behavior: permission.BehaviorDeny, Reason: "use Redis instead"})
 
-	planPath := PlanFilePath(c.workdir)
+	planPath := PlanFilePath(c.workdir, c.PlanName())
 	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +266,7 @@ func TestExitPlanMode_NoBrokerAutoRestores(t *testing.T) {
 	c.SetPrePlanMode(permission.ModeDefault)
 	// broker stays nil
 
-	planPath := PlanFilePath(c.workdir)
+	planPath := PlanFilePath(c.workdir, c.PlanName())
 	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +291,7 @@ func TestExitPlanMode_AllowedPromptsAreParsed(t *testing.T) {
 	c.SetPrePlanMode(permission.ModeDefault)
 	c.broker = newScriptedBroker(permission.Decision{Behavior: permission.BehaviorAllow})
 
-	planPath := PlanFilePath(c.workdir)
+	planPath := PlanFilePath(c.workdir, c.PlanName())
 	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
 		t.Fatal(err)
 	}

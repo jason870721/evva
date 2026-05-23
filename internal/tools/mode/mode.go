@@ -31,16 +31,16 @@ func Names() []tools.ToolName {
 	}
 }
 
-// PlanFileName is the workdir-relative filename EnterPlanMode prepares
-// and ExitPlanMode reads. One plan per session — keeps state trivial.
-// Future phases can grow this to named plans if needed.
-const PlanFileName = "current.md"
-
-// PlanFilePath returns the absolute path of the active session's plan
-// file given a workdir. Exposed so tests and the user-guide doc can
-// reference the canonical location.
-func PlanFilePath(workdir string) string {
-	return filepath.Join(workdir, filepath.FromSlash(permission.PlanDirSegment), PlanFileName)
+// PlanFilePath returns the absolute path of the plan file for the given
+// planName. When planName is empty it defaults to "current" (backward
+// compatible — the legacy single-plan-per-session filename).
+// Exposed so tests and the user-guide doc can reference the canonical
+// location.
+func PlanFilePath(workdir, planName string) string {
+	if planName == "" {
+		planName = "current"
+	}
+	return filepath.Join(workdir, filepath.FromSlash(permission.PlanDirSegment), planName+".md")
 }
 
 // --- EnterPlanMode -----------------------------------------------------
@@ -133,7 +133,12 @@ User: "What files handle routing?"
 const enterPlanModeSchema = `{
 	"type":"object",
 	"additionalProperties":false,
-	"properties":{}
+	"properties":{
+		"plan_name":{
+			"type":"string",
+			"description":"Optional name for the plan file. Use lowercase letters, digits, and hyphens only (e.g. \"auth-refactor\", \"add-dark-mode\"). If omitted, defaults to \"current\"."
+		}
+	}
 }`
 
 // EnterPlanModeTool flips the session into plan mode, stashes the prior
@@ -154,7 +159,7 @@ func (t *EnterPlanModeTool) Name() string            { return string(tools.ENTER
 func (t *EnterPlanModeTool) Description() string     { return enterPlanModeDescription }
 func (t *EnterPlanModeTool) Schema() json.RawMessage { return json.RawMessage(enterPlanModeSchema) }
 
-func (t *EnterPlanModeTool) Execute(_ context.Context, logger *slog.Logger, _ json.RawMessage) (tools.Result, error) {
+func (t *EnterPlanModeTool) Execute(_ context.Context, logger *slog.Logger, input json.RawMessage) (tools.Result, error) {
 	ctrl := resolveController(t.lookup)
 	if ctrl == nil {
 		return tools.Result{
@@ -163,7 +168,20 @@ func (t *EnterPlanModeTool) Execute(_ context.Context, logger *slog.Logger, _ js
 		}, nil
 	}
 
-	planPath := PlanFilePath(ctrl.Workdir())
+	// Parse optional plan_name from input; default to "current".
+	var parsed struct {
+		PlanName string `json:"plan_name"`
+	}
+	if len(input) > 0 {
+		_ = json.Unmarshal(input, &parsed)
+	}
+	planName := parsed.PlanName
+	if planName == "" {
+		planName = "current"
+	}
+	ctrl.SetPlanName(planName)
+
+	planPath := PlanFilePath(ctrl.Workdir(), planName)
 	if ctrl.PermissionMode() == permission.ModePlan {
 		return tools.Result{
 			Content: "Already in plan mode. The plan file is at " + planPath +
@@ -198,11 +216,7 @@ func (t *EnterPlanModeTool) Execute(_ context.Context, logger *slog.Logger, _ js
 		}
 	}
 
-	logger.Info("enter_plan_mode", "prev_mode", string(prev), "plan_file", planPath)
-	// Short confirmation. The detailed plan-mode workflow lands on the
-	// next user-prompt turn via the per-turn attachment system
-	// (internal/agent/attachments). Duplicating it here would bloat the
-	// transcript without changing model behavior.
+	logger.Info("enter_plan_mode", "prev_mode", string(prev), "plan_file", planPath, "plan_name", planName)
 	return tools.Result{
 		Content: "You are now in plan mode. Plan file: " + planPath +
 			". The plan-mode workflow will be injected on the next user prompt.",
@@ -293,7 +307,7 @@ func (t *ExitPlanModeTool) Execute(ctx context.Context, logger *slog.Logger, inp
 	}
 
 	workdir := ctrl.Workdir()
-	planPath := PlanFilePath(workdir)
+	planPath := PlanFilePath(workdir, ctrl.PlanName())
 	body, err := os.ReadFile(planPath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):

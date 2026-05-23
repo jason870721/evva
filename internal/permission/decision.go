@@ -21,6 +21,7 @@ import (
 //  4. ModePlan-only:
 //     - Write/Edit targeting <workdir>/.evva/plans/ → allow (plan-file carve-out).
 //     - Tool ∈ ReadOnlyOrSelfTools → allow.
+//     - Bash + classifier says read-only → allow.
 //     - Else → deny "plan mode forbids writes".
 //  5. ReadOnlyOrSelfTools → allow (the baseline safe set).
 //  6. Bash + classifier says read-only → allow.
@@ -53,12 +54,20 @@ func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir string) D
 		}
 	}
 
+	// mode = default (allow read)
 	inSafelist := ReadOnlyOrSelfTools[call.Name]
+	if inSafelist {
+		return Decision{Behavior: BehaviorAllow, Reason: "read-only or self-coordination tool"}
+	}
+	if call.Name == "bash" && hint.IsReadOnly {
+		reason := "bash: read-only command"
+		if hint.Matched != "" {
+			reason += " (" + hint.Matched + ")"
+		}
+		return Decision{Behavior: BehaviorAllow, Reason: reason}
+	}
 
 	if mode == ModePlan {
-		if inSafelist {
-			return Decision{Behavior: BehaviorAllow, Reason: "plan mode: read-only tool"}
-		}
 		if isPlanFileWrite(call, workdir) {
 			return Decision{Behavior: BehaviorAllow, Reason: "plan mode: plan-file write"}
 		}
@@ -66,18 +75,6 @@ func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir string) D
 			Behavior: BehaviorDeny,
 			Reason:   "plan mode forbids writes — Shift+Tab to exit plan mode",
 		}
-	}
-
-	if inSafelist {
-		return Decision{Behavior: BehaviorAllow, Reason: "read-only or self-coordination tool"}
-	}
-
-	if call.Name == "bash" && hint.IsReadOnly {
-		reason := "bash: read-only command"
-		if hint.Matched != "" {
-			reason += " (" + hint.Matched + ")"
-		}
-		return Decision{Behavior: BehaviorAllow, Reason: reason}
 	}
 
 	if mode == ModeAcceptEdits {

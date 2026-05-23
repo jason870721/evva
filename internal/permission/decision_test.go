@@ -34,6 +34,45 @@ func TestDecide_PlanModeBlocksWrites(t *testing.T) {
 	}
 }
 
+func TestDecide_PlanModeAllowsReadOnlyBash(t *testing.T) {
+	// Read-only bash commands (ls, cat, git status, etc.) auto-allow in plan
+	// mode via the classifier hint, so the model can inspect the codebase.
+	tests := []struct {
+		cmd     string
+		hint    Hint
+		want    Behavior
+		desc    string
+	}{
+		{"ls", Hint{IsReadOnly: true, Matched: "ls"}, BehaviorAllow, "read-only allow"},
+		{"cat foo.go", Hint{IsReadOnly: true, Matched: "cat"}, BehaviorAllow, "read-only + matched"},
+		{"git status", Hint{IsReadOnly: true, Matched: "git_status"}, BehaviorAllow, "read-only + matched"},
+		{"do-something", Hint{}, BehaviorDeny, "unclassified deny"},
+		{"mkdir foo", Hint{IsCommonFS: true, Matched: "mkdir"}, BehaviorDeny, "common-fs deny"},
+		{"rm -rf /", Hint{IsDangerous: true, Matched: "rm"}, BehaviorDeny, "dangerous deny"},
+	}
+
+	for _, tt := range tests {
+		d := Decide(mkCall("bash", tt.cmd), ModePlan, NewStore(), tt.hint, "")
+		if d.Behavior != tt.want {
+			t.Errorf("plan mode + bash %q: %s — wanted %v, got %v (%s)",
+				tt.cmd, tt.desc, tt.want, d.Behavior, d.Reason)
+		}
+	}
+}
+
+func TestDecide_PlanModeDenyRuleBlocksReadOnlyBash(t *testing.T) {
+	// A deny rule should still beat the read-only bash carve-out in plan mode.
+	store := NewStore()
+	store.ReplaceAll([]Rule{
+		{ToolName: "bash", Behavior: BehaviorDeny, Source: SourceProject},
+	})
+	d := Decide(mkCall("bash", "ls"), ModePlan, store,
+		Hint{IsReadOnly: true, Matched: "ls"}, "")
+	if d.Behavior != BehaviorDeny {
+		t.Errorf("deny rule should beat plan-mode read-only bash carve-out; got %v", d.Behavior)
+	}
+}
+
 func TestDecide_PlanModeAllowsPlanFileWrite(t *testing.T) {
 	wd := t.TempDir()
 	planPath := filepath.Join(wd, ".evva", "plans", "current.md")

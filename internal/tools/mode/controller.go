@@ -21,6 +21,8 @@ type PlanModeController interface {
 	Workdir() string
 	Broker() permission.Broker
 	AgentID() string
+	PlanName() string
+	SetPlanName(name string)
 }
 
 // ControllerLookup is the late-bound factory closure passed to the
