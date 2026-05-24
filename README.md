@@ -121,6 +121,12 @@ Full usage documentation covering the TUI interface, slash commands, keybindings
 
 ---
 
+## LSP integration
+
+- [English](docs/user-guide/en/lsp.md)
+
+---
+
 
 ## Configuration
 
