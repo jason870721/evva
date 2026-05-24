@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/johnny1110/evva/pkg/constant"
+	"github.com/johnny1110/evva/pkg/ui"
 )
 
 // Skill is the UI-facing view of a user-installed skill.
@@ -120,6 +121,19 @@ type Agent interface {
 	// error when the file is missing, unreadable, or a Run is currently
 	// in flight.
 	ResumeSession(id string) error
+
+	// Controller returns the agent as a ui.Controller — the narrow seam a
+	// UI implementation (e.g. pkg/ui/bubbletea) drives the agent through.
+	// The public Agent interface and ui.Controller share method names with
+	// different payload types (DTO vs ui.* views), so they cannot live on
+	// one concrete type; this accessor hands a host the ui-typed view to
+	// pass to UI.Attach.
+	Controller() ui.Controller
+
+	// Shutdown cancels the agent's root context, tearing down the signal
+	// pump and every background worker (bash tasks, monitors, subagents).
+	// Safe to call once at host exit (typically via defer).
+	Shutdown()
 }
 
 // QuestionResponse is the payload returned through Agent.RespondQuestion.

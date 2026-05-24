@@ -786,6 +786,10 @@ func (a *Agent) ToolState() *toolset.ToolState { return a.toolState }
 // private. They wrap the same data the concrete Session()/ToolState()
 // accessors expose above.
 
+// Compile-time proof that *Agent satisfies the public UI driving contract.
+// pkg/agent.Agent.Controller() hands this view to UI.Attach.
+var _ ui.Controller = (*Agent)(nil)
+
 // Messages returns the live conversation transcript.
 func (a *Agent) Messages() []llm.Message { return a.session.GetMessages() }
 

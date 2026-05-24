@@ -4,90 +4,171 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	agent_impl "github.com/johnny1110/evva/internal/agent"
-	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/question"
 	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
+	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/ui"
 )
 
-// Config is the public constructor input for creating an agent.
-// Provider and Model are the only required fields.
+// ErrIterLimit is returned by Run / Continue when the agent reaches its
+// loop-iteration cap before the model stops calling tools. Callers pause
+// and call Continue to resume. Re-exported from the internal agent so a
+// pkg-only host can errors.Is against it.
+var ErrIterLimit = agent_impl.ErrIterLimit
+
+// Config is the declarative input for the one-call constructor New. Every
+// field is optional: an empty Config builds the bundled "evva" persona against
+// the process-wide config (config.Get()). Imperative extras — an event sink, a
+// root context, a custom permission broker — are layered on as Options.
 type Config struct {
-	// Provider is the LLM provider name: "anthropic", "openai", "deepseek", "ollama".
+	// Provider optionally overrides the config's default LLM provider for this
+	// agent ("anthropic", "openai", "deepseek", "ollama"). Empty uses
+	// AppConfig.DefaultProvider.
 	Provider string
-	// Model is the model id, e.g. "claude-sonnet-4-6". When empty, the
-	// provider's cheapest model is used.
+	// Model optionally overrides the config's default model id (e.g.
+	// "claude-sonnet-4-6"). Empty uses AppConfig.DefaultModel, or — when
+	// Provider is set — that provider's first model.
 	Model string
-	// MaxIters overrides the default loop iteration cap. Zero means use the
-	// default (from <app>-config.yml or 10).
+	// MaxIters overrides the loop iteration cap. Zero uses the config default
+	// (from <app>-config.yml, else 10).
 	MaxIters int
-	// PermissionMode sets the initial permission stance: "default", "bypass",
-	// "accept_edits", "plan". Empty means "bypass" (all tool calls auto-approved).
+	// PermissionMode sets the initial permission stance: "default",
+	// "accept_edits", "plan", "bypass". Empty falls back to
+	// AppConfig.PermissionMode, then "default". Headless hosts with no approval
+	// surface should set "bypass" so tool calls don't auto-deny.
 	PermissionMode string
+	// Persona names the main-tier persona to start as ("evva", a disk persona,
+	// or one Register'd on Personas). Empty falls back to
+	// AppConfig.DefaultProfile, then "evva". An unknown name degrades to "evva"
+	// rather than failing the boot.
+	Persona string
+	// Personas is the catalog the agent resolves the active persona, the
+	// /profile picker, and the subagent kinds through. Nil builds the default
+	// from disk (BuildAgentRegistry over AppConfig.AppHome); supply one to add
+	// in-code personas (the evva→nono pattern).
+	Personas *AgentRegistry
+	// PermissionStore is the rule store the permission gate consults. Nil loads
+	// project + user rules from disk (permission.Load over AppConfig.WorkDir /
+	// AppHome).
+	PermissionStore *permission.Store
+	// LLMOptions are sampling overrides (temperature, max tokens, ...) baked
+	// into the resolved persona's profile. Empty leaves provider defaults.
+	LLMOptions []llm.Option
 	// AppConfig is the runtime configuration the agent reads from. Nil falls
-	// back to config.LoadDefault() / config.Get() — the historical singleton.
-	// Downstream apps that want a non-default AppHome (e.g. ~/.myapp/) pass
-	// a *config.Config they built via config.Load(...).
+	// back to config.Get() — the process-wide singleton. Downstream apps that
+	// want a non-default AppHome (e.g. ~/.myapp/) pass a *config.Config they
+	// built via config.Load(...).
 	AppConfig *config.Config
 }
 
-// New constructs an Agent ready to call Run. When cfg.AppConfig is nil it
-// loads the process-wide default (config.Get(), which initializes via
-// LoadDefault on first use); pass an explicit *config.Config to target a
-// custom AppHome.
+// New is the one-call constructor: it absorbs the whole bootstrap a host used
+// to hand-wire — persona resolution (with an evva fallback), EVVA.md /
+// USER_PROFILE.md memory + skill auto-load, the permission store + mode, and
+// the approval / question brokers — driven entirely by Config plus Options.
 //
-// Set API keys via the <app>-config.yml file under cfg.AppHome (or env
-// vars consumed by your own loader for downstream apps).
-func New(cfg Config) (Agent, error) {
+// With no Options it builds a headless agent (the default brokers auto-deny any
+// approval the model requests, so a request never parks a goroutine). Pass
+// WithSink to surface approval + question events to an interactive UI (resolve
+// them via Agent.RespondPermission / RespondQuestion) and WithRootContext so
+// Ctrl-C reaches every background worker — that combination is all a ~40-line
+// host needs for a full TUI with personas, permissions, /resume, and /compact.
+//
+// Options are applied after the Config-derived wiring, so a host Option always
+// wins on conflict (e.g. WithName, WithMaxIterations).
+func New(cfg Config, opts ...Option) (Agent, error) {
 	appCfg := cfg.AppConfig
 	if appCfg == nil {
 		appCfg = config.Get()
 	}
 
-	provider, ok := constant.GetProvider(cfg.Provider)
-	if !ok {
-		return nil, fmt.Errorf("agent: unknown provider %q", cfg.Provider)
+	// Provider / model overrides land on the config the persona resolver reads.
+	// Both default to the config's own DefaultProvider / DefaultModel when left
+	// empty, so the common path is purely config-driven.
+	if cfg.Provider != "" {
+		provider, ok := constant.GetProvider(cfg.Provider)
+		if !ok {
+			return nil, fmt.Errorf("agent: unknown provider %q", cfg.Provider)
+		}
+		appCfg.DefaultProvider = provider
+		if cfg.Model != "" {
+			appCfg.DefaultModel = constant.Model(cfg.Model)
+		} else {
+			appCfg.DefaultModel = provider.Models[0]
+		}
+	} else if cfg.Model != "" {
+		appCfg.DefaultModel = constant.Model(cfg.Model)
 	}
-	model := constant.Model(cfg.Model)
-	if cfg.Model == "" {
-		model = provider.Models[0]
+
+	// Persona catalog: caller-supplied (in-code personas) or built from disk.
+	reg := cfg.Personas
+	var regWarns []string
+	if reg == nil {
+		reg, regWarns = BuildAgentRegistry(appCfg.AppHome)
 	}
 
-	wd, _ := os.Getwd()
-	memSnap := memdir.Load(wd, appCfg.AppHome, appCfg.GetEnableAutoMemory())
+	// Persona name: Config → config default → "evva".
+	personaName := cfg.Persona
+	if personaName == "" {
+		personaName = appCfg.DefaultProfile
+	}
+	if personaName == "" {
+		personaName = "evva"
+	}
 
-	prof := agent_impl.Main(appCfg, provider, model, nil, memSnap, nil)
-
-	permStore, _ := permission.Load(wd, appCfg.AppHome)
-	permMode := permission.ModeBypass
-	if cfg.PermissionMode != "" {
-		if m, ok := permission.ParseMode(cfg.PermissionMode); ok {
-			permMode = m
+	// Resolve the initial profile (memory + skills auto-loaded). A bad persona
+	// name falls back to evva rather than blocking the boot.
+	prof, memWarns, err := ResolveMainProfile(appCfg, reg, personaName, cfg.LLMOptions...)
+	if err != nil {
+		personaName = "evva"
+		prof, memWarns, err = ResolveMainProfile(appCfg, reg, personaName, cfg.LLMOptions...)
+		if err != nil {
+			return nil, fmt.Errorf("agent: resolve persona: %w", err)
 		}
 	}
 
-	// No sink is installed on this programmatic path, so the agent's default
-	// brokers auto-deny any approval / question request (a model that asks
-	// gets a clean denial rather than a hung goroutine). A host that wants
-	// real prompts passes its own sink + broker via NewWithProfile.
-	inner, err := agent_impl.New(nil, prof,
-		agent_impl.WithName(appCfg.AppName),
-		agent_impl.WithConfig(appCfg),
-		agent_impl.WithMaxIterations(cfg.MaxIters),
-		agent_impl.WithPermissionStore(permStore),
-		agent_impl.WithPermissionMode(permMode),
-		agent_impl.WithPersona("evva"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("agent: %w", err)
+	// Permission store + mode. Mode precedence: Config > config YAML > default.
+	permStore := cfg.PermissionStore
+	if permStore == nil {
+		permStore, _ = permission.Load(appCfg.WorkDir, appCfg.AppHome)
+	}
+	permMode := PermissionDefault
+	for _, candidate := range []string{cfg.PermissionMode, appCfg.PermissionMode} {
+		if candidate == "" {
+			continue
+		}
+		if m := PermissionMode(candidate); m.Valid() {
+			permMode = m
+			break
+		}
 	}
 
-	return &agentAdapter{inner: inner}, nil
+	// Config-derived wiring first; host opts last so they win on conflict.
+	base := []Option{
+		WithName(appCfg.AppName),
+		WithConfig(appCfg),
+		WithMaxIterations(cfg.MaxIters),
+		WithPersonaRegistry(reg),
+		WithPersona(personaName),
+		WithPermissionStore(permStore),
+		WithPermissionMode(permMode),
+	}
+	base = append(base, opts...)
+
+	ag, err := NewWithProfile(prof, base...)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range regWarns {
+		ag.Logger().Warn("agent: registry", "msg", w)
+	}
+	for _, w := range memWarns {
+		ag.Logger().Warn("agent: memory", "msg", w)
+	}
+	return ag, nil
 }
 
 // agentAdapter wraps *agent_impl.Agent to implement the public Agent interface.
@@ -248,3 +329,14 @@ func (a *agentAdapter) ListSessions() ([]ResumableSession, []string) {
 func (a *agentAdapter) ResumeSession(id string) error {
 	return a.inner.ResumeSession(id)
 }
+
+// Controller implements Agent. The inner *agent.Agent already satisfies
+// ui.Controller, so a host can hand the result straight to UI.Attach.
+func (a *agentAdapter) Controller() ui.Controller {
+	return a.inner
+}
+
+// Shutdown implements Agent. Cancels the agent's root context, tearing down
+// the signal pump and every background worker (bash tasks, monitors,
+// subagents) it spawned.
+func (a *agentAdapter) Shutdown() { a.inner.Shutdown() }
