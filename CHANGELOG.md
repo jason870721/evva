@@ -13,6 +13,47 @@ Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
   the `monitor` tool. Monitors can currently only be stopped by killing
   the underlying shell process (e.g., `pkill`).
 
+## [v0.2.8-alpha.3] — SDK v2.2: pluggable permissions
+
+Second slice of the SDK v2 "harden to v1.0" roadmap
+(`docs/evva-sdk/sdk-v2.md`). Promotes the permission system to a public,
+pluggable package and moves the approval / question broker wiring into
+the agent: an interactive host gets approvals by just passing a sink, and
+any host can supply its own allow/deny policy with no `internal/` import.
+
+### Added
+
+- **`pkg/permission`** (promoted from `internal/permission`): `Mode`,
+  `Rule`, `Store`, `Broker`, `Decision`, `ApprovalRequest`, `Decide`,
+  `Load`, `NewBroker`, `SetOnRequest`, the `Behavior*` / `Source*`
+  constants, and `PlanModeState` are now public.
+- `agent.WithPermissionStore(*permission.Store)` and
+  `agent.WithPermissionBroker(permission.Broker)` public options — supply
+  a custom rule store or approval policy. (`WithPermissionMode` /
+  `WithHeadlessBypass` already existed.)
+- The agent owns its default approval + question brokers and emits
+  `KindApprovalNeeded` / `KindQuestionNeeded` to the sink itself. An
+  interactive host resolves them via `RespondPermission` /
+  `RespondQuestion`; with no sink the agent auto-denies. No host broker
+  wiring required.
+
+### Changed
+
+- `pkg/agent.New` / `NewWithProfile` no longer install non-interactive
+  deny stubs — they defer to the agent's default brokers.
+  `NewWithProfile` now honors a caller-supplied `WithSink` for real
+  interactive approvals (previously it always denied).
+- Subagents inherit the root agent's question broker (matching the
+  existing permission-broker inheritance), so a subagent can surface
+  `AskUserQuestion`.
+
+### Internal
+
+- `cmd/evva` no longer imports `internal/permission` or
+  `internal/question`; its headless CLI sink resolves approval / question
+  prompts through the public `Controller`. `buildApprovalEvent` /
+  `buildQuestionEvent` moved into `internal/agent/approval.go`.
+
 ## [v0.2.8-alpha.2] — Plan mode: named plan files + read-only bash
 
 ### Added
@@ -395,7 +436,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v0.2.8-alpha.2...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v0.2.8-alpha.3...HEAD
+[v0.2.8-alpha.3]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.3
 [v0.2.8-alpha.2]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.2
 [v0.2.8-alpha.1]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.1
 [v0.2.6-alpha.2]: https://github.com/johnny1110/evva/releases/tag/v0.2.6-alpha.2
