@@ -14,18 +14,17 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/johnny1110/evva/internal/agent"
-	bubbleteav2 "github.com/johnny1110/evva/internal/ui/bubbletea_v2"
-	"github.com/johnny1110/evva/internal/update"
+	"github.com/johnny1110/evva/pkg/agent"
 	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/pkg/llm"
 	_ "github.com/johnny1110/evva/pkg/llm/builtins" // register anthropic/deepseek/ollama into llm.DefaultRegistry()
-	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/fs"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/ui"
+	"github.com/johnny1110/evva/pkg/ui/bubbletea"
+	"github.com/johnny1110/evva/pkg/update"
 	"github.com/joho/godotenv"
 )
 
@@ -64,18 +63,13 @@ func main() {
 	maxTokens := flag.Int("max-tokens", cfg.DefaultMaxTokens, "max output tokens (0 → provider default)")
 	maxIters := flag.Int("max-iters", cfg.DefaultMaxIterations, "max loop iterations before pausing for Continue")
 	noTUI := flag.Bool("no-tui", false, "disable the bubbletea TUI; read a prompt and run once with plain CLI output")
-	uiKind := flag.String("ui", "v2", "TUI implementation: v1 | v2 (v2 is in active development)")
 	permModeFlag := flag.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
 	flag.Parse()
 
-	// Skill registry is auto-loaded inside agent.New from cfg.AppHomeSkillsDir
-	// + cfg.WorkDirSkillsDir. Hosts that want a programmatic catalog pre-build
-	// one and pass agent.WithSkillRegistry; this binary uses the default.
-
 	// First-session notice for auto-memory: no USER_PROFILE.md yet. Quiet
 	// thereafter — once the file exists the user has seen it (or opted in by
-	// their own writes). The agent now auto-loads EVVA.md / USER_PROFILE.md
-	// into the prompt itself and logs any load warnings, so the host no longer
+	// their own writes). agent.New auto-loads EVVA.md / USER_PROFILE.md into
+	// the prompt itself and logs any load warnings, so the host no longer
 	// reads the memory files directly.
 	if cfg.GetEnableAutoMemory() {
 		if _, err := os.Stat(filepath.Join(cfg.AppHome, "USER_PROFILE.md")); errors.Is(err, os.ErrNotExist) {
@@ -83,101 +77,49 @@ func main() {
 		}
 	}
 
-	// Build the agent registry first: ResolveMainProfileAutoMem reads from it
-	// to pick the right persona (built-in evva or a disk-loaded persona under
-	// <EVVA_HOME>/agents/). Bad disk agents degrade gracefully — they're
-	// skipped with a warning, the session continues without them.
-	agentReg, agentWarns := agent.BuildAgentRegistry(cfg.AppHome)
-	for _, w := range agentWarns {
-		fmt.Fprintln(os.Stderr, "evva:", w.Error())
+	// One declarative Config drives the whole bootstrap: agent.New resolves
+	// the persona from cfg.DefaultProfile (evva fallback), builds the persona
+	// registry from <AppHome>/agents/, auto-loads memory + skills, loads the
+	// permission store, resolves the mode (CLI flag > YAML > default), and
+	// owns the approval + question brokers. Skills/memory/registry load
+	// warnings surface on the agent's logger.
+	acfg := agent.Config{
+		AppConfig:      cfg,
+		PermissionMode: *permModeFlag,
+		MaxIters:       *maxIters,
+		LLMOptions:     buildOptions(*temp, *maxTokens),
 	}
-
-	profName := cfg.DefaultProfile
-	if profName == "" {
-		profName = "evva"
-	}
-	// Memory (EVVA.md / USER_PROFILE.md) and skills auto-load inside the
-	// resolver; the resolved prompt carries them, and memory-load warnings
-	// surface on the agent's logger rather than here.
-	prof, _, profErr := agent.ResolveMainProfileAutoMem(cfg, agentReg, profName, buildOptions(*temp, *maxTokens))
-	if profErr != nil {
-		fmt.Fprintln(os.Stderr, "evva:", profErr, "— falling back to evva")
-		prof, _, _ = agent.ResolveMainProfileAutoMem(cfg, agentReg, "evva", buildOptions(*temp, *maxTokens))
-		profName = "evva"
-	}
-
-	// Permission system: load project + user rules and resolve the active
-	// mode (CLI > YAML > "default"). One Store per process — subagents
-	// inherit it via spawn.go. The agent owns the approval + question
-	// brokers and emits their requests to the sink, so the host wires no
-	// broker callbacks here.
-	permStore, permWarns := permission.Load(cfg.WorkDir, cfg.AppHome)
-	for _, w := range permWarns {
-		fmt.Fprintln(os.Stderr, "evva:", w.Error())
-	}
-	permMode := resolvePermissionMode(*permModeFlag, cfg.PermissionMode)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	useTUI := !*noTUI && isTTY(os.Stdout)
 	if useTUI {
-		runTUI(ctx, prof, profName, *maxIters, cfg.AppName, cfg.AppHome, agentReg, permStore, permMode, *uiKind)
+		runTUI(ctx, acfg, cfg.AppHome)
 		return
 	}
-	runCLI(ctx, prof, profName, *maxIters, cfg.AppName, agentReg, permStore, permMode)
-}
-
-// resolvePermissionMode picks the active mode using CLI > YAML > "default"
-// precedence. An unknown value (typo) silently falls back to default —
-// matches how -temp / -max-tokens degrade.
-func resolvePermissionMode(cliFlag, yamlValue string) permission.Mode {
-	for _, candidate := range []string{cliFlag, yamlValue} {
-		if candidate == "" {
-			continue
-		}
-		if m, ok := permission.ParseMode(candidate); ok {
-			return m
-		}
-		fmt.Fprintf(os.Stderr, "evva: unknown permission mode %q; falling back to default\n", candidate)
-	}
-	return permission.ModeDefault
+	runCLI(ctx, acfg)
 }
 
 // runTUI is the interactive path. The bubbletea UI owns the screen; the
 // agent emits events into it; the user drives prompts from the textarea.
 // evvaHome lets the TUI resolve banner.txt (and any future user config).
 //
-// kind selects the TUI implementation: "v1" (default; current reference)
-// or "v2" (clean-architecture rewrite, in active development). Both
-// satisfy the same ui.UI contract, so the agent-side wiring is
-// identical.
-func runTUI(ctx context.Context, prof agent.Profile, profName string, maxIters int, name, evvaHome string, agents *agent.AgentRegistry, permStore *permission.Store, permMode permission.Mode, kind string) {
-	var tui ui.UI
-	switch kind {
-	default:
-		tui = bubbleteav2.New(evvaHome)
-	}
+// With a sink installed the agent emits KindApprovalNeeded /
+// KindQuestionNeeded to the TUI, which renders the overlay and resolves via
+// Controller.RespondPermission / RespondQuestion — no host broker wiring.
+func runTUI(ctx context.Context, acfg agent.Config, evvaHome string) {
+	tui := bubbletea.New(evvaHome)
 
-	// The agent owns the approval + question brokers: with a sink installed
-	// it emits KindApprovalNeeded / KindQuestionNeeded to the TUI, which
-	// renders the overlay and resolves via Controller.RespondPermission /
-	// RespondQuestion. No host broker wiring needed.
-	ag, err := agent.New(nil, prof,
-		agent.WithName(name),
+	ag, err := agent.New(acfg,
 		agent.WithSink(tui),
-		agent.WithMaxIterations(maxIters),
-		agent.WithAgentRegistry(agents),
-		agent.WithPersona(profName),
-		agent.WithPermissionStore(permStore),
-		agent.WithPermissionMode(permMode),
 		agent.WithRootContext(ctx), // signal pump + bg tasks track the TUI ctx
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)
 	}
 	defer ag.Shutdown()
-	tui.Attach(ag)
+	tui.Attach(ag.Controller())
 	if err := tui.Run(ctx); err != nil {
 		exitf(1, "evva: %v", err)
 	}
@@ -187,7 +129,7 @@ func runTUI(ctx context.Context, prof agent.Profile, profName string, maxIters i
 // Preserves the original behavior: read prompt → run → stream events as
 // plain text → exit. ErrIterLimit triggers a synchronous "press Enter to
 // continue" prompt on stderr.
-func runCLI(ctx context.Context, prof agent.Profile, profName string, maxIters int, name string, agents *agent.AgentRegistry, permStore *permission.Store, permMode permission.Mode) {
+func runCLI(ctx context.Context, acfg agent.Config) {
 	prompt, err := readPrompt(flag.Args())
 	if err != nil {
 		exitf(2, "evva: %v", err)
@@ -201,20 +143,14 @@ func runCLI(ctx context.Context, prof agent.Profile, profName string, maxIters i
 	// (deny / empty) through the Controller so scripts fail fast instead
 	// of hanging on a phantom prompt.
 	sink := &cliSink{out: os.Stdout}
-	ag, err := agent.New(nil, prof,
-		agent.WithName(name),
+	ag, err := agent.New(acfg,
 		agent.WithSink(sink),
-		agent.WithMaxIterations(maxIters),
-		agent.WithAgentRegistry(agents),
-		agent.WithPersona(profName),
-		agent.WithPermissionStore(permStore),
-		agent.WithPermissionMode(permMode),
 		agent.WithRootContext(ctx),
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)
 	}
-	sink.ctrl = ag
+	sink.ctrl = ag.Controller()
 	defer ag.Shutdown()
 
 	resp, err := ag.Run(ctx, prompt)
