@@ -222,6 +222,8 @@ var ReadOnlyOrSelfTools = map[string]bool{
 	// plan file, which has its own carve-out in Decide()).
 	"enter_plan_mode": true,
 	"exit_plan_mode":  true,
+	// lsp access
+	"lsp_request": true,
 }
 
 // AcceptEditsAutoAllow is the set of tools auto-allowed in addition to

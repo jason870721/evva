@@ -74,3 +74,15 @@ type MonitorMeta struct {
 }
 
 func (MonitorMeta) daemonMetadata() {}
+
+// LSPMeta is the payload for KindLSP snapshots.
+type LSPMeta struct {
+	ServerName   string
+	Command      string
+	State        string // "running", "starting", "error", etc.
+	ExitCode     *int
+	RestartCount int
+	MaxRestarts  int
+}
+
+func (LSPMeta) daemonMetadata() {}

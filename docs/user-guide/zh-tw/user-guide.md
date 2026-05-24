@@ -30,6 +30,13 @@
   - [CLI 參數](#cli-參數)
 - [10. 執行模式 — TUI vs CLI](#10-執行模式--tui-vs-cli)
 - [11. 日誌](#11-日誌)
+- [12. LSP — 語言伺服器協定支援](#12-lsp--語言伺服器協定支援)
+  - [逐步設定（以 Go 為例）](#逐步設定以-go-為例)
+  - [驗證 LSP 是否正常運作](#驗證-lsp-是否正常運作)
+  - [其他語言設定](#其他語言設定)
+  - [手動設定參考](#手動設定參考)
+  - [使用方式](#使用方式)
+  - [疑難排解](#疑難排解)
 
 ---
 
@@ -737,3 +744,202 @@ echo "list files in /tmp" | evva -no-tui   # 管線輸入提示
 ## 11. 日誌
 
 每個代理的純文字日誌預設存放於 `$EVVA_HOME/logs/<agent-id>/<agent-id>.log`——`make install` 之後不需要額外設定即可找到。若要改寫到其他目錄，在 `.env` 中設定 `LOG_DIR=/your/path`。若要回到舊的 stdout-only 開發模式(日誌打到終端而非寫檔)，將 `LOG_DIR=` 明確設為空字串。`LOG_LEVEL=debug` 會揭露每次迭代的 `turn.start` / `llm.call` / `tool.dispatch` / `tool.result` 行——在除錯代理卡住或無限迴圈時非常實用。
+
+---
+
+## 12. LSP — 語言伺服器協定支援
+
+evva 整合了語言伺服器（Language Server），讓終端機裡的程式碼代理能夠直接查詢語意資訊。
+
+### 支援的操作
+
+`lsp_request` 工具可讓代理查詢語言伺服器：
+
+| 操作 | 說明 |
+|---|---|
+| `go_to_definition` | 跳至符號的定義位置 |
+| `find_references` | 找出所有引用該符號的位置 |
+| `hover` | 取得該位置的型別資訊與文件 |
+| `document_symbols` | 列出檔案中的所有符號 |
+| `workspace_symbol` | 以名稱搜尋整個工作區的符號 |
+| `go_to_implementation` | 找出介面或型別的實作 |
+| `call_hierarchy` | 追蹤呼叫圖（傳入／傳出呼叫） |
+
+此外，LSP 伺服器會**自動推送診斷訊息**（錯誤、警告）——它們會以系統提醒的形式出現在對話中，代理無需主動請求。
+
+---
+
+### 逐步設定（以 Go 為例）
+
+此範例使用 Go 與 gopls。同樣的模式適用於 TypeScript、Rust 或任何有 LSP 伺服器的語言。
+
+#### 1. 安裝 LSP 伺服器
+
+```bash
+go install golang.org/x/tools/gopls@latest
+```
+
+確認已安裝在 PATH 上：
+
+```bash
+which gopls
+# /Users/you/go/bin/gopls
+
+gopls version
+# golang.org/x/tools/gopls v0.21.1
+```
+
+#### 2. 在專案中啟動 evva
+
+進入任何 Go 專案目錄（含有 `go.mod` 的目錄）並啟動 evva：
+
+```bash
+cd /path/to/your-go-project
+evva
+```
+
+evva 會自動偵測 `go.mod` 與 PATH 上的 `gopls` — 無需撰寫設定檔。
+
+若自動偵測未生效（少見情況），可建立最小設定檔：
+
+```yaml
+# .evva/lsp_servers.yml
+servers:
+  gopls:
+    command: gopls
+    extensions:
+      ".go": "go"
+    startupTimeout: "120s"
+    maxRestarts: 3
+```
+
+#### 3. 驗證 LSP 是否正常運作
+
+在 evva 對話中，請代理使用 LSP：
+
+```
+找出 server.go 中 Server 型別的定義
+```
+
+代理會以 `operation: "go_to_definition"` 呼叫 `lsp_request`。第一次請求會啟動 gopls（初始索引可能需要 30–60 秒）。後續請求即時回應。
+
+手動檢查 LSP 伺服器狀態：
+
+```
+daemon_list
+```
+
+應該會看到 LSP 守護程序條目：
+
+```
+daemon l1 [lsp/running] server=gopls state=running restarts=0/3
+```
+
+#### 4. 測試常用操作
+
+在 evva 中嘗試以下提示來測試不同的 LSP 功能：
+
+- **定義：**「找出 `tool.go` 第 22 行 `Manager` 的定義」
+- **引用：**「找出專案中所有引用 `Daemon` 的地方」
+- **懸停：**「`tool.go` 第 22 行的 `ctx` 是什麼型別？」
+- **符號：**「列出 `agent.go` 中的所有符號」
+- **工作區搜尋：**「在工作區中搜尋與 'Agent' 匹配的符號」
+- **呼叫階層：**「顯示 `NewTool` 的呼叫階層」
+
+---
+
+### 其他語言設定
+
+#### TypeScript / JavaScript
+
+```bash
+npm install -g typescript-language-server typescript
+```
+
+當 `package.json` 存在且有 `.ts`/`.tsx` 檔案時自動偵測。
+
+#### Rust
+
+```bash
+rustup component add rust-analyzer
+```
+
+當 `Cargo.toml` 存在時自動偵測。
+
+#### 其他語言
+
+建立 `.evva/lsp_servers.yml` 並填入對應語言的伺服器。常見伺服器：
+
+| 語言 | 伺服器 | 安裝指令 |
+|---|---|---|
+| Python | pyright | `pip install pyright` |
+| Zig | zls | [zigtools.org/zls](https://zigtools.org/zls/) |
+| C/C++ | clangd | `apt install clangd` / `brew install llvm` |
+
+Python 設定範例：
+
+```yaml
+servers:
+  pyright:
+    command: pyright-langserver
+    args: ["--stdio"]
+    extensions:
+      ".py": "python"
+    startupTimeout: "60s"
+```
+
+---
+
+### 手動設定參考
+
+在專案根目錄建立 `.evva/lsp_servers.yml`（專案層級），或放在 `~/.evva/lsp_servers.yml`（使用者層級，套用至所有專案）。相同伺服器名稱下，專案層級設定會覆蓋使用者層級。
+
+完整設定格式：
+
+```yaml
+servers:
+  gopls:
+    command: gopls                    # 必要：二進位檔名稱或路徑
+    args: []                          # 選用：CLI 參數
+    extensions:                       # 必要：副檔名 → 語言 ID
+      ".go": "go"
+    env:                              # 選用：環境變數
+      GOPATH: "${HOME}/go"
+    startupTimeout: "120s"            # 選用：等待初始化的最長時間（預設 30s）
+    maxRestarts: 3                    # 選用：崩潰復原上限（預設 3）
+```
+
+`command`、`args` 與 `env` 的值支援環境變數展開（`${VAR}`、`${HOME}`）。
+
+---
+
+### 使用方式
+
+`lsp_request` 工具為**延遲載入** — 代理在需要 LSP 功能時會透過 `tool_search` 發現它。你可以直接向代理提出類似以下的問題：
+
+- 「`UserService` 定義在哪裡？」
+- 「找出所有引用 `authenticate` 的地方」
+- 「這個變數是什麼型別？」
+- 「列出 `handler.go` 中的所有符號」
+- 「誰呼叫了 `processRequest`？」
+
+代理會在適當時機自動使用 `lsp_request`。
+
+---
+
+### 疑難排解
+
+**「gopls not found in PATH」**
+安裝缺少的伺服器（見上方安裝指令），重新啟動 evva 後再試。
+
+**「No LSP server configured for extension .py」**
+在 `.evva/lsp_servers.yml` 中新增該語言的伺服器設定。錯誤訊息中的提示會建議應安裝的伺服器名稱。
+
+**伺服器已啟動但請求無回應**
+gopls 首次啟動時需要時間為專案建立索引。大型專案可能需要 60–120 秒。請在設定中提高 `startupTimeout`，並在第一次 `lsp_request` 後等待 — 後續請求就會很快。
+
+**沒有出現診斷訊息**
+診斷訊息會在 `lsp_request` 開啟檔案後出現。如果你用 `write`/`edit`/`bash` 編輯了檔案，請對該檔案呼叫 `lsp_request` 以重新整理診斷訊息。
+
+**殘留的 gopls 程序**
+執行 `pkill gopls` 清理。evva 在關閉時會終止伺服器，但若 evva 崩潰，伺服器程序可能殘留。

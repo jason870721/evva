@@ -95,6 +95,11 @@ const (
 	EXIT_WORKTREE   ToolName = "exit_worktree"
 
 	NOTEBOOK_EDIT ToolName = "notebook_edit"
+
+	// LSP (Language Server Protocol) — semantic code intelligence.
+	// Deferred: the LLM discovers it via tool_search when it needs
+	// definition, references, hover, or document symbols.
+	LSP_REQUEST ToolName = "lsp_request"
 )
 
 // User interaction.

@@ -12,6 +12,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/cron"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/fs"
+	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/monitor"
 	"github.com/johnny1110/evva/pkg/tools/notebook"
 	"github.com/johnny1110/evva/pkg/tools/shell"
@@ -114,9 +115,9 @@ func init() {
 		return monitor.NewMonitor(s.(*ToolState)), nil
 	})
 	r.MustRegister(tools.ENTER_PLAN_MODE, func(s tools.State) (tools.Tool, error) {
-		ts := s.(*ToolState)
-		return mode.NewEnterPlanMode(ts.PlanController), nil
-	})
+			ts := s.(*ToolState)
+			return mode.NewEnterPlanMode(ts.PlanController), nil
+		})
 	r.MustRegister(tools.EXIT_PLAN_MODE, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
 		return mode.NewExitPlanMode(ts.PlanController), nil
@@ -130,6 +131,12 @@ func init() {
 		return mode.NewExitWorktree(ts.WorktreeController), nil
 	})
 	r.MustRegister(tools.NOTEBOOK_EDIT, func(tools.State) (tools.Tool, error) { return notebook.Edit, nil })
+
+	// --- lsp (semantic code intelligence) ---
+	r.MustRegister(tools.LSP_REQUEST, func(s tools.State) (tools.Tool, error) {
+		ts := s.(*ToolState)
+		return lsp.NewTool(ts.LSPManager(), ts.Workdir()), nil
+	})
 
 	// --- cron (stateless stubs) ---
 	r.MustRegister(tools.CRON_CREATE, func(tools.State) (tools.Tool, error) { return cron.Create, nil })

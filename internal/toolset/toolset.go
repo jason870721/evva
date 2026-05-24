@@ -32,6 +32,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/fs"
+	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 )
@@ -82,6 +83,11 @@ type ToolState struct {
 	// previous trio of BgTaskStore + MonitorTaskStore + SpawnGroup.
 	// Lazy-allocated on first DaemonState() access.
 	daemonState *daemon.DaemonState
+
+	// lspManager is the LSP server manager shared by all lsp_request tool
+	// instances built against this ToolState. Set by the agent during New
+	// after loading the LSP config; nil when no LSP servers are configured.
+	lspManager *lsp.Manager
 
 	// signalSender carries the callbacks the agent installs in New so
 	// tool families can deliver event-driven results without importing
@@ -364,6 +370,20 @@ func (s *ToolState) DaemonState() *daemon.DaemonState {
 // been registered (avoids forcing the lazy allocation just to peek at an
 // empty queue).
 func (s *ToolState) HasDaemonState() bool { return s.daemonState != nil }
+
+// LSPManager returns the LSP server manager, or nil if none is configured.
+// The agent installs this during New by loading the LSP config file; when
+// no config exists the manager remains nil and lsp_request returns a clean
+// error at Execute time.
+func (s *ToolState) LSPManager() *lsp.Manager {
+	return s.lspManager
+}
+
+// SetLSPManager installs the LSP Manager. Called once by the agent during
+// construction after loading the LSP config.
+func (s *ToolState) SetLSPManager(m *lsp.Manager) {
+	s.lspManager = m
+}
 
 // HasUserPromptQueue reports whether a UserPromptQueue has already been
 // allocated. The agent loop uses this to skip the drain in runs that

@@ -151,6 +151,9 @@ func composeDaemonLifecycle(sig daemon.Signal) string {
 		detail = "\n" + body
 	case daemon.MonitorMeta:
 		detail = fmt.Sprintf(", events=%d", m.EventCount)
+	case daemon.LSPMeta:
+		detail = fmt.Sprintf(", server=%s, state=%s, restarts=%d/%d",
+			m.ServerName, m.State, m.RestartCount, m.MaxRestarts)
 	}
 
 	return fmt.Sprintf("<system-reminder>daemon %s [%s] %s%s</system-reminder>",

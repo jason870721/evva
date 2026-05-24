@@ -26,6 +26,7 @@ import (
 	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
+	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 	"github.com/johnny1110/evva/pkg/ui"
@@ -301,6 +302,22 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		a.toolState.SetSkillRegistry(reg)
 		if a.skillRefs == nil {
 			a.skillRefs = refsFromRegistry(reg)
+		}
+	}
+
+	// Auto-load the LSP config and install the Manager on ToolState.
+	// When no config file exists the manager stays nil and the lsp_request
+	// tool returns a clean error at Execute time. Only the root agent gets
+	// an LSP manager — subagents inherit nil.
+	if !a.IsSubagent() && a.toolState.LSPManager() == nil {
+		if lspCfg, lspErr := lsp.LoadConfig(a.workdir, a.cfg.AppHome); lspErr != nil {
+			lgr.Warn("lsp: config load", "err", lspErr)
+		} else if lspCfg != nil && len(lspCfg.Servers) > 0 {
+			rootURI := "file://" + a.workdir
+			mgr := lsp.NewManager(lspCfg.Servers, rootURI, lgr)
+			mgr.SetDaemonState(a.toolState.DaemonState())
+			a.toolState.SetLSPManager(mgr)
+			lgr.Info("lsp: manager started", "servers", len(lspCfg.Servers))
 		}
 	}
 
@@ -1180,4 +1197,21 @@ func (a *Agent) emit(kind event.Kind, build func(*event.Event)) {
 	a.emitMu.Lock()
 	a.sink.Emit(e)
 	a.emitMu.Unlock()
+}
+
+// drainLSPDiagnostics drains pending LSP diagnostics from the manager and
+// injects them as a <system-reminder> block. Called at each iteration
+// start alongside drainDaemonSignals.
+func (a *Agent) drainLSPDiagnostics() {
+	mgr := a.toolState.LSPManager()
+	if mgr == nil {
+		return
+	}
+	diags := mgr.DrainDiagnostics()
+	if len(diags) == 0 {
+		return
+	}
+	reminder := lsp.FormatDiagnosticsReminder(diags)
+	a.session.Append(signalReminderMessage([]string{reminder}))
+	a.logger.Debug("lsp.diagnostics.drained", "count", len(diags))
 }

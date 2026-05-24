@@ -36,6 +36,9 @@ var toolTags = map[tools.ToolName][]string{
 	tools.EXIT_WORKTREE:   {"worktree", "git", "exit", "discard", "leave"},
 	tools.NOTEBOOK_EDIT:   {"notebook", "jupyter", "ipynb", "cell", "edit"},
 
+	// lsp
+	tools.LSP_REQUEST: {"lsp", "language", "definition", "references", "hover", "symbols", "semantic", "code", "intelligence"},
+
 	// cron / web / ux
 	tools.CRON_CREATE:    {"schedule", "cron", "recurring", "timer", "future"},
 	tools.CRON_LIST:      {"schedule", "cron", "list", "jobs"},
@@ -94,6 +97,9 @@ var toolHints = map[tools.ToolName]string{
 	tools.ENTER_WORKTREE:  "Create a git worktree for isolated implementation work.",
 	tools.EXIT_WORKTREE:   "Tear down the current worktree and return to the host branch.",
 	tools.NOTEBOOK_EDIT:   "Edit cells in a Jupyter notebook by index.",
+
+	// lsp
+	tools.LSP_REQUEST: "Query a Language Server for semantic information — go-to-definition, find references, hover, and document symbols.",
 
 	// cron / remote
 	tools.CRON_CREATE:    "Schedule a recurring remote agent run on a cron expression.",

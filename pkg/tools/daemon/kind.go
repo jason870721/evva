@@ -26,6 +26,7 @@ const (
 	KindLocalBash  DaemonKind = "local_bash"
 	KindLocalAgent DaemonKind = "local_agent"
 	KindMonitor    DaemonKind = "monitor"
+	KindLSP        DaemonKind = "lsp"
 
 	// Reserved — enum entries only, no Daemon impl yet. Listed here so the
 	// ID prefix table stays exhaustive and new kinds land as one-file diffs.
@@ -41,6 +42,7 @@ var idPrefix = map[DaemonKind]rune{
 	KindLocalBash:         'b',
 	KindLocalAgent:        'a',
 	KindMonitor:           'm',
+	KindLSP:               'l',
 	KindRemoteAgent:       'r',
 	KindInProcessTeammate: 't',
 	KindLocalWorkflow:     'w',

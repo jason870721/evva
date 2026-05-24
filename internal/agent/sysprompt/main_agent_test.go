@@ -107,7 +107,7 @@ func TestMainAgent_EnvironmentRendersFields(t *testing.T) {
 	for _, want := range []string{
 		"OS / shell: darwin / zsh",
 		"Working directory: /tmp",
-		"Evva home (global: config, skills, memory): /tmp/.evva",
+		"AAP_HOME (global: config, skills, memory): /tmp/.evva",
 		"Monday May 18 2026",
 	} {
 		if !strings.Contains(got, want) {
@@ -122,7 +122,7 @@ func TestMainAgent_EnvironmentPlaceholdersForEmptyFields(t *testing.T) {
 	for _, want := range []string{
 		"OS / shell: (unknown) / (unknown)",
 		"Working directory: (unknown)",
-		"Evva home (global: config, skills, memory): (unset)",
+		"AAP_HOME (global: config, skills, memory): (unset)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing placeholder %q", want)

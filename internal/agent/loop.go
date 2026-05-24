@@ -111,6 +111,11 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 		// via Observable; this drain is the model-side delivery vehicle.
 		a.drainDaemonSignals()
 
+		// Drain LSP diagnostics delivered asynchronously by the server.
+		// Diagnostics are passive (not solicited) so they arrive between
+		// turns — this call collects and injects them.
+		a.drainLSPDiagnostics()
+
 		a.logger.Debug("turn.start", "iter", iter, "messages", len(a.session.Messages))
 		resp, err := a.thinking(ctx, iter)
 		if err != nil {

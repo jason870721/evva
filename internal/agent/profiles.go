@@ -31,6 +31,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/cron"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/fs"
+	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/monitor"
 	"github.com/johnny1110/evva/pkg/tools/notebook"
 	"github.com/johnny1110/evva/pkg/tools/shell"
@@ -142,6 +143,7 @@ func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Mode
 	}
 	deferredTools := slices.Concat(
 		daemon.Names(),
+		lsp.Names(),
 		monitor.Names(),
 		modeDeferredNames(),
 		notebook.Names(),

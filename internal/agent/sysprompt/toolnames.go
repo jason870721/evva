@@ -45,6 +45,9 @@ const (
 	nameDaemonOutput = "daemon_output"
 	nameDaemonStop   = "daemon_stop"
 	nameMonitor      = "monitor"
+
+	// LSP — semantic code intelligence.
+	nameLspRequest = "lsp_request"
 )
 
 // Subagent identifiers — the strings the main agent quotes in its
