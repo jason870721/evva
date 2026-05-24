@@ -8,6 +8,7 @@ import (
 	"github.com/johnny1110/evva/internal/question"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/hooks"
 	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -158,6 +159,14 @@ func WithQuestionBroker(b question.Broker) Option {
 	return func(a *Agent) {
 		a.questionBroker = b
 	}
+}
+
+// WithHookRegistry installs the lifecycle-hook registry. nil is safe —
+// the dispatcher noops when no registry is present. Shared across the
+// root and its subagents (subagents inherit via spawn.go) so one
+// settings.json load drives the whole agent tree.
+func WithHookRegistry(r *hooks.Registry) Option {
+	return func(a *Agent) { a.hookRegistry = r }
 }
 
 // WithAgentRegistry installs the merged built-in + disk agent registry on

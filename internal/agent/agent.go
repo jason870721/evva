@@ -22,6 +22,7 @@ import (
 	"github.com/johnny1110/evva/internal/toolset"
 	"github.com/johnny1110/evva/pkg/common"
 	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/hooks"
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -156,6 +157,13 @@ type Agent struct {
 	permissionBroker permission.Broker
 	questionBroker   question.Broker
 
+	// hookRegistry is the shared, process-wide hooks catalog loaded from
+	// settings.json. Inherited by subagents. hookDispatcher is per-agent
+	// (its baseFn bakes in the agent's identity), built in New from the
+	// shared registry.
+	hookRegistry   *hooks.Registry
+	hookDispatcher *hooks.Dispatcher
+
 	sink event.Sink // event to ui
 
 	// maxIters is the agent loop's safety cap. Atomic so the TUI's
@@ -182,6 +190,11 @@ type Agent struct {
 	// assistant tool_calls turn followed by a new user message is an
 	// invalid request shape every provider rejects).
 	running atomic.Bool
+
+	// sessionOnce ensures SessionStart fires exactly once per agent
+	// lifetime — the first Run() call triggers it; Continue() (resume,
+	// iter-limit re-entry) does not.
+	sessionOnce sync.Once
 
 	// sessionCreatedAt is the wall-clock time the current session began
 	// (first persistSession call after agent creation or after a /resume
@@ -410,6 +423,18 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	// root's wired brokers via spawn.go. Must run before SetQuestionBroker
 	// below so the broker it plumbs is the finalized one.
 	wireBrokers(a)
+
+	// Build the per-agent hook dispatcher. Each agent (root + every
+	// subagent) builds its own dispatcher so the base-payload factory
+	// bakes in that agent's identity. The *Registry is shared — loaded
+	// once, consumed by the whole agent tree. nil-safe: a nil registry
+	// yields a dispatcher whose Has() always returns false.
+	a.hookDispatcher = hooks.NewDispatcher(
+		a.hookRegistry,
+		a.logger,
+		a.hookBaseFactory,
+		a.workdir,
+	)
 
 	// Question broker is process-wide and shared by root and subagents alike.
 	a.toolState.SetQuestionBroker(a.questionBroker)

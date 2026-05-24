@@ -28,6 +28,7 @@ proof-of-concept lives at [`examples/minimal-host/`](../examples/minimal-host/ma
 | `pkg/tools/{fs,shell,web,util,notebook,monitor,cron,todo,daemon}` | Bundled tool family implementations | Reusing the bundled tools directly (rare; most callers use them via the registry) |
 | `pkg/tools/lsp` | LSP integration — the deferred `lsp_request` tool (`tools.LSP_REQUEST`) | Reusing evva's Language Server tool; semantic code intelligence |
 | `pkg/tools/kits` | `GeneralPurposeKit`, `ReadOnlyKit`, `CodingKit`, `ResearchKit` | Pre-composed tool-name lists for common agent shapes (Phase 19d) |
+| `pkg/hooks` | `Registry`, `Dispatcher`, `Load`, `BasePayload`, `Decision`, `WithHookRegistry` | Adding lifecycle hooks (shell commands / HTTP webhooks that fire at SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, Notification) |
 | `pkg/skill` | `Registry`, `SkillMeta`, `LoadRegistry`, `NewRegistry`, `Registry.Add`, `SkillTool` | Building custom skill catalogs (disk-loaded, programmatic, or mixed) |
 | `pkg/constant` | `LLMProvider`, `Model`, `AgentStatus`, `MODEL_CONTEXT_SIZE` | Referencing built-in provider / model identifiers |
 | `pkg/update` | `evva update` self-update glue (product-specific) | Rarely — most hosts ship their own update path |
@@ -500,6 +501,92 @@ case *event.ErrorPayload:
 
 The direct field access (`e.Text`, `e.ToolUseStart`, …) stays
 available — `Payload()` is purely an ergonomics layer.
+
+## Lifecycle hooks
+
+evva supports six lifecycle hook events: **SessionStart**, **UserPromptSubmit**,
+**PreToolUse**, **PostToolUse**, **Stop**, and **Notification**. Hooks are
+configured in `.evva/settings.json` (project scope) or
+`<APP_HOME>/settings.json` (user scope). Project hooks fire before user
+hooks.
+
+### settings.json shape
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/my-hook.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Each event maps to an array of matchers. Each matcher carries a `matcher`
+glob (doublestar syntax; empty matches all tools) and a list of hooks.
+A hook is either `type: "command"` (shell subprocess, exit code 0 →
+parse stdout as JSON decision, exit 2 → block) or `type: "http"` (async
+by default, POSTs the payload to `url`).
+
+### Hook payload shape
+
+Every hook receives a JSON payload on stdin (command) or as the POST body
+(http). The base envelope carries `session_id`, `cwd`, `permission_mode`,
+`agent_id`, `agent_type`, and `hook_event_name`. Per-event fields attach
+below (e.g. PreToolUse adds `tool_name`, `tool_input`, `tool_use_id`).
+
+### Decision JSON
+
+Hook stdout (exit 0) is parsed as a JSON decision object:
+
+```json
+{
+  "continue": true,
+  "decision": "approve",
+  "reason": "looks safe",
+  "hookSpecificOutput": {
+    "permissionDecision": "allow",
+    "updatedInput": {"command": "echo hello"},
+    "additionalContext": "[extra info for the LLM]"
+  }
+}
+```
+
+Key fields:
+
+| Field | Effect |
+| --- | --- |
+| `continue: false` | Block the operation (PreToolUse, UserPromptSubmit, Stop) |
+| `decision: "block"` | Same as continue=false |
+| `decision: "approve"` | For PreToolUse: allow the tool unconditionally |
+| `hookSpecificOutput.permissionDecision` | One of `allow`, `deny`, `ask` — overrides the permission gate |
+| `hookSpecificOutput.updatedInput` | New tool input JSON (PreToolUse only) — the tool executes with this instead of the model's args |
+| `hookSpecificOutput.additionalContext` | Text appended to the tool result / prompt / session start, visible to the model next turn |
+| `hookSpecificOutput.initialUserMessage` | Synthetic user message prepended at session start |
+
+### SDK usage
+
+Downstream hosts that construct agents via `pkg/agent.NewWithProfile` can
+opt into hooks with `WithHookRegistry`:
+
+```go
+hookReg, _ := hooks.Load(workdir, appHome)
+ag, _ := agent.NewWithProfile(prof,
+    agent.WithHookRegistry(hookReg),
+)
+```
+
+The one-call `pkg/agent.New` loads hooks from disk automatically alongside
+`permission.Load`. A nil registry is safe — the dispatcher noops.
 
 ## What you can't change
 

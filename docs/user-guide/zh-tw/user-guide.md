@@ -1015,6 +1015,7 @@ func main() {
 | 控制核准 | `Config.PermissionMode`、`Config.PermissionStore`，或自訂 `agent.WithPermissionBroker`（以 `permission.NewBroker` + `SetOnRequest` 建立）。 |
 | 自製 UI | 實作 `ui.UI`；透過完全公開的 `ui.Controller` 驅動 agent。或直接嵌入 `pkg/ui/bubbletea`。 |
 | 提供技能（skill） | `skill.NewRegistry()` + `Add(...)`（程式碼）或放置 `SKILL.md` 檔案；以 `agent.WithSkillRegistry` 傳入。 |
+| 加入生命週期掛鉤 | 在 `.evva/settings.json` 加入 `hooks` 區塊；掛鉤會在 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop、Notification 事件觸發。詳見[生命週期掛鉤](#生命週期掛鉤)。 |
 | 使用自訂家目錄 | `config.Load(config.LoadOptions{AppName, AppHome, ...})` → `Config.AppConfig`。 |
 
 ### 穩定性與延伸閱讀
@@ -1025,4 +1026,41 @@ func main() {
 - [`docs/extending.md`](../../extending.md)（英文）— 完整參考：每個公開套件、每個擴充點，以及無法覆寫的部分。
 - [`docs/sdk-stability.md`](../../sdk-stability.md)（英文）— 各套件穩定性等級與如何在 `go.mod` 釘選 evva。
 - [`examples/full-host/`](../../../examples/full-host/main.go) — 可執行的完整宿主（TUI + 人格 + 權限），獨立模組。
+
+### 生命週期掛鉤
+
+掛鉤（hook）是使用者編寫的 shell 指令或 HTTP webhook，會在 agent 迴圈的六個時機點觸發。在 `.evva/settings.json` 中設定：
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq '.tool_input' | grep -q dangerous && exit 2 || exit 0",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**事件：**
+- `SessionStart` — agent 首次執行時觸發一次
+- `UserPromptSubmit` — 每次使用者輸入送出前觸發
+- `PreToolUse` — 每次工具執行前觸發；可阻擋、變更輸入或覆寫權限
+- `PostToolUse` — 工具執行後觸發；可將額外內容附加到結果中
+- `Stop` — agent 到達終止回合時觸發；可重新進入迴圈一次
+- `Notification` — 頻外事件觸發（如達到迭代上限）
+
+**掛鉤類型：**
+- `type: "command"` — shell 指令，stdin 接收 JSON 承載。exit 0 → 解析 stdout 為決策；exit 1 → 非阻塞錯誤（記錄日誌）；exit 2 → 阻擋。
+- `type: "http"` — HTTP POST，預設為非同步。
+
+專案掛鉤（`.evva/settings.json`）比使用者掛鉤（`<APP_HOME>/settings.json`）先觸發。格式錯誤的設定檔會產生啟動警告，agent 仍會正常啟動。
 - [`examples/minimal-host/`](../../../examples/minimal-host/main.go) — 可執行的精簡宿主（自訂提供者 + 工具 + 技能）。

@@ -6,6 +6,7 @@ import (
 	agent_impl "github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/hooks"
 	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -141,4 +142,13 @@ func WithPersona(name string) Option {
 // by the root agent and every subagent.
 func WithPermissionBroker(b permission.Broker) Option {
 	return agent_impl.WithPermissionBroker(b)
+}
+
+// WithHookRegistry installs the lifecycle-hook registry. Populate it with
+// hooks.Load(workdir, appHome) to read from .evva/settings.json (project)
+// and <appHome>/settings.json (user). nil is safe — the dispatcher noops
+// when no registry is present. Shared across the root agent and every
+// subagent so one settings.json load drives the whole agent tree.
+func WithHookRegistry(r *hooks.Registry) Option {
+	return agent_impl.WithHookRegistry(r)
 }

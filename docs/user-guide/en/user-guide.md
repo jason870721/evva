@@ -826,6 +826,7 @@ Every piece is swappable through a `pkg/*` seam:
 | Control approvals | `Config.PermissionMode`, `Config.PermissionStore`, or a custom `agent.WithPermissionBroker` (build with `permission.NewBroker` + `SetOnRequest`). |
 | Build a custom UI | Implement `ui.UI`; drive the agent through the fully-public `ui.Controller`. Or embed `pkg/ui/bubbletea`. |
 | Ship skills | `skill.NewRegistry()` + `Add(...)` (programmatic) or drop `SKILL.md` files; pass `agent.WithSkillRegistry`. |
+| Add lifecycle hooks | Add a `hooks` block to `.evva/settings.json`; hooks fire at SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, and Notification events. See [Lifecycle Hooks](#lifecycle-hooks). |
 | Use a custom home dir | `config.Load(config.LoadOptions{AppName, AppHome, ...})` → `Config.AppConfig`. |
 
 ### Stability & where to go deeper
@@ -837,6 +838,59 @@ Experimental packages (`pkg/ui/bubbletea`, `pkg/tools/lsp`,
 `pkg/observable`, `pkg/tools/kits`) may still change in minor versions.
 
 - [`integration.md`](integration.md) — step-by-step integration walkthrough.
+
+### Lifecycle Hooks
+
+Hooks are user-authored shell commands or HTTP webhooks that fire at six
+points in the agent loop. Configure them in `.evva/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq '.tool_input' | grep -q dangerous && exit 2 || exit 0",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Events:**
+- `SessionStart` — fires once when the agent first runs
+- `UserPromptSubmit` — fires before each user prompt is appended
+- `PreToolUse` — fires before every tool execution; can block, mutate input, or override permission
+- `PostToolUse` — fires after tool execution; can append context to the result
+- `Stop` — fires when the agent reaches a terminal turn; can re-enter the loop once
+- `Notification` — fires on out-of-band events (iteration limit, etc.)
+
+**Hook types:**
+- `type: "command"` — shell command, JSON payload on stdin. Exit 0 → parse stdout as decision; exit 1 → non-blocking error (logged); exit 2 → block.
+- `type: "http"` — HTTP POST. Async by default.
+
+**Decision JSON (exit 0 stdout):**
+```json
+{
+  "continue": true,
+  "decision": "approve",
+  "hookSpecificOutput": {
+    "permissionDecision": "allow",
+    "updatedInput": { "command": "echo safe" },
+    "additionalContext": "extra info for the LLM"
+  }
+}
+```
+
+Project hooks (`.evva/settings.json`) fire before user hooks
+(`<APP_HOME>/settings.json`). A malformed settings file produces
+startup warnings; the agent still boots.
 - [`docs/extending.md`](../../extending.md) — the full reference: every public package, every extension point, and what you can't override.
 - [`docs/sdk-stability.md`](../../sdk-stability.md) — the per-package stability tiers and how to depend on evva.
 - [`examples/full-host/`](../../../examples/full-host/main.go) — runnable full host (separate module, TUI + personas + permissions).
