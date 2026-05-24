@@ -7,6 +7,26 @@ Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
 ## [Unreleased]
 
+## [v0.2.8-alpha.5] — LSP documentation & project roadmap updates
+
+Docs-only release: adds the LSP module feasibility analysis and development
+plan to the roadmap, plus EVVA.md project-structure refinements.
+
+### Added
+
+- `docs/roadmap/lsp.md` — LSP Module Integration: feasibility analysis &
+  phased development plan
+- Expanded LSP documentation with architecture and implementation details
+
+### Changed
+
+- EVVA.md updated with refined project structure and conventions
+
+### Internal
+
+- Dropped stale task_stop/task_list known-issue note from docs
+- `pkg/version.Version` bumped to `0.2.8-alpha.5`
+
 ## [v0.2.8-alpha.4] — SDK v2.3: multi-persona / subagent SDK + memory absorption
 
 Third slice of the SDK v2 "harden to v1.0" roadmap
@@ -464,7 +484,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v0.2.8-alpha.4...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v0.2.8-alpha.5...HEAD
+[v0.2.8-alpha.5]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.5
 [v0.2.8-alpha.4]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.4
 [v0.2.8-alpha.3]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.3
 [v0.2.8-alpha.2]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.2
