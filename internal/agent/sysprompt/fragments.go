@@ -156,7 +156,7 @@ func environmentSection(ctx PromptContext) string {
 		fmt.Sprintf("- OS / shell: %s / %s", osLabel, shellLabel),
 		fmt.Sprintf("- Today: %s", today.Format("Monday January 2 2006")),
 		fmt.Sprintf("- Working directory: %s", workdir),
-		fmt.Sprintf("- Evva home (global: config, skills, memory): %s", evvaHome),
+		fmt.Sprintf("- AAP_HOME (global: config, skills, memory): %s", evvaHome),
 	}
 
 	return strings.Join(parts, "\n")

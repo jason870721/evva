@@ -15,30 +15,30 @@ import (
 //
 // Section ordering rationale:
 //
-//   1. identity                 — "who you are" before anything else.
-//   2. core rules               — evva-specific identity reinforcement
-//                                 (honesty, redirecting wrong-direction work).
-//   3. system                   — permission flow, system-reminder behavior,
-//                                 prompt-injection caveat, hooks, compression.
-//   4. doing tasks              — code style, no over-engineering, comments
-//                                 policy, faithful reporting.
-//   5. actions                  — reversibility / blast-radius doctrine.
-//   6. tools guide              — evva's deep tools protocol: dedicated
-//                                 tools over bash, parallel calls, the
-//                                 deferred-tool / tool_search protocol,
-//                                 subagent guidance.
-//   7. tone & style             — concise, file:line, no emojis, no `:`
-//                                 before tool calls.
-//   8. output efficiency        — how to write user-facing text.
-//   9. environment              — OS, shell, workdir, today, model, cutoff.
+//  1. identity                 — "who you are" before anything else.
+//  2. core rules               — evva-specific identity reinforcement
+//     (honesty, redirecting wrong-direction work).
+//  3. system                   — permission flow, system-reminder behavior,
+//     prompt-injection caveat, hooks, compression.
+//  4. doing tasks              — code style, no over-engineering, comments
+//     policy, faithful reporting.
+//  5. actions                  — reversibility / blast-radius doctrine.
+//  6. tools guide              — evva's deep tools protocol: dedicated
+//     tools over bash, parallel calls, the
+//     deferred-tool / tool_search protocol,
+//     subagent guidance.
+//  7. tone & style             — concise, file:line, no emojis, no `:`
+//     before tool calls.
+//  8. output efficiency        — how to write user-facing text.
+//  9. environment              — OS, shell, workdir, today, model, cutoff.
 //  10. project memory (EVVA.md) — user-authored repo rules.
 //  11. user profile             — long-lived cross-project preferences.
 //  12. session-specific         — !-shell prefix, ask_user_question on
-//                                 denied tools, subagent vs direct search,
-//                                 skills usage.
+//     denied tools, subagent vs direct search,
+//     skills usage.
 //  13. skills catalog           — listed when any skills are installed.
 //  14. summarize tool results   — write down load-bearing info; results
-//                                 may be cleared later.
+//     may be cleared later.
 //  15. todo planning            — multi-step work protocol.
 //  16. deferred tools           — pre-loaded <functions> schemas.
 //  17. dev feedback             — only if ctx.Env == "dev".
@@ -263,7 +263,8 @@ func projectMemoryIndexSection(ctx PromptContext) string {
 	if body == "" {
 		return ""
 	}
-	return "# Project memory index (from <APP_HOME>/projects/<key>/MEMORY.md)\n\n" +
+	return "# Project memory index (from <APP_HOME>/projects/<-repo-path>/MEMORY.md)\n\n" +
+		"repo-path example: -Users-johnny-lab-evva \n\n" +
 		body + "\n\n" +
 		"This is a compact index. Use `" + nameRead + "` on the file path to see full bodies before relying on any entry."
 }
