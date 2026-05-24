@@ -75,6 +75,43 @@ func (a *Agent) Describe(name tools.ToolName) (tools.Descriptor, error) {
 	return toolset.Describe(name)
 }
 
+// MarkDiscovered builds the given deferred tools and adds them to both
+// a.active and a.exposeTools so they are callable on the next LLM turn.
+// Called after TOOL_SEARCH returns matches — this is evva's equivalent of
+// ref's tool_reference expansion.
+//
+// Already-active names are silently skipped (idempotent). Names not in the
+// deferred allowlist are skipped — the agent never expands beyond the
+// profile's declared authority.
+func (a *Agent) MarkDiscovered(names []tools.ToolName) error {
+	a.resolveMu.Lock()
+	defer a.resolveMu.Unlock()
+
+	var toBuild []tools.ToolName
+	for _, n := range names {
+		if _, ok := a.active[string(n)]; ok {
+			continue
+		}
+		if _, ok := a.deferredAllowlist[n]; !ok {
+			continue
+		}
+		toBuild = append(toBuild, n)
+	}
+	if len(toBuild) == 0 {
+		return nil
+	}
+
+	built, err := toolset.Build(toBuild, a.toolState)
+	if err != nil {
+		return fmt.Errorf("agent: MarkDiscovered build: %w", err)
+	}
+	for _, t := range built {
+		a.active[t.Name()] = t
+	}
+	a.exposeTools = append(a.exposeTools, built...)
+	return nil
+}
+
 // Skills returns the user-installed skill catalog as the UI sees it —
 // name + description per entry, sorted by name. Implements ui.Controller
 // so the TUI's slash-suggestion panel can list skills alongside the

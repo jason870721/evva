@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/johnny1110/evva/pkg/constant"
@@ -184,6 +186,11 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 			ToolResults: toolResults,
 		})
 
+		// After TOOL_SEARCH returns matches, register the discovered
+		// tools so they appear in a.exposeTools on the next LLM call.
+		// This is evva's equivalent of ref's tool_reference expansion.
+		a.discoverToolsFromResults(resp.ToolCalls, toolResults)
+
 		// Iteration boundary: persist the post-tool-result state so a
 		// crash before the next LLM call doesn't lose this round-trip.
 		a.persistSession()
@@ -327,4 +334,43 @@ func (a *Agent) dispatchToolCalls(ctx context.Context, calls []*tools.Call) ([]*
 		}
 	}
 	return results, nil
+}
+
+// discoverToolsFromResults scans the just-completed tool results for
+// TOOL_SEARCH calls and registers any newly-discovered deferred tools via
+// MarkDiscovered. The tools become callable on the next LLM turn — evva's
+// equivalent of ref's tool_reference expansion.
+func (a *Agent) discoverToolsFromResults(calls []*tools.Call, results []*llm.ToolResult) {
+	for i, call := range calls {
+		if call.Name != string(tools.TOOL_SEARCH) {
+			continue
+		}
+		if results[i] == nil || results[i].IsError {
+			continue
+		}
+		// The result body is: JSON line + "\n\n<functions>...</functions>".
+		// Parse only the first line (the JSON envelope).
+		body := results[i].Content
+		if idx := strings.Index(body, "\n\n<functions>"); idx >= 0 {
+			body = body[:idx]
+		}
+		var out struct {
+			Matches []string `json:"matches"`
+		}
+		if err := json.Unmarshal([]byte(body), &out); err != nil {
+			a.logger.Warn("tool_search: parse matches", "err", err)
+			continue
+		}
+		if len(out.Matches) == 0 {
+			continue
+		}
+		names := make([]tools.ToolName, len(out.Matches))
+		for j, m := range out.Matches {
+			names[j] = tools.ToolName(m)
+		}
+		if err := a.MarkDiscovered(names); err != nil {
+			a.logger.Warn("tool_search: MarkDiscovered", "err", err, "names", out.Matches)
+		}
+		a.logger.Debug("tool_search: discovered", "names", out.Matches)
+	}
 }

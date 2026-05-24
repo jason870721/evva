@@ -294,8 +294,14 @@ func newToolSearchWith(descs []tools.Descriptor) *ToolSearchTool {
 
 func decodeSearchOutput(t *testing.T, body string) searchOutput {
 	t.Helper()
+	// The result body is: JSON line + "\n\n<functions>...</functions>".
+	// Parse only the first line (the JSON envelope).
+	jsonPart := body
+	if idx := strings.Index(body, "\n\n<functions>"); idx >= 0 {
+		jsonPart = body[:idx]
+	}
 	var out searchOutput
-	if err := json.Unmarshal([]byte(body), &out); err != nil {
+	if err := json.Unmarshal([]byte(jsonPart), &out); err != nil {
 		t.Fatalf("decode output: %v\nbody: %s", err, body)
 	}
 	return out

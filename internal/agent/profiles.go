@@ -22,7 +22,6 @@ import (
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/internal/tools/ux"
-	"github.com/johnny1110/evva/internal/toolset"
 	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/llm"
@@ -284,22 +283,13 @@ func modeDeferredNames() []tools.ToolName {
 	return out
 }
 
-// deferredToolSpecs flattens a list of deferred tool names into the prompt
-// shape sysprompt.PromptContext consumes. Each name is resolved through
-// toolset.Describe — names that don't resolve (unknown, registration race)
-// are dropped rather than erroring; the resulting prompt simply omits them.
+// deferredToolSpecs converts a list of deferred tool names into the prompt
+// shape sysprompt.PromptContext consumes. Only the Name is included — full
+// schemas are fetched on demand via tool_search.
 func deferredToolSpecs(names []tools.ToolName) []sysprompt.DeferredToolSpec {
 	out := make([]sysprompt.DeferredToolSpec, 0, len(names))
 	for _, n := range names {
-		d, err := toolset.Describe(n)
-		if err != nil {
-			continue
-		}
-		out = append(out, sysprompt.DeferredToolSpec{
-			Name:        d.Name,
-			Description: d.Description,
-			Schema:      d.Schema,
-		})
+		out = append(out, sysprompt.DeferredToolSpec{Name: string(n)})
 	}
 	return out
 }

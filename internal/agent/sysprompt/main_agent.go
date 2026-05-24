@@ -1,7 +1,6 @@
 package sysprompt
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -72,10 +71,11 @@ func buildMainPrompt(ctx PromptContext) string {
 	)
 }
 
-// mainDeferredToolsSection renders the deferred-tool catalog as a <functions>
-// block. The model sees one <function>{...}</function> line per tool with
-// the same encoding as the regular tool list at the top of the prompt, so
-// every deferred tool is wire-callable without a tool_search round trip.
+// mainDeferredToolsSection renders the deferred-tool names as an
+// <available-deferred-tools> block — one name per line, no schemas.
+// This matches ref/ Claude Code's formatDeferredToolLine which returns
+// only tool.name. The model must use tool_search to fetch full schemas
+// before invoking any deferred tool.
 //
 // Empty input returns "" so the joinSections caller drops the heading too.
 func mainDeferredToolsSection(specs []DeferredToolSpec) string {
@@ -83,29 +83,15 @@ func mainDeferredToolsSection(specs []DeferredToolSpec) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("# Deferred tools (pre-loaded schemas)\n")
-	b.WriteString("The following tools are deferred — they're advertised by name in this session but you can invoke them directly. Their full input schemas appear in the <functions> block below; treat them exactly like the regular tools at the top of this prompt. Use ")
+	b.WriteString("# Available deferred tools\n")
+	b.WriteString("The following tools are deferred — only their names are listed here. Their full JSON schemas are NOT pre-loaded. You must use ")
 	b.WriteString(nameToolSearch)
-	b.WriteString(" only for discovery (\"is there a tool that does X?\"), not to fetch schemas — they are already here.\n\n")
-	b.WriteString("<functions>\n")
+	b.WriteString(" to fetch a deferred tool's schema before you can invoke it. Until fetched, only the name is known — there is no parameter schema, so the tool cannot be invoked.\n\n")
+	b.WriteString("<available-deferred-tools>\n")
 	for _, s := range specs {
-		entry := struct {
-			Description string          `json:"description"`
-			Name        string          `json:"name"`
-			Parameters  json.RawMessage `json:"parameters"`
-		}{
-			Description: s.Description,
-			Name:        s.Name,
-			Parameters:  s.Schema,
-		}
-		raw, err := json.Marshal(entry)
-		if err != nil {
-			fmt.Fprintf(&b, "<function>{\"name\":%q,\"error\":%q}</function>\n", s.Name, err.Error())
-			continue
-		}
-		fmt.Fprintf(&b, "<function>%s</function>\n", raw)
+		fmt.Fprintf(&b, "%s\n", s.Name)
 	}
-	b.WriteString("</functions>")
+	b.WriteString("</available-deferred-tools>")
 	return b.String()
 }
 
@@ -139,15 +125,16 @@ func mainToolsGuideSection() string {
 		"- For non-trivial implementation work (new features, architectural decisions, multi-file refactors, anything with multiple reasonable approaches), call `" + nameEnterPlanMode + "` BEFORE writing code. It flips the session into a read-only stance and gates the next step on user approval via `" + nameExitPlanMode + "`. Skip plan mode for typos, single-function additions, and tasks the user has already scoped specifically.\n" +
 		"- Only when the user explicitly says \"worktree\" (e.g. \"start a worktree\", \"work in a worktree\"), call `" + nameEnterWorktree + "` to create an isolated git worktree under `.evva/worktrees/<slug>/` and switch the session into it; pair with `" + nameExitWorktree + "` to leave (action `\"keep\"` preserves it, `\"remove\"` deletes the directory and branch). Never invoke this pair for ordinary branch work or refactors — only on an explicit worktree request.\n\n" +
 		"## Deferred tools and `" + nameToolSearch + "`\n" +
-		"Some tools are deferred — they don't appear in the main `<functions>` block at the top of this prompt. Their schemas are pre-loaded further down (the \"Deferred tools (pre-loaded schemas)\" section). You can call a deferred tool by name directly whenever you know it exists.\n\n" +
-		"Use `" + nameToolSearch + "` for DISCOVERY: when you're not sure which tool fits the job, or want to confirm a tool is available before relying on it. The result is a compact JSON envelope `{\"matches\": [...], \"query\": \"...\", \"total_deferred_tools\": N}` — names only, no schemas (those are already in your context).\n\n" +
+		"Some tools are deferred — they don't appear in the main `<functions>` block at the top of this prompt. Only their names are listed in the `<available-deferred-tools>` section below. Until you fetch a deferred tool's schema via `" + nameToolSearch + "`, only the name is known — there is no parameter schema, so the tool cannot be invoked.\n\n" +
+		"Use `" + nameToolSearch + "` to fetch full JSONSchema definitions for deferred tools. The result includes each matched tool's complete schema inside a `<functions>` block. Once a tool's schema appears in that result, it is callable exactly like any tool defined at the top of the prompt.\n\n" +
 		"Query forms:\n" +
 		"- `{\"query\": \"select:ask_user_question,push_notification\"}` — exact-name selection. Useful as a \"does this exist?\" check.\n" +
 		"- `{\"query\": \"notebook jupyter\"}` — keyword search across name / search-hint / description / tags. Tolerates typos and subsequences (e.g. \"noteboook\", \"jpyter\" still match).\n" +
 		"- `{\"query\": \"+web search\"}` — `+`-prefixed term required; the rest only contribute to ranking.\n\n" +
 		"Rules:\n" +
-		"- Don't `" + nameToolSearch + "` before every deferred call. Schemas are already loaded — invoke the tool directly.\n" +
-		"- Don't waste a search if you already know the tool name. Skip straight to invoking it.\n\n" +
+		"- Don't `" + nameToolSearch + "` before every deferred call — only when you need a tool you haven't loaded yet.\n" +
+		"- Once a tool's schema is fetched, it stays loaded for the rest of the session.\n" +
+		"- If you already know the tool name, go ahead and search for it — schemas are NOT pre-loaded.\n\n" +
 		"## Background daemons (`" + nameBash + " run_in_background:true`, `" + nameMonitor + "`, async `" + nameAgent + "`, `" + nameDaemonList + "`, `" + nameDaemonOutput + "`, `" + nameDaemonStop + "`)\n" +
 		"A *daemon* is any long-running unit the agent kicks off and lets run on its own: bash detached jobs (id prefix `b`), monitor streams (`m`), and async subagents (`a`). They all flow through one set of control tools.\n" +
 		"For commands you don't need the result of immediately (long builds, watch loops, dev servers, background fetches), set `run_in_background: true` on `" + nameBash + "`. The tool returns a daemon id; the process keeps running while you continue other work. When it finishes, you'll receive a `<system-reminder>` on a later turn carrying the final status + captured output — there's no need to poll.\n" +

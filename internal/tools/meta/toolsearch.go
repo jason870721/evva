@@ -15,18 +15,20 @@ import (
 // method value bound to whatever owns the lookup (typically toolset.ToolState).
 type DeferredLookupFn func() DeferredLookup
 
-// ToolSearchTool exposes deferred-tool metadata to the model.
+// ToolSearchTool fetches full schema definitions for deferred tools so they
+// can be called.
 //
-// Deferred tools appear by name in the system prompt; their full JSON Schemas
-// are pre-injected into the same prompt at session start (see
-// sysprompt.mainDeferredToolsSection). TOOL_SEARCH itself returns a compact
-// JSON envelope — the model has already seen the schemas and uses
-// TOOL_SEARCH for discovery / "is this one available", not schema fetching.
+// Deferred tools appear by NAME ONLY in the system prompt (see
+// sysprompt.mainDeferredToolsSection). Until fetched via tool_search, only the
+// name is known — there is no parameter schema, so the tool cannot be invoked.
+// The Execute result returns the matched tools' complete JSONSchema definitions
+// inside a <functions> block; once a tool's schema appears in that result, it
+// is callable exactly like any tool defined at the top of the prompt.
 //
-// This output shape mirrors ref/src/tools/ToolSearchTool/ToolSearchTool.ts.
-// The divergence from ref: ref pre-injects only names and uses Anthropic
-// tool_reference blocks to expand schemas on the wire; evva pre-injects full
-// schemas because not every provider supports tool_reference expansion.
+// This mirrors ref/src/tools/ToolSearchTool/prompt.ts. evva diverges from ref
+// in one respect: ref uses Anthropic tool_reference content blocks (API-level
+// expansion); evva returns full schemas inline as text because not every
+// provider supports tool_reference.
 type ToolSearchTool struct {
 	lookup DeferredLookupFn
 }
@@ -41,9 +43,9 @@ func NewToolSearch(lookup DeferredLookupFn) *ToolSearchTool {
 func (t *ToolSearchTool) Name() string { return string(tools.TOOL_SEARCH) }
 
 func (t *ToolSearchTool) Description() string {
-	return "Fetches the names of deferred tools that match a query so they can be called.\n\n" +
-		"Deferred tools appear by name in this session's system prompt and their full JSON schemas are pre-loaded there too. Use this tool to discover or confirm which deferred tools match a topic — you do NOT need to call it before invoking a deferred tool whose name you already know.\n\n" +
-		"Result format: a JSON object `{\"matches\": [...], \"query\": \"...\", \"total_deferred_tools\": N}`. The matched names are wire-callable immediately; their schemas are already in the system prompt.\n\n" +
+	return "Fetches full schema definitions for deferred tools so they can be called.\n\n" +
+		"Deferred tools appear by name only in this session's system prompt. Until fetched, only the name is known — there is no parameter schema, so the tool cannot be invoked. This tool takes a query, matches it against the deferred tool list, and returns the matched tools' complete JSONSchema definitions inside a <functions> block. Once a tool's schema appears in that result, it is callable exactly like any tool defined at the top of the prompt.\n\n" +
+		"Result format: each matched tool appears as one <function>{\"description\": \"...\", \"name\": \"...\", \"parameters\": {...}}</function> line inside the <functions> block — the same encoding as the tool list at the top of this prompt.\n\n" +
 		"Query forms:\n" +
 		"- \"select:Read,Edit,Grep\" — fetch these exact tools by name\n" +
 		"- \"notebook jupyter\" — keyword search, up to max_results best matches\n" +
@@ -115,6 +117,39 @@ func (t *ToolSearchTool) Execute(_ context.Context, logger *slog.Logger, input j
 	if err != nil {
 		return tools.Result{IsError: true, Content: fmt.Sprintf("tool_search: marshal: %v", err)}, nil
 	}
+
+	// Append full schemas for matched tools so the model can see parameter
+	// shapes immediately — mirrors ref's tool_reference expansion but inline.
+	if len(matches) > 0 {
+		var b strings.Builder
+		b.Write(body)
+		b.WriteString("\n\n<functions>\n")
+		for _, name := range matches {
+			for _, d := range descriptors {
+				if d.Name == name {
+					entry := struct {
+						Description string          `json:"description"`
+						Name        string          `json:"name"`
+						Parameters  json.RawMessage `json:"parameters"`
+					}{
+						Description: d.Description,
+						Name:        d.Name,
+						Parameters:  d.Schema,
+					}
+					raw, mErr := json.Marshal(entry)
+					if mErr != nil {
+						fmt.Fprintf(&b, "<function>{\"name\":%q,\"error\":%q}</function>\n", name, mErr.Error())
+					} else {
+						fmt.Fprintf(&b, "<function>%s</function>\n", raw)
+					}
+					break
+				}
+			}
+		}
+		b.WriteString("</functions>")
+		return tools.Result{Content: b.String()}, nil
+	}
+
 	return tools.Result{Content: string(body)}, nil
 }
 
