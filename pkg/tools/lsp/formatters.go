@@ -9,20 +9,14 @@ import (
 )
 
 const (
-	maxDefinitionResults   = 1
-	maxDefinitionBytes     = 2 * 1024
-	maxReferencesResults   = 50
-	maxReferencesBytes     = 20 * 1024
-	maxHoverBytes          = 5 * 1024
-	maxSymbolResults       = 100
-	maxSymbolBytes         = 30 * 1024
-	maxWorkspaceResults    = 50
-	maxWorkspaceBytes      = 20 * 1024
-	maxImplementationResults = 20
-	maxImplementationBytes   = 10 * 1024
-	maxCallHierarchyResults  = 30
-	maxCallHierarchyBytes    = 15 * 1024
-	globalResultCapBytes     = 40 * 1024
+	maxDefinitionResults = 1
+	maxDefinitionBytes   = 2 * 1024
+	maxReferencesBytes   = 20 * 1024
+	maxHoverBytes        = 5 * 1024
+	maxSymbolBytes       = 30 * 1024
+	maxWorkspaceBytes    = 20 * 1024
+	maxImplementationBytes = 10 * 1024
+	maxCallHierarchyBytes  = 15 * 1024
 )
 
 // formatDefinition formats a textDocument/definition result.
@@ -67,18 +61,9 @@ func formatReferences(raw json.RawMessage) string {
 	}
 
 	var b strings.Builder
-	total := len(locs)
-	shown := total
-	if shown > maxReferencesResults {
-		shown = maxReferencesResults
-	}
-
-	fmt.Fprintf(&b, "References (%d results):\n", total)
-	for i := 0; i < shown; i++ {
+	fmt.Fprintf(&b, "References (%d results):\n", len(locs))
+	for i := range locs {
 		fmt.Fprintf(&b, "  %s\n", formatLocation(locs[i]))
-	}
-	if total > shown {
-		fmt.Fprintf(&b, "  ...and %d more locations\n", total-shown)
 	}
 	return truncString(b.String(), maxReferencesBytes)
 }
@@ -121,18 +106,10 @@ func formatDocumentSymbols(raw json.RawMessage) string {
 			return "No symbols found."
 		}
 		var b strings.Builder
-		total := len(infos)
-		shown := total
-		if shown > maxSymbolResults {
-			shown = maxSymbolResults
-		}
-		fmt.Fprintf(&b, "Symbols (%d results):\n", total)
-		for i := 0; i < shown; i++ {
+		fmt.Fprintf(&b, "Symbols (%d results):\n", len(infos))
+		for i := range infos {
 			fmt.Fprintf(&b, "  %s\t%s @ %s\n",
 				infos[i].Kind, infos[i].Name, formatLocation(infos[i].Location))
-		}
-		if total > shown {
-			fmt.Fprintf(&b, "  ...and %d more symbols\n", total-shown)
 		}
 		return truncString(b.String(), maxSymbolBytes)
 	}
@@ -163,9 +140,6 @@ func formatHierarchicalSymbols(syms []protocol.DocumentSymbol) string {
 
 func formatSymTree(b *strings.Builder, syms []*protocol.DocumentSymbol, depth int, count *int) {
 	for _, s := range syms {
-		if *count >= maxSymbolResults {
-			return
-		}
 		indent := strings.Repeat("  ", depth)
 		rng := fmt.Sprintf("%d:%d-%d:%d",
 			s.Range.Start.Line+1, s.Range.Start.Character+1,
@@ -199,19 +173,10 @@ func formatWorkspaceSymbols(raw json.RawMessage, query string) string {
 	sortSymbolsByKind(infos)
 
 	var b strings.Builder
-	total := len(infos)
-	shown := total
-	if shown > maxWorkspaceResults {
-		shown = maxWorkspaceResults
-	}
-
-	fmt.Fprintf(&b, "Workspace symbols matching %q (%d results):\n", query, total)
-	for i := 0; i < shown; i++ {
+	fmt.Fprintf(&b, "Workspace symbols matching %q (%d results):\n", query, len(infos))
+	for i := range infos {
 		fmt.Fprintf(&b, "  %s\t%s — %s\n",
 			infos[i].Kind, infos[i].Name, formatLocation(infos[i].Location))
-	}
-	if total > shown {
-		fmt.Fprintf(&b, "  ...and %d more symbols\n", total-shown)
 	}
 	return truncString(b.String(), maxWorkspaceBytes)
 }
@@ -261,18 +226,9 @@ func formatImplementation(raw json.RawMessage) string {
 	}
 
 	var b strings.Builder
-	total := len(locs)
-	shown := total
-	if shown > maxImplementationResults {
-		shown = maxImplementationResults
-	}
-
-	fmt.Fprintf(&b, "Implementations (%d results):\n", total)
-	for i := 0; i < shown; i++ {
+	fmt.Fprintf(&b, "Implementations (%d results):\n", len(locs))
+	for i := range locs {
 		fmt.Fprintf(&b, "  %s\n", formatLocation(locs[i]))
-	}
-	if total > shown {
-		fmt.Fprintf(&b, "  ...and %d more locations\n", total-shown)
 	}
 	return truncString(b.String(), maxImplementationBytes)
 }
@@ -294,21 +250,13 @@ func formatCallHierarchy(raw json.RawMessage) string {
 	}
 
 	var b strings.Builder
-	shown := len(items)
-	if shown > maxCallHierarchyResults {
-		shown = maxCallHierarchyResults
-	}
-
-	fmt.Fprintf(&b, "Call hierarchy (%d items):\n", shown)
-	for i := 0; i < shown; i++ {
+	fmt.Fprintf(&b, "Call hierarchy (%d items):\n", len(items))
+	for i := range items {
 		fmt.Fprintf(&b, "  %s\t%s — %s\n",
 			items[i].Kind, items[i].Name, formatLocation(protocol.Location{
 				URI:   items[i].URI,
 				Range: items[i].SelectionRange,
 			}))
-	}
-	if len(items) > shown {
-		fmt.Fprintf(&b, "  ...and %d more items\n", len(items)-shown)
 	}
 	return truncString(b.String(), maxCallHierarchyBytes)
 }
@@ -328,22 +276,14 @@ func formatIncomingCalls(raw json.RawMessage) string {
 	}
 
 	var b strings.Builder
-	shown := len(calls)
-	if shown > maxCallHierarchyResults {
-		shown = maxCallHierarchyResults
-	}
-
-	fmt.Fprintf(&b, "Incoming calls (%d):\n", shown)
-	for i := 0; i < shown; i++ {
+	fmt.Fprintf(&b, "Incoming calls (%d):\n", len(calls))
+	for i := range calls {
 		c := calls[i]
 		for _, r := range c.FromRanges {
 			fmt.Fprintf(&b, "  from %s %s @ %s:%d:%d\n",
 				c.From.Kind, c.From.Name, c.From.URI,
 				r.Start.Line+1, r.Start.Character+1)
 		}
-	}
-	if len(calls) > shown {
-		fmt.Fprintf(&b, "  ...and %d more callers\n", len(calls)-shown)
 	}
 	return truncString(b.String(), maxCallHierarchyBytes)
 }
@@ -363,22 +303,14 @@ func formatOutgoingCalls(raw json.RawMessage) string {
 	}
 
 	var b strings.Builder
-	shown := len(calls)
-	if shown > maxCallHierarchyResults {
-		shown = maxCallHierarchyResults
-	}
-
-	fmt.Fprintf(&b, "Outgoing calls (%d):\n", shown)
-	for i := 0; i < shown; i++ {
+	fmt.Fprintf(&b, "Outgoing calls (%d):\n", len(calls))
+	for i := range calls {
 		c := calls[i]
 		for _, r := range c.FromRanges {
 			fmt.Fprintf(&b, "  to %s %s @ %s:%d:%d\n",
 				c.To.Kind, c.To.Name, c.To.URI,
 				r.Start.Line+1, r.Start.Character+1)
 		}
-	}
-	if len(calls) > shown {
-		fmt.Fprintf(&b, "  ...and %d more callees\n", len(calls)-shown)
 	}
 	return truncString(b.String(), maxCallHierarchyBytes)
 }
