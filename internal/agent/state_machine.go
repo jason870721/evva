@@ -12,6 +12,7 @@ import (
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/hooks"
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -112,7 +113,28 @@ func (a *Agent) drainUserPrompts() {
 		a.session.Append(llm.Message{Role: llm.RoleUser, Content: reminder})
 	}
 	for _, p := range prompts {
-		a.session.Append(llm.Message{Role: llm.RoleUser, Content: p})
+		// UserPromptSubmit for mid-run prompts: same semantics as the
+		// primary Run() path — block drops the prompt, additionalContext
+		// is appended. Fires with background ctx since drainUserPrompts
+		// runs between turns (no per-call ctx available).
+		effectivePrompt := p
+		if a.hookDispatcher.Has(hooks.EventUserPromptSubmit) {
+			addCtx, blocked, reason, he := a.hookDispatcher.FireUserPromptSubmit(context.Background(), p)
+			if he != nil {
+				a.logger.Warn("hooks.userpromptsubmit.drain", "err", he)
+			}
+			if blocked {
+				a.emit(event.KindError, func(e *event.Event) {
+					e.Error = &event.ErrorPayload{Stage: "UserPromptSubmit(drain)", Message: reason}
+				})
+				a.logger.Info("hooks.userpromptsubmit.drain.blocked", "reason", reason)
+				continue
+			}
+			if addCtx != "" {
+				effectivePrompt = effectivePrompt + "\n" + addCtx
+			}
+		}
+		a.session.Append(llm.Message{Role: llm.RoleUser, Content: effectivePrompt})
 	}
 	a.logger.Debug("user_prompts.drained", "count", len(prompts))
 }
@@ -260,6 +282,10 @@ func (a *Agent) limitBreak() error {
 		e.IterLimit = &event.IterLimitPayload{Iters: int(a.maxIters.Load())}
 	})
 
+	// Notification hook: fire-and-forget for out-of-band events.
+	// Uses Background ctx since limitBreak is called without a request context.
+	a.hookDispatcher.FireNotification(context.Background(), "iteration limit reached", "Iteration Limit", "iter_limit")
+
 	return ErrIterLimit
 }
 
@@ -302,12 +328,40 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 		return &llm.ToolResult{ID: call.ID, Content: msg, IsError: true}, nil
 	}
 
-	if denied, denyResult := a.permissionGate(ctx, call); denied {
+	// PreToolUse hooks fire before the permission gate. A hook can block
+	// the tool (skip gate + execute), mutate the input, or override the
+	// permission decision. effectiveInput is the input the tool actually
+	// executes with — it starts as the model's call.Input and may be
+	// replaced by hookSpecificOutput.updatedInput.
+	effectiveInput := call.Input
+	var postCtx string
+	var permOverride string
+
+	if a.hookDispatcher.Has(hooks.EventPreToolUse) {
+		dec, he := a.hookDispatcher.FirePreToolUse(ctx, call.Name, effectiveInput, call.ID)
+		if he != nil {
+			a.logger.Warn("hooks.pretooluse", "err", he)
+		}
+		if dec != nil {
+			if dec.Blocked {
+				return a.toolError(call, dec.BlockReason), nil
+			}
+			if len(dec.UpdatedInput) > 0 {
+				effectiveInput = dec.UpdatedInput
+			}
+			if dec.AdditionalContext != "" {
+				postCtx = dec.AdditionalContext
+			}
+			permOverride = dec.PermissionDecision
+		}
+	}
+
+	if denied, denyResult := a.permissionGateWithOverride(ctx, call, effectiveInput, permOverride); denied {
 		return denyResult, nil
 	}
 
 	toolLogger := a.logger.With("tool", call.Name, "tool_id", call.ID)
-	result, err := tool.Execute(ctx, toolLogger, call.Input)
+	result, err := tool.Execute(ctx, toolLogger, effectiveInput)
 	if err != nil {
 		// Go-level failure, not a tool-reported error.
 		a.logger.Error("tool.exec.fail", "name", call.Name, "err", err)
@@ -323,11 +377,25 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 		"bytes", len(result.Content),
 	)
 
+	content := result.Content
+	if a.hookDispatcher.Has(hooks.EventPostToolUse) {
+		add, he := a.hookDispatcher.FirePostToolUse(ctx, call.Name, effectiveInput, result.Content, call.ID, result.IsError)
+		if add != "" {
+			content = content + "\n" + add
+		}
+		if he != nil {
+			a.logger.Warn("hooks.posttooluse", "err", he)
+		}
+	}
+	if postCtx != "" {
+		content = content + "\n" + postCtx
+	}
+
 	if !a.IsSubagent() {
 		a.emit(event.KindToolUseResult, func(e *event.Event) {
 			e.ToolUseResult = &event.ToolUseResultPayload{
 				ToolID:        call.ID,
-				Content:       result.Content,
+				Content:       content,
 				IsError:       result.IsError,
 				Metadata:      result.Metadata,
 				ContentBlocks: result.ContentBlocks,
@@ -337,22 +405,53 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 
 	return &llm.ToolResult{
 		ID:            call.ID,
-		Content:       result.Content,
+		Content:       content,
 		IsError:       result.IsError,
 		ContentBlocks: result.ContentBlocks,
 	}, nil
 }
 
-// permissionGate runs the call through Decide() and, if needed, the
-// approval broker. Returns (denied=true, result) when the call should NOT
-// reach tool.Execute — the caller turns this into the LLM-visible result.
-//
-// Skipped when no Store is installed (tests, headless runs without
-// permission config). When skipped, the call falls through to Execute as
-// if mode were ModeBypass — preserves prior behavior so existing tests
-// keep working.
-// return (isDenied, denyResult)
-func (a *Agent) permissionGate(ctx context.Context, call *tools.Call) (bool, *llm.ToolResult) {
+// toolError returns a blocked tool result without executing or consulting
+// the permission gate. Called by the PreToolUse hook path when a hook
+// blocks the tool (exit 2 or decision=block).
+func (a *Agent) toolError(call *tools.Call, reason string) *llm.ToolResult {
+	msg := reason
+	if msg == "" {
+		msg = "hook blocked"
+	}
+	if !a.IsSubagent() {
+		a.emit(event.KindToolUseResult, func(e *event.Event) {
+			e.ToolUseResult = &event.ToolUseResultPayload{
+				ToolID:  call.ID,
+				Content: msg,
+				IsError: true,
+			}
+		})
+	}
+	return &llm.ToolResult{ID: call.ID, Content: msg, IsError: true}
+}
+
+// permissionGateWithOverride is permissionGate + the hook's permissionDecision
+// override. effectiveInput is the input the tool will actually execute with
+// (possibly mutated by hookSpecificOutput.updatedInput). override is one of
+// "" | "allow" | "deny" | "ask" — "" means no hook opinion, fall through to
+// the regular gate.
+func (a *Agent) permissionGateWithOverride(ctx context.Context, call *tools.Call, effectiveInput []byte, override string) (bool, *llm.ToolResult) {
+	switch override {
+	case "deny":
+		a.logger.Info("permission.hook_override", "tool", call.Name, "decision", "deny")
+		msg := "hook denied"
+		return true, a.toolError(call, msg)
+	case "allow":
+		a.logger.Info("permission.hook_override", "tool", call.Name, "decision", "allow")
+		return false, nil
+	case "ask":
+		// Fall through to the gate — the gate will run the normal
+		// Decide+Broker path as if no rule auto-decided.
+	default:
+		// "" — no hook opinion; run the gate normally with the effective input.
+	}
+
 	store := a.permissionStore
 	if store == nil {
 		return false, nil
@@ -361,8 +460,16 @@ func (a *Agent) permissionGate(ctx context.Context, call *tools.Call) (bool, *ll
 	mode := a.PermissionMode()
 	hint := buildHint(call)
 
-	pcall := permission.ToolCall{Name: call.Name, Input: call.Input}
+	pcall := permission.ToolCall{Name: call.Name, Input: effectiveInput}
 	d := permission.Decide(pcall, mode, store, hint, a.workdir)
+
+	// When the hook says "ask", force the Ask branch even if Decide
+	// returned Allow or Deny. This lets a hook prompt the user for a
+	// decision the rule engine would have auto-decided.
+	if override == "ask" && d.Behavior != permission.BehaviorAsk {
+		d.Behavior = permission.BehaviorAsk
+		d.Reason = "hook asked"
+	}
 
 	if d.Behavior == permission.BehaviorAsk {
 		if a.permissionBroker == nil {
@@ -377,13 +484,12 @@ func (a *Agent) permissionGate(ctx context.Context, call *tools.Call) (bool, *ll
 		req := permission.ApprovalRequest{
 			AgentID:          a.ID,
 			ToolName:         call.Name,
-			ToolInput:        call.Input,
-			InputDescription: extractInputDescription(call.Input),
+			ToolInput:        effectiveInput,
+			InputDescription: extractInputDescription(effectiveInput),
 			Mode:             mode,
 			Reason:           d.Reason,
 			Hint:             hint,
 		}
-		// Request() will block until user approved.
 		resp, err := a.permissionBroker.Request(ctx, req)
 		if err != nil {
 			a.logger.Warn("permission.broker.cancel", "tool", call.Name, "err", err)

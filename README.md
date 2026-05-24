@@ -6,7 +6,7 @@ A ReAct coding agent in your terminal. Multi-provider LLM, parallel tool dispatc
 
 ## What is EVVAgent?
 
-![evva_logo.png](docs/assets/evva_logo.png)
+![evva_logo.png](docs/assets/logo-3.jpg)
 
 `evva` runs a tool-using LLM agent in your terminal. It speaks Anthropic Claude, DeepSeek, OpenAI, and Ollama through one `llm.Client` interface; dispatches multiple tool calls per turn in parallel; tracks tasks and sub-agents through an observable store; and renders into a bubbletea TUI or a plain-text CLI sink.
 
@@ -103,6 +103,12 @@ Two ways:
 2. **By hand:** open `~/.evva/config/evva-config.yml` and fill in `providers.<provider>.api_key`.
 
 Cloud providers (Anthropic, DeepSeek, OpenAI) need a key; Ollama is local and key-less.
+
+---
+
+## TUI reference
+
+![tui.png](docs/assets/tui.png)
 
 ---
 

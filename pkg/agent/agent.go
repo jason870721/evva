@@ -9,6 +9,7 @@ import (
 	"github.com/johnny1110/evva/internal/question"
 	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
+	"github.com/johnny1110/evva/pkg/hooks"
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/ui"
@@ -135,6 +136,11 @@ func New(cfg Config, opts ...Option) (Agent, error) {
 	if permStore == nil {
 		permStore, _ = permission.Load(appCfg.WorkDir, appCfg.AppHome)
 	}
+	// Hook registry. Loaded from the same settings.json files the
+	// permission store reads; warnings surface on the agent logger
+	// alongside regWarns / memWarns. A nil or empty registry is safe —
+	// the dispatcher noops.
+	hookReg, hookWarns := hooks.Load(appCfg.WorkDir, appCfg.AppHome)
 	permMode := PermissionDefault
 	for _, candidate := range []string{cfg.PermissionMode, appCfg.PermissionMode} {
 		if candidate == "" {
@@ -155,6 +161,7 @@ func New(cfg Config, opts ...Option) (Agent, error) {
 		WithPersona(personaName),
 		WithPermissionStore(permStore),
 		WithPermissionMode(permMode),
+		WithHookRegistry(hookReg),
 	}
 	base = append(base, opts...)
 
@@ -167,6 +174,9 @@ func New(cfg Config, opts ...Option) (Agent, error) {
 	}
 	for _, w := range memWarns {
 		ag.Logger().Warn("agent: memory", "msg", w)
+	}
+	for _, w := range hookWarns {
+		ag.Logger().Warn("agent: hooks", "msg", w.Error())
 	}
 	return ag, nil
 }

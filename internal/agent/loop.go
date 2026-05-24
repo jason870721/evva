@@ -11,6 +11,7 @@ import (
 	"github.com/johnny1110/evva/pkg/constant"
 
 	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/hooks"
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/tools"
 )
@@ -59,6 +60,44 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 			a.session.Append(llm.Message{Role: llm.RoleUser, Content: reminder})
 		}
 	}
+
+	// SessionStart: fire once per agent lifetime, main agent only.
+	// initialUserMessage is prepended as a synthetic user message;
+	// additionalContext is folded into the upcoming prompt.
+	a.sessionOnce.Do(func() {
+		if !a.IsSubagent() && a.hookDispatcher.Has(hooks.EventSessionStart) {
+			initMsg, addCtx, he := a.hookDispatcher.FireSessionStart(ctx, "startup", string(a.profile.LLMModel))
+			if he != nil {
+				a.logger.Warn("hooks.sessionstart", "err", he)
+			}
+			if initMsg != "" {
+				a.session.Append(llm.Message{Role: llm.RoleUser, Content: initMsg})
+			}
+			if addCtx != "" {
+				prompt = prompt + "\n" + addCtx
+			}
+		}
+	})
+
+	// UserPromptSubmit: fire before the prompt lands. A blocking hook
+	// drops the prompt; additionalContext is appended.
+	if !a.IsSubagent() && a.hookDispatcher.Has(hooks.EventUserPromptSubmit) {
+		addCtx, blocked, reason, he := a.hookDispatcher.FireUserPromptSubmit(ctx, prompt)
+		if he != nil {
+			a.logger.Warn("hooks.userpromptsubmit", "err", he)
+		}
+		if blocked {
+			a.emit(event.KindError, func(e *event.Event) {
+				e.Error = &event.ErrorPayload{Stage: "UserPromptSubmit", Message: reason}
+			})
+			a.logger.Info("hooks.userpromptsubmit.blocked", "reason", reason)
+			return reason, nil
+		}
+		if addCtx != "" {
+			prompt = prompt + "\n" + addCtx
+		}
+	}
+
 	a.session.Append(llm.Message{Role: llm.RoleUser, Content: prompt})
 	a.logger.Debug("run.start", "name", a.Name, "prompt_bytes", len(prompt),
 		"messages", len(a.session.Messages), "prompt", prompt)
@@ -83,6 +122,7 @@ func (a *Agent) Continue(ctx context.Context) (string, error) {
 // already contains whatever messages the caller wants to seed (a fresh
 // RoleUser for Run; nothing extra for Continue).
 func (a *Agent) runLoop(ctx context.Context) (string, error) {
+	var stopHookActive bool
 	for iter := 0; iter < int(a.maxIters.Load()); iter++ {
 
 		// Honor cancellation at the top of every iteration.
@@ -160,6 +200,21 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 				a.persistSession()
 				a.logger.Debug("run.continue.pending_signals", "iter", iter)
 				continue
+			}
+			// Stop hook: fires on the terminal turn, main agent only.
+			// A blocking hook re-enters the loop exactly once;
+			// stopHookActive guards against infinite loops.
+			if !a.IsSubagent() && a.hookDispatcher.Has(hooks.EventStop) {
+				blocked, reason, he := a.hookDispatcher.FireStop(ctx, resp.Content, stopHookActive)
+				if he != nil {
+					a.logger.Warn("hooks.stop", "err", he)
+				}
+				if blocked && !stopHookActive {
+					stopHookActive = true
+					a.session.Append(llm.Message{Role: llm.RoleUser, Content: reason})
+					a.logger.Info("hooks.stop.reenter", "reason", reason)
+					continue
+				}
 			}
 			a.logger.Debug("run.end",
 				"iter", iter,

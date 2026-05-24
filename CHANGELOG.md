@@ -7,6 +7,44 @@ Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
 ## [Unreleased]
 
+## [v1.1.0] — Lifecycle hooks
+
+Closes the hooks-system integrity gap: the engine was written and merged
+in a prior phase but never wired into the agent loop, so the system prompt
+advertised hooks that never fired. This release promotes the hooks package
+from `internal/` to `pkg/hooks`, constructs a per-agent dispatcher at build
+time, and wires the six fire points (SessionStart, UserPromptSubmit,
+PreToolUse, PostToolUse, Stop, Notification) into the loop. A
+`settings.json` hooks block now works as advertised.
+
+### Added
+
+- **Lifecycle hooks** — six-event lifecycle hook system: `SessionStart`,
+  `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `Notification`.
+  Hooks are configured in `.evva/settings.json` (project) or
+  `<APP_HOME>/settings.json` (user), with `command` (shell subprocess) and
+  `http` (webhook) backends. PreToolUse hooks run before the permission gate
+  and can block tools, mutate their input, or override the permission
+  decision. PostToolUse hooks can append additionalContext to tool results
+  for the model's next turn. Stop hooks can re-enter the loop exactly once.
+- **`pkg/hooks`** — public package at `Experimental` stability tier. Exports
+  `Load`, `Registry`, `Dispatcher`, `BasePayload`, `Decision`,
+  `PreToolUseDecision`, and the six `Event` constants.
+- **`agent.WithHookRegistry`** — option for `NewWithProfile` hosts that want
+  to opt into hooks (the one-call `agent.New` loads them automatically
+  alongside `permission.Load`).
+- **Subagent hook inheritance** — subagents share the root's `*Registry` and
+  construct their own `Dispatcher` with the subagent's `agent_id` /
+  `agent_type` in the payload.
+- **Tests** — `pkg/hooks` now has unit tests for matcher, decision, loader,
+  runner, HTTP, and dispatcher.
+
+### Changed
+
+- `permissionGate` replaced with `permissionGateWithOverride` so the
+  PreToolUse hook's `permissionDecision` (allow/deny/ask) can override the
+  gate's behavior.
+
 ## [v1.0.0] — SDK v2 complete + LSP: the pkg-only milestone
 
 Cuts `v1.0.0`. The SDK v2 arc (v2.1–v2.5) closes every embedding gap that
@@ -587,7 +625,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.1.0...HEAD
+[v1.1.0]: https://github.com/johnny1110/evva/compare/v1.0.0...v1.1.0
 [v1.0.0]: https://github.com/johnny1110/evva/compare/v0.2.8-alpha.6...v1.0.0
 [v0.2.8-alpha.6]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.6
 [v0.2.8-alpha.5]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.5

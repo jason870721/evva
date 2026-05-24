@@ -83,6 +83,7 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 		WithPermissionStore(a.permissionStore),
 		WithPermissionBroker(a.permissionBroker),
 		WithQuestionBroker(a.questionBroker), // share the root's wired question broker
+		WithHookRegistry(a.hookRegistry),     // share the parent's loaded hooks
 	)
 	if err != nil {
 		if isolationSession != nil {

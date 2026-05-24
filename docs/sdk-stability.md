@@ -48,6 +48,7 @@ specific minor version and watch the changelog before upgrading.
 | `pkg/tools/lsp` | Language Server Protocol integration (the deferred `lsp_request` tool). The tool name is stable; the package's exported manager/protocol surface may evolve as more LSP features land. |
 | `pkg/observable` | The Store / Change framework is the right shape for evva but might tighten its semantics around concurrent emitters. |
 | `pkg/tools/kits` | Phase 19d ships four kits (GeneralPurpose / ReadOnly / Coding / Research); the exact membership of each kit may grow as new tool families land. The named-kit pattern itself is stable. |
+| `pkg/hooks` | Lifecycle hook engine (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / Notification). The event set and payload shapes follow Claude Code's settings-file contract; the Go surface (`Registry`, `Dispatcher`, `BasePayload`, `WithHookRegistry`) may flex as downstream consumers exercise it. |
 
 ### Internal helper
 
