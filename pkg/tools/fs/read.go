@@ -139,7 +139,10 @@ func (t *ReadTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	if ext == ".pdf" {
 		res := readPDF(resolved, in.Pages)
 		if !res.IsError && t.tracker != nil {
-			t.tracker.RecordRead(resolved, info.ModTime(), in.Pages != "")
+			// Zero hash: extracted PDF text is not the raw file bytes, so a
+			// content-hash staleness fallback can't apply (and edit doesn't
+			// operate on PDFs anyway).
+			t.tracker.RecordRead(resolved, info.ModTime(), in.Pages != "", [32]byte{})
 		}
 		return res, nil
 	}
@@ -153,7 +156,9 @@ func (t *ReadTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 		}
 		res := readNotebook(resolved)
 		if !res.IsError && t.tracker != nil {
-			t.tracker.RecordRead(resolved, info.ModTime(), false)
+			// Zero hash: notebook view is JSON-shaped cells, not raw bytes,
+			// and edit rejects .ipynb — no content-hash fallback applies.
+			t.tracker.RecordRead(resolved, info.ModTime(), false, [32]byte{})
 		}
 		return res, nil
 	}
@@ -205,7 +210,7 @@ func (t *ReadTool) readText(resolved string, info os.FileInfo, in readInput) (to
 
 	if totalLines == 0 {
 		if t.tracker != nil {
-			t.tracker.RecordRead(resolved, info.ModTime(), false)
+			t.tracker.RecordRead(resolved, info.ModTime(), false, HashContent(mem.content))
 		}
 		// System-reminder framing (ref FILE_READ_TOOL behavior) so
 		// the model treats this as a content warning, not actual
@@ -241,7 +246,10 @@ func (t *ReadTool) readText(resolved string, info os.FileInfo, in readInput) (to
 
 	partial := explicitOffset || endIdx < totalLines
 	if t.tracker != nil {
-		t.tracker.RecordRead(resolved, info.ModTime(), partial)
+		// Hash the full LF-normalized content (read in full above, even
+		// for a truncated view) so an edit after a partial read can still
+		// use the content-hash staleness fallback.
+		t.tracker.RecordRead(resolved, info.ModTime(), partial, HashContent(mem.content))
 	}
 
 	selected := allLines[startIdx:endIdx]

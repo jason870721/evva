@@ -9,9 +9,27 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/johnny1110/evva/pkg/tools"
 )
+
+// fileChangedSince reports whether the file at path now has an mtime
+// strictly after baseline. It is the pre-write TOCTOU guard: edit and
+// write capture the file's mtime when they read it, then call this right
+// before writing — if the file changed on disk in between (user, linter,
+// another process), the write is aborted rather than clobbering the
+// concurrent modification with content computed from stale bytes. A stat
+// error returns false; the subsequent write attempt surfaces the real
+// error with better context.
+func fileChangedSince(path string, baseline time.Time) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.ModTime().After(baseline)
+}
 
 // Names lists every tool name this package contributes, in canonical order.
 func Names() []tools.ToolName {
@@ -36,6 +54,13 @@ func Names() []tools.ToolName {
 func resolvePath(pathStr, workdir string) (string, error) {
 	if pathStr == "" {
 		return "", fmt.Errorf("file_path is required")
+	}
+	// Reject UNC / network paths (\\server\share, //server/share) before
+	// any normalization. Filesystem operations on these can leak NTLM
+	// credentials to a remote host; filepath.Clean would also collapse the
+	// leading // and hide the intent. Mirrors ref's UNC short-circuit.
+	if strings.HasPrefix(pathStr, `\\`) || strings.HasPrefix(pathStr, "//") {
+		return "", fmt.Errorf("UNC / network paths are not allowed: %s", pathStr)
 	}
 	expanded, err := expandHome(pathStr)
 	if err != nil {

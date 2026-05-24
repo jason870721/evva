@@ -28,7 +28,7 @@ func (t *WriteTool) Description() string {
 
 Usage:
 - This tool will overwrite the existing file if there is one at the provided path.
-- If this is an existing file, you MUST use the ` + "`read`" + ` tool first to read the file's contents. This tool will fail if you did not read the file first, if the file's mtime has advanced since the read, or if the prior read was a partial-view (offset/limit).
+- If this is an existing file, you MUST use the ` + "`read`" + ` tool first to read the file's contents. This tool will fail if you did not read the file first, or if the file's bytes changed on disk since the read. A truncated or offset read is fine.
 - Prefer the Edit tool for modifying existing files — it only sends the diff. Only use this tool to create new files or for complete rewrites.
 - NEVER create documentation files (*.md) or README files unless explicitly requested by the User.
 - Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.
@@ -77,23 +77,15 @@ func (t *WriteTool) Execute(ctx context.Context, logger *slog.Logger, input json
 		return tools.Result{IsError: true, Content: fmt.Sprintf("write: %s is a directory, not a regular file.", in.FilePath)}, nil
 	}
 
-	if existedBefore && t.tracker != nil {
-		if ok, reason := t.tracker.CanWrite(resolved, priorInfo.ModTime()); !ok {
-			return tools.Result{
-				IsError: true,
-				Content: fmt.Sprintf("write: %s — path: %s", reason, in.FilePath),
-			}, nil
-		}
-	}
-
+	// Read prior content before the CanWrite check: it feeds the content-
+	// hash staleness fallback (so a spurious mtime bump doesn't force a
+	// re-read), preserves the original encoding on overwrite, and supplies
+	// the before-image for the diff.
+	//
 	// Encoding detection: existing UTF-16 LE files (Notepad / Windows
 	// default) must be re-encoded as UTF-16 on overwrite or the file
 	// becomes unreadable in its original consumer. New files default
-	// to UTF-8.
-	//
-	// Prior content (CRLF-normalized via readFileWithEncoding) is what
-	// we feed to buildOverwriteDiff so the diff renders cleanly even
-	// for Windows / UTF-16 files.
+	// to UTF-8. Prior content is CRLF-normalized via readFileWithEncoding.
 	enc := encUTF8
 	var priorContent string
 	if existedBefore {
@@ -101,6 +93,15 @@ func (t *WriteTool) Execute(ctx context.Context, logger *slog.Logger, input json
 		if merr == nil {
 			enc = mem.enc
 			priorContent = mem.content
+		}
+	}
+
+	if existedBefore && t.tracker != nil {
+		if ok, reason := t.tracker.CanWrite(resolved, priorInfo.ModTime(), HashContent(priorContent)); !ok {
+			return tools.Result{
+				IsError: true,
+				Content: fmt.Sprintf("write: %s — path: %s", reason, in.FilePath),
+			}, nil
 		}
 	}
 
@@ -114,6 +115,14 @@ func (t *WriteTool) Execute(ctx context.Context, logger *slog.Logger, input json
 	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
 		return tools.Result{IsError: true, Content: fmt.Sprintf("write: could not create parent dirs: %s", err)}, nil
 	}
+	// TOCTOU guard: if the file changed on disk between the read above and
+	// this overwrite, refuse so we don't clobber a concurrent modification.
+	if existedBefore && fileChangedSince(resolved, priorInfo.ModTime()) {
+		return tools.Result{
+			IsError: true,
+			Content: fmt.Sprintf("write: %s was modified after it was read (mtime advanced mid-write). Re-read it before overwriting. — path: %s", resolved, in.FilePath),
+		}, nil
+	}
 	// Write is a full replacement: the model sent explicit line
 	// endings and meant them. Do NOT restore CRLF even if the original
 	// file used CRLF. Encoding (UTF-16 / UTF-8) IS preserved so the
@@ -126,7 +135,7 @@ func (t *WriteTool) Execute(ctx context.Context, logger *slog.Logger, input json
 
 	if t.tracker != nil {
 		if newInfo, statErr := os.Stat(resolved); statErr == nil {
-			t.tracker.Record(resolved, newInfo.ModTime(), false)
+			t.tracker.Record(resolved, newInfo.ModTime(), false, HashContent(in.Content))
 		} else {
 			t.tracker.Forget(resolved)
 		}

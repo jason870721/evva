@@ -33,6 +33,12 @@ const (
 // change semantics on these files. Ref TS uses /\.(md|mdx)$/i.
 var markdownExt = regexp.MustCompile(`(?i)\.(md|mdx)$`)
 
+// MaxEditFileSize caps the on-disk byte size edit will load into memory.
+// edit reads the whole file via readFileWithEncoding, so a multi-GB file
+// would OOM the process; reject it instead. Mirrors ref FileEditTool's
+// MAX_EDIT_FILE_SIZE (1 GiB).
+const MaxEditFileSize = 1 << 30 // 1 GiB
+
 type EditTool struct {
 	tracker *ReadTracker
 	workdir string
@@ -48,7 +54,7 @@ func (t *EditTool) Description() string {
 	return `Performs exact string replacements in files.
 
 Usage:
-- You must use your ` + "`read`" + ` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. Edits also fail if the file's mtime has advanced on disk since the last read, or if the prior read was a partial-view (offset/limit) — in either case, re-read the file first.
+- You must use your ` + "`read`" + ` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. An edit also fails if the file's bytes changed on disk since your last read — re-read it first. A truncated or offset read is fine; you do not need to have seen the whole file to edit it.
 - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + tab. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 - Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
@@ -131,6 +137,13 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 		}, nil
 	}
 
+	if info.Size() > MaxEditFileSize {
+		return tools.Result{
+			IsError: true,
+			Content: fmt.Sprintf("edit: file is too large to edit (%d bytes; limit is %d bytes / 1 GiB): %s. Use targeted bash tooling (sed/awk) for very large files.", info.Size(), MaxEditFileSize, in.FilePath),
+		}, nil
+	}
+
 	mem, err := readFileWithEncoding(resolved)
 	if err != nil {
 		return tools.Result{IsError: true, Content: fmt.Sprintf("edit: could not read %s: %s", in.FilePath, err)}, nil
@@ -150,7 +163,7 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	}
 
 	if t.tracker != nil {
-		if ok, reason := t.tracker.CanEdit(resolved, info.ModTime()); !ok {
+		if ok, reason := t.tracker.CanEdit(resolved, info.ModTime(), HashContent(mem.content)); !ok {
 			logger.Warn("edit.fail", "path", in.FilePath, "reason", reason)
 			return tools.Result{
 				IsError: true,
@@ -223,13 +236,25 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	}
 	diff := buildEditDiff(resolved, before, after, actualOld, newStr, oldLineNums)
 
+	// TOCTOU guard: between reading mem.content above and this write the
+	// user or another process could have changed the file. Refuse if the
+	// mtime advanced past our initial stat so we never clobber a concurrent
+	// modification with content computed from stale bytes. Mirrors ref
+	// FileEditTool's re-check inside its atomic read-modify-write section.
+	if fileChangedSince(resolved, info.ModTime()) {
+		return tools.Result{
+			IsError: true,
+			Content: fmt.Sprintf("edit: %s was modified after it was read (mtime advanced mid-edit). Re-read it before editing. — path: %s", resolved, in.FilePath),
+		}, nil
+	}
+
 	if err := writeFileWithEncoding(resolved, after, mem.enc, mem.lf == endCRLF); err != nil {
 		return tools.Result{IsError: true, Content: fmt.Sprintf("edit: could not write %s: %s", in.FilePath, err)}, nil
 	}
 
 	if t.tracker != nil {
 		if newInfo, statErr := os.Stat(resolved); statErr == nil {
-			t.tracker.Record(resolved, newInfo.ModTime(), false)
+			t.tracker.Record(resolved, newInfo.ModTime(), false, HashContent(after))
 		} else {
 			t.tracker.Forget(resolved)
 		}
@@ -254,7 +279,7 @@ func (t *EditTool) createNewFile(resolved string, in editInput) (tools.Result, e
 	}
 	if t.tracker != nil {
 		if newInfo, statErr := os.Stat(resolved); statErr == nil {
-			t.tracker.Record(resolved, newInfo.ModTime(), false)
+			t.tracker.Record(resolved, newInfo.ModTime(), false, HashContent(in.NewString))
 		}
 	}
 	diff := buildCreateDiff(resolved, in.NewString)
@@ -269,7 +294,7 @@ func (t *EditTool) createNewFile(resolved string, in editInput) (tools.Result, e
 // as the initial content. No matching, no quote handling.
 func (t *EditTool) applyToEmptyFile(resolved string, info os.FileInfo, mem fileInMemory, in editInput) (tools.Result, error) {
 	if t.tracker != nil {
-		if ok, reason := t.tracker.CanEdit(resolved, info.ModTime()); !ok {
+		if ok, reason := t.tracker.CanEdit(resolved, info.ModTime(), HashContent(mem.content)); !ok {
 			return tools.Result{
 				IsError: true,
 				Content: fmt.Sprintf("edit: %s — path: %s", reason, in.FilePath),
@@ -277,12 +302,18 @@ func (t *EditTool) applyToEmptyFile(resolved string, info os.FileInfo, mem fileI
 		}
 	}
 	after := in.NewString
+	if fileChangedSince(resolved, info.ModTime()) {
+		return tools.Result{
+			IsError: true,
+			Content: fmt.Sprintf("edit: %s was modified after it was read (mtime advanced mid-edit). Re-read it before editing. — path: %s", resolved, in.FilePath),
+		}, nil
+	}
 	if err := writeFileWithEncoding(resolved, after, mem.enc, mem.lf == endCRLF); err != nil {
 		return tools.Result{IsError: true, Content: fmt.Sprintf("edit: could not write %s: %s", in.FilePath, err)}, nil
 	}
 	if t.tracker != nil {
 		if newInfo, statErr := os.Stat(resolved); statErr == nil {
-			t.tracker.Record(resolved, newInfo.ModTime(), false)
+			t.tracker.Record(resolved, newInfo.ModTime(), false, HashContent(after))
 		}
 	}
 	diff := buildCreateDiff(resolved, after)

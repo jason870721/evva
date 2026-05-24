@@ -63,11 +63,16 @@ func TestEdit_BlockedWithoutPriorRead(t *testing.T) {
 func TestEdit_BlockedOnMtimeDrift(t *testing.T) {
 	path := writeTempFile(t, "hello world")
 	tr := NewReadTracker()
-	// Record a read from one second in the past so any os.Chtimes
-	// "now" will count as drift.
+	// Record a read (of the original bytes) from one second in the past.
 	earlier := time.Now().Add(-time.Second)
-	tr.Record(path, earlier, false)
-	// Move the file's mtime forward.
+	tr.Record(path, earlier, false, HashContent("hello world"))
+	// Simulate an external process rewriting the file with different bytes
+	// and bumping its mtime. Changed content + advanced mtime is a real
+	// drift the content-hash fallback must NOT mask. "hello" survives so
+	// the rejection is the drift guard, not a failed old_string match.
+	if err := os.WriteFile(path, []byte("hello CHANGED world"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
 	later := time.Now().Add(time.Hour)
 	if err := os.Chtimes(path, later, later); err != nil {
 		t.Fatalf("chtimes: %v", err)
@@ -84,22 +89,24 @@ func TestEdit_BlockedOnMtimeDrift(t *testing.T) {
 	}
 }
 
-// TestEdit_BlockedOnPartialView — a partial read (offset/limit) is
-// not enough context to edit safely.
-func TestEdit_BlockedOnPartialView(t *testing.T) {
+// TestEdit_AllowedAfterPartialView — Part 0: a partial read (offset/
+// limit) no longer blocks edits. The edit re-reads the full file and
+// requires old_string to match uniquely, so seeing only a slice is safe.
+func TestEdit_AllowedAfterPartialView(t *testing.T) {
 	path := writeTempFile(t, "hello world")
 	tr := NewReadTracker()
 	info, _ := os.Stat(path)
-	tr.Record(path, info.ModTime(), true) // partial
+	tr.Record(path, info.ModTime(), true, HashContent("hello world")) // partial
 
 	tool := NewEdit(tr, "")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
 		`{"file_path":"`+path+`","old_string":"hello","new_string":"bye"}`))
-	if !res.IsError {
-		t.Fatal("expected partial-view rejection")
+	if res.IsError {
+		t.Fatalf("edit after partial-view read should succeed; got %q", res.Content)
 	}
-	if !strings.Contains(res.Content, "partially read") {
-		t.Errorf("error should mention 'partially read'; got %q", res.Content)
+	got, _ := os.ReadFile(path)
+	if string(got) != "bye world" {
+		t.Errorf("edit not applied; file = %q", string(got))
 	}
 }
 
@@ -490,6 +497,61 @@ func TestEdit_MarkdownPreservesTrailingSpaces(t *testing.T) {
 	want := "line1  \nline2\n"
 	if string(got) != want {
 		t.Errorf("markdown trailing spaces stripped (should be preserved): got %q want %q", string(got), want)
+	}
+}
+
+// TestEdit_AllowedOnMtimeDriftSameContent — Part 3: a touch / formatter /
+// cloud-sync can bump mtime without changing bytes. The content-hash
+// fallback recognizes the file is unchanged and lets the edit proceed
+// instead of forcing a needless re-read.
+func TestEdit_AllowedOnMtimeDriftSameContent(t *testing.T) {
+	path := writeTempFile(t, "hello world")
+	tr := NewReadTracker()
+	earlier := time.Now().Add(-time.Second)
+	tr.Record(path, earlier, false, HashContent("hello world"))
+	// mtime moves forward; the bytes stay identical.
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	tool := NewEdit(tr, "")
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
+		`{"file_path":"`+path+`","old_string":"hello","new_string":"bye"}`))
+	if res.IsError {
+		t.Fatalf("edit should be allowed when mtime moved but content is identical; got %q", res.Content)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "bye world" {
+		t.Errorf("edit not applied; file = %q", string(got))
+	}
+}
+
+// TestEdit_RejectsOversizeFile — Part 1: edit loads the whole file into
+// memory, so it refuses files larger than MaxEditFileSize (1 GiB) to
+// avoid OOM. Uses a sparse file (Truncate) so no real bytes are written,
+// and asserts the size guard fires before the read-tracker check.
+func TestEdit_RejectsOversizeFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.txt")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := f.Truncate(MaxEditFileSize + 1); err != nil {
+		f.Close()
+		t.Fatalf("truncate (sparse): %v", err)
+	}
+	f.Close()
+
+	tool := NewEdit(NewReadTracker(), "")
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
+		`{"file_path":"`+path+`","old_string":"x","new_string":"y"}`))
+	if !res.IsError {
+		t.Fatal("expected oversize-file rejection")
+	}
+	if !strings.Contains(res.Content, "too large") {
+		t.Errorf("error should mention 'too large'; got %q", res.Content)
 	}
 }
 

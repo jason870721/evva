@@ -61,7 +61,12 @@ func TestWrite_OverwriteBlockedOnMtimeDrift(t *testing.T) {
 	path := writeTempFile(t, "old")
 	tr := NewReadTracker()
 	earlier := time.Now().Add(-time.Second)
-	tr.Record(path, earlier, false)
+	tr.Record(path, earlier, false, HashContent("old"))
+	// External rewrite (different bytes) + mtime bump = real drift the
+	// content-hash fallback must not mask.
+	if err := os.WriteFile(path, []byte("changed underfoot"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
 	later := time.Now().Add(time.Hour)
 	if err := os.Chtimes(path, later, later); err != nil {
 		t.Fatalf("chtimes: %v", err)
@@ -78,22 +83,25 @@ func TestWrite_OverwriteBlockedOnMtimeDrift(t *testing.T) {
 	}
 }
 
-// TestWrite_OverwriteBlockedOnPartialView — the prior read was a
-// partial-view slice; overwriting would clobber unseen content.
-func TestWrite_OverwriteBlockedOnPartialView(t *testing.T) {
+// TestWrite_OverwriteAllowedAfterPartialView — Part 0: a prior partial
+// read no longer blocks an overwrite. Write is a full replacement; the
+// model supplies the complete new content, so seeing only a slice of the
+// old file is irrelevant.
+func TestWrite_OverwriteAllowedAfterPartialView(t *testing.T) {
 	path := writeTempFile(t, "old")
 	tr := NewReadTracker()
 	info, _ := os.Stat(path)
-	tr.Record(path, info.ModTime(), true)
+	tr.Record(path, info.ModTime(), true, HashContent("old"))
 
 	tool := NewWrite(tr, "")
 	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
 		json.RawMessage(`{"file_path":"`+path+`","content":"new"}`))
-	if !res.IsError {
-		t.Fatal("expected partial-view rejection")
+	if res.IsError {
+		t.Fatalf("overwrite after partial-view read should succeed; got %q", res.Content)
 	}
-	if !strings.Contains(res.Content, "partially read") {
-		t.Errorf("error should mention 'partially read'; got %q", res.Content)
+	got, _ := os.ReadFile(path)
+	if string(got) != "new" {
+		t.Errorf("overwrite not applied; file = %q", string(got))
 	}
 }
 

@@ -54,7 +54,11 @@ func recordFullRead(t *testing.T, tr *ReadTracker, path string) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	tr.Record(path, info.ModTime(), false)
+	mem, err := readFileWithEncoding(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	tr.Record(path, info.ModTime(), false, HashContent(mem.content))
 }
 
 func TestRead_FileNotFound(t *testing.T) {

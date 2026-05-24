@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestResolvePathExpandsTilde locks down that `~/x` expands using the
@@ -90,6 +91,51 @@ func TestResolvePathPreservesAbsolute(t *testing.T) {
 func TestResolvePathRejectsEmpty(t *testing.T) {
 	if _, err := resolvePath("", ""); err == nil {
 		t.Fatal("expected error for empty path, got nil")
+	}
+}
+
+// TestResolvePathRejectsUNC — Part 4: UNC / network paths are refused
+// before any normalization, since filesystem operations on them can leak
+// NTLM credentials to a remote host, and filepath.Clean would otherwise
+// collapse the leading // and hide the intent.
+func TestResolvePathRejectsUNC(t *testing.T) {
+	for _, p := range []string{`\\server\share\secret.txt`, "//server/share/secret.txt"} {
+		if _, err := resolvePath(p, "/tmp"); err == nil {
+			t.Errorf("resolvePath(%q) should reject UNC path", p)
+		}
+	}
+}
+
+// TestFileChangedSince — Part 2: the pre-write TOCTOU guard. A file whose
+// mtime advanced past the baseline is "changed"; an untouched file is not;
+// a missing file is treated as unchanged (the write attempt surfaces the
+// real error with better context).
+func TestFileChangedSince(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	baseline := info.ModTime()
+
+	if fileChangedSince(path, baseline) {
+		t.Error("unchanged file should not report a change")
+	}
+
+	later := baseline.Add(time.Hour)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+	if !fileChangedSince(path, baseline) {
+		t.Error("file with advanced mtime should report a change")
+	}
+
+	if fileChangedSince(filepath.Join(dir, "missing.txt"), baseline) {
+		t.Error("missing file should be treated as unchanged (stat error → false)")
 	}
 }
 
