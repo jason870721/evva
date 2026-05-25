@@ -12,7 +12,10 @@ var (
 	OLLAMA    = LLMProvider{Name: "ollama", ApiUrl: "http://localhost:11434", Models: []Model{QWEN_3_6}}
 	ANTHROPIC = LLMProvider{Name: "anthropic", ApiUrl: "https://api.anthropic.com", Models: []Model{SONNET_4_6, OPUS_4_7}}
 	DEEPSEEK  = LLMProvider{Name: "deepseek", ApiUrl: "https://api.deepseek.com", Models: []Model{DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO}}
-	OPENAI    = LLMProvider{Name: "openai", ApiUrl: "https://api.openai.com", Models: []Model{GPT_5_5}}
+	// OPENAI — all currently listed models are reasoning-class (gpt-5 / o-series).
+	// If a non-reasoning model (gpt-4*, gpt-3.5*) is added here later, update
+	// pkg/llm/openai/client.go isReasoningModel to match.
+	OPENAI = LLMProvider{Name: "openai", ApiUrl: "https://api.openai.com", Models: []Model{GPT_5_4_MINI, GPT_5_5}}
 )
 
 type Model string
@@ -30,7 +33,8 @@ const (
 	DEEPSEEK_V4_PRO   Model = "deepseek-v4-pro"
 
 	// OPENAI
-	GPT_5_5 Model = "gpt-5.5"
+	GPT_5_4_MINI Model = "gpt-5.4-mini"
+	GPT_5_5      Model = "gpt-5.5"
 )
 
 func GetAllProviders() []LLMProvider {
@@ -85,5 +89,6 @@ var MODEL_CONTEXT_SIZE = map[Model]int{
 	OPUS_4_7:          500_000,
 	DEEPSEEK_V4_FLASH: 1_000_000,
 	DEEPSEEK_V4_PRO:   1_000_000,
-	GPT_5_5:           500_000,
+	GPT_5_4_MINI:      400_000,
+	GPT_5_5:           1_050_000,
 }

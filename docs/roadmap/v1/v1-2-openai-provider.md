@@ -137,7 +137,9 @@ Ship is complete when **all** of these pass:
 
 **File:** `pkg/constant/llm.go`.
 
-Pick real OpenAI model ids and a sensible fast/pro split. Recommended (the executor should confirm against OpenAI's then-current model list at implementation time — model id strings are the single brittle thing in this phase):
+**First action — verify current OpenAI model list.** Before writing any code, run `web_search` for "OpenAI API model list 2025 2026" and `web_fetch` the OpenAI platform docs at `platform.openai.com/docs/models`. Model id strings are the single brittle thing in this phase — do not guess. Pin the fast/pro pair from the live model list and note their documented context windows.
+
+Recommended candidate pair (confirm against live docs at implementation time):
 
 ```go
 var (
@@ -168,6 +170,12 @@ Notes:
 - Delete `GPT_5_5` entirely. It was never referenced outside this file (`grep -rn "GPT_5_5"` confirms — only `pkg/constant/llm.go` mentions it).
 - The user-guide picker mockup at `docs/user-guide/en/user-guide.md:146` (`│   openai / gpt-5.5                                           │`) and the zh-tw mirror at `:153` will need their ASCII art updated to the new ids in Task 5.
 - `LLMProvider.ModelForLevel(1)` returns `Models[0]` (`gpt-5-mini`) — confirm `pkg/constant/llm.go:71` still does the right thing with the new pair (it will: zero behavioral change to the helper itself).
+- After settling on the model ids, add a comment above the `OPENAI` var block categorizing each model as reasoning or non-reasoning. The `isReasoningModel` stub in Task 2.3 depends on this. Example:
+  ```go
+  // OPENAI — all currently listed models are reasoning-class (gpt-5 / o-series).
+  // If a non-reasoning model (gpt-4*, gpt-3.5*) is added here later, update
+  // pkg/llm/openai/client.go isReasoningModel to match.
+  ```
 
 **Do this first.** Every subsequent edit in `pkg/llm/openai/` and the tests will reference the real constants — so reconciling them up front avoids a second pass on imports.
 
@@ -231,14 +239,19 @@ func stripSamplingForReasoning(p llm.LLMParams, model string) llm.LLMParams {
 }
 
 func isReasoningModel(model string) bool {
+    // TODO(isReasoningModel): when a non-reasoning model (gpt-4*, gpt-3.5*,
+    // text-*) is added to constant.OPENAI.Models, grow this allowlist.
+    // The corresponding constant block in pkg/constant/llm.go carries a
+    // matching comment — update both together.
+    //
     // Conservative: every model evva currently ships in constant.OPENAI is a
-    // reasoning model. The allowlist of *non-reasoning* prefixes stays empty
-    // until evva adds a gpt-4* model.
+    // reasoning model (gpt-5 / o-series). Returning true unconditionally is
+    // correct for v1.2.
     return true
 }
 ```
 
-> **Decision rationale:** keeping the allowlist trivially-true today (since `Models: []Model{GPT_5_MINI, GPT_5}` is reasoning-only) makes the wiring obvious and the future extension point clear. Don't over-engineer; the moment a non-reasoning model is added, that's when `isReasoningModel` grows real logic.
+> **Decision rationale:** keeping the allowlist trivially-true today (since `Models: []Model{GPT_5_MINI, GPT_5}` is reasoning-only) makes the wiring obvious and the future extension point clear. The `TODO(isReasoningModel)` marker links the stub to the companion comment in `pkg/constant/llm.go` (Task 0) so a future engineer adding a non-reasoning model is reminded to update both sites. Don't over-engineer; the moment a non-reasoning model is added, that's when `isReasoningModel` grows real logic.
 
 **2.4 — Effort mapping.** OpenAI's `reasoning_effort` enum is **`"low" | "medium" | "high"`** (gpt-5 added `"minimal"` as a fourth tier; the o-series originally had only the three). DeepSeek's `"medium" | "high" | "xhigh" | "max"` mapping does **not** translate. The replacement:
 
@@ -437,7 +450,7 @@ resp.Usage.CacheReadTokens == 5            // from prompt_tokens_details
 resp.Usage.ReasoningTokens == 7            // from completion_tokens_details
 ```
 
-**4.6 — Optional but recommended: a `Complete` round-trip test against `httptest.Server`.** DeepSeek and Claude don't have one; OpenAI is a fresh wire path so an `httptest`-backed `TestComplete` that asserts the request body shape (Authorization header, JSON body, model field, sampling params dropped for reasoning models) catches regressions that an effort-mapping unit test can't. Worth ~50 LOC.
+**4.6 — `TestComplete` round-trip test against `httptest.Server` (required).** DeepSeek and Claude don't have one; OpenAI is a fresh wire path so an `httptest`-backed `TestComplete` that asserts the request body shape (Authorization header, JSON body, model field, sampling params dropped for reasoning models) catches regressions that an effort-mapping unit test can't. Worth ~50 LOC.
 
 ### Task 5 — Docs + version
 
@@ -535,7 +548,7 @@ factory.
 
 - [ ] **Task 0:** `GPT_5_5` removed from `pkg/constant/llm.go`; `GPT_5_MINI` / `GPT_5` constants added; `OPENAI.Models` updated; `MODEL_CONTEXT_SIZE` entries match; `grep -rn "GPT_5_5"` returns nothing.
 - [ ] **Task 1–3:** `pkg/llm/openai/{client,factory,stream}.go` compile; `client.go` ≈ 340 LOC; `stream.go` ≈ 190 LOC; no `reasoning_content` field, no `Thinking apiThinking` field in the OpenAI wire types.
-- [ ] **Task 2.3:** `temperature` / `top_p` are dropped for every model listed in `constant.OPENAI.Models` (verify by inspecting the marshaled request body in the optional `httptest` test, or read the `stripSamplingForReasoning` site by eye).
+- [ ] **Task 2.3:** `temperature` / `top_p` are dropped for every model listed in `constant.OPENAI.Models` (verified by the `httptest`-backed `TestComplete` round-trip test from Task 4.6).
 - [ ] **Task 2.4:** `openaiEffort(0..5)` returns `""`, `"low"`, `"medium"`, `"high"`, `"high"`, `""` respectively (covered by `TestOpenAIEffort`).
 - [ ] **Task 2.5:** A successful response with `usage.prompt_tokens_details.cached_tokens=N` populates `Response.Usage.CacheReadTokens=N`; reasoning tokens land in `Usage.ReasoningTokens`.
 - [ ] **Task 4.2:** `pkg/llm/builtins.TestBuiltinsRegistered` covers `openai`; `go test ./pkg/llm/...` green.
@@ -545,6 +558,7 @@ factory.
 - [ ] **A11 (docs):** `docs/extending.md:24-25` updated; `docs/user-guide/en/user-guide.md:786` import comment updated; the picker mockup at `:146` shows the real model ids; zh-tw mirror updated; `CHANGELOG.md` has a `[v1.2.0]` block; `pkg/version.Version` is `"1.2.0"`.
 - [ ] `go build ./...` and `go vet ./...` clean.
 - [ ] `go test ./...` green (including the new openai unit + stream tests).
+- [ ] `go test -race ./...` clean. The SSE stream parser maintains per-index `streamingToolCall` buffers in a map — the race detector validates that no concurrent access slips through.
 - [ ] **Manual (needs a real OpenAI key — flag for a human reviewer):**
   - [ ] Configure `openai.api_key` in `/config`.
   - [ ] `/model` → select `openai / gpt-5` (or `gpt-5-mini`).
@@ -563,7 +577,7 @@ factory.
 | `pkg/llm/openai/client.go` | **New** — buffered Complete, wire types, converters | Task 1, Task 2 |
 | `pkg/llm/openai/stream.go` | **New** — Stream + consumeStream + stream types | Task 1, Task 3 |
 | `pkg/llm/openai/factory.go` | **New** — `ProviderName` + `Factory` | Task 4.1 |
-| `pkg/llm/openai/client_test.go` | **New** — `TestOpenAIEffort` (+ optional `TestComplete` against `httptest.Server`) | Task 4.4, 4.6 |
+| `pkg/llm/openai/client_test.go` | **New** — `TestOpenAIEffort` + `TestComplete` (round-trip against `httptest.Server`) | Task 4.4, 4.6 |
 | `pkg/llm/openai/stream_test.go` | **New** — `TestConsumeStream` + `TestConsumeStreamCancel` | Task 4.5 |
 | `pkg/llm/builtins/builtins.go` | Edit: add `openai` import + `r.MustRegister(openai.ProviderName, openai.Factory)`; update godoc list | Task 4.2 |
 | `pkg/llm/builtins/builtins_test.go` | Edit: add `openai.ProviderName` to existence check | Task 4.3 |

@@ -7,6 +7,49 @@ Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
 ## [Unreleased]
 
+## [v1.2.0] — OpenAI provider
+
+Closes the OpenAI integrity gap. The `constant.OPENAI` provider, the
+`openai.api_key` / `openai.api_url` config fields, and the `/model` picker
+already promised OpenAI as a bundled provider, but `pkg/llm/builtins` only
+registered Anthropic / DeepSeek / Ollama — selecting OpenAI failed with
+`"unknown provider"`. This release ships `pkg/llm/openai` (a focused
+Chat-Completions port of `pkg/llm/deepseek` with the OpenAI-specific
+deviations called out) and registers it via the builtins side-effect, so
+every name in `constant.GetAllProviders()` now resolves through the
+factory.
+
+### Added
+
+- **`pkg/llm/openai`** — new bundled provider implementing the full
+  `llm.Client` contract over OpenAI's Chat Completions API. Supports
+  streaming, tool calling, automatic prompt caching (server-side; reported
+  via `Usage.CacheReadTokens`), and reasoning-effort levels mapped onto
+  OpenAI's `reasoning_effort` enum (`low` / `medium` / `high`).
+- **OpenAI factory registered in `pkg/llm/builtins`** — blank-importing
+  `pkg/llm/builtins` now wires anthropic, deepseek, openai, **and** ollama.
+
+### Changed
+
+- **`pkg/constant/llm.go`** — replaced the solitary `GPT_5_5` model entry
+  with a fast/pro pair (`GPT_5_4_MINI` / `GPT_5_5`). `MODEL_CONTEXT_SIZE`
+  updated to match the documented context windows (400K / 1,050K). The
+  `GPT_5_5` entry was also corrected from the old 500K placeholder to
+  OpenAI's documented 1,050K.
+
+### Notes
+
+- `openai.Client.SupportsDeferLoading()` returns `false`. OpenAI relies on
+  automatic prefix-prompt caching; the agent must therefore keep the
+  `tools` array stable across turns — same posture as DeepSeek and Ollama.
+- Sampling parameters (`temperature`, `top_p`) are silently dropped for
+  reasoning-class OpenAI models (the gpt-5 / o-series fix these at 1).
+  The non-reasoning allowlist is empty in this release; revisit when the
+  first non-reasoning OpenAI model is added to `constant.OPENAI.Models`.
+- Reasoning content is **not** streamed (OpenAI Chat Completions does not
+  surface it). For reasoning visibility, use the Anthropic or DeepSeek
+  providers, both of which emit `llm.ChunkThinking` deltas.
+
 ## [v1.1.0] — Lifecycle hooks
 
 Closes the hooks-system integrity gap: the engine was written and merged
@@ -625,7 +668,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.2.0...HEAD
+[v1.2.0]: https://github.com/johnny1110/evva/compare/v1.1.0...v1.2.0
 [v1.1.0]: https://github.com/johnny1110/evva/compare/v1.0.0...v1.1.0
 [v1.0.0]: https://github.com/johnny1110/evva/compare/v0.2.8-alpha.6...v1.0.0
 [v0.2.8-alpha.6]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.6

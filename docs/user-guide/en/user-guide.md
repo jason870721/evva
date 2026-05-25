@@ -143,6 +143,7 @@ Opens a flat list of every `(provider, model)` pair the binary knows about, curs
 │   anthropic / claude-opus-4-7                                │
 │ ▶ deepseek / deepseek-v4-pro  (current)                      │
 │   deepseek / deepseek-v4-flash                               │
+│   openai / gpt-5.4-mini                                      │
 │   openai / gpt-5.5                                           │
 │                                                              │
 │ [↑↓] navigate · [Enter] switch · [Esc] cancel                │
@@ -783,7 +784,7 @@ import (
 
     "github.com/johnny1110/evva/pkg/agent"
     "github.com/johnny1110/evva/pkg/config"
-    _ "github.com/johnny1110/evva/pkg/llm/builtins" // register anthropic/deepseek/ollama
+    _ "github.com/johnny1110/evva/pkg/llm/builtins" // register anthropic/deepseek/openai/ollama
     "github.com/johnny1110/evva/pkg/ui/bubbletea"
 )
 
