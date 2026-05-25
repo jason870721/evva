@@ -303,6 +303,17 @@ entirely, pass `agent.WithSkillRegistry(skill.NewRegistry())` — an empty
 registry suppresses both the SKILL tool's dispatch list and the system
 prompt's `# Skills` section.
 
+**Bundled skills.** evva ships its own first-party SKILL.md catalog
+(`commit`, `review`, `security-review`, `simplify`, `setup-hooks` — see the
+v1.4.0 `CHANGELOG.md` entry), overlaid onto the disk catalog automatically by
+the one-call `agent.New`. Bundled is the **lowest-precedence** tier
+(`skill.SourceBundled`): a user disk skill with the same name silently
+overrides the bundled body — no shadowing warning. Hosts that construct their
+agent through `agent.NewWithProfile` + an explicit `WithSkillRegistry` do
+**not** pick up the bundled catalog; to ship your own content, build a
+programmatic catalog (the pattern above) rather than reaching into evva's
+private `internal/skills/bundled` package.
+
 ### Custom AppConfig — `CustomConfig`
 
 `config.Config` carries a generic key/value extension slot for

@@ -265,3 +265,154 @@ func TestNewRegistry_EmptyByDefault(t *testing.T) {
 		t.Errorf("expected empty names; got %v", r.Names())
 	}
 }
+
+func TestAddBundled_Insert(t *testing.T) {
+	r := NewRegistry()
+	err := r.AddBundled(SkillMeta{
+		Name:        "commit",
+		Description: "make a commit",
+		BodyFunc:    func() (string, error) { return "# commit make a commit\nbody", nil },
+	})
+	if err != nil {
+		t.Fatalf("AddBundled: %v", err)
+	}
+	got, ok := r.Get("commit")
+	if !ok {
+		t.Fatal("commit not registered")
+	}
+	if got.Source != SourceBundled {
+		t.Errorf("source: got %v want bundled", got.Source)
+	}
+}
+
+func TestAddBundled_ForcesSourceBundled(t *testing.T) {
+	r := NewRegistry()
+	// Caller lies about Source; AddBundled must override to bundled.
+	_ = r.AddBundled(SkillMeta{
+		Name:     "x",
+		Source:   SourceProgrammatic,
+		BodyFunc: func() (string, error) { return "b", nil },
+	})
+	if got, _ := r.Get("x"); got.Source != SourceBundled {
+		t.Errorf("source: got %v want bundled", got.Source)
+	}
+}
+
+func TestAddBundled_SkipsExisting(t *testing.T) {
+	home := t.TempDir()
+	writeSkill(t, home, "commit", "# commit disk version\nDISK_BODY\n")
+	r, _ := LoadRegistry(home, "")
+	warnsBefore := len(r.Warnings)
+
+	err := r.AddBundled(SkillMeta{
+		Name:     "commit",
+		BodyFunc: func() (string, error) { return "BUNDLED_BODY", nil },
+	})
+	if err != nil {
+		t.Fatalf("AddBundled should silently skip, got error: %v", err)
+	}
+	if got, _ := r.Get("commit"); got.Source != SourceHome {
+		t.Errorf("disk skill should win: source=%v want home", got.Source)
+	}
+	if len(r.Warnings) != warnsBefore {
+		t.Errorf("override of bundled must not warn; warnings grew: %v", r.Warnings)
+	}
+	body, _ := r.LoadBody("commit")
+	if !strings.Contains(body, "DISK_BODY") {
+		t.Errorf("LoadBody returned bundled body, expected disk: %q", body)
+	}
+}
+
+func TestAddBundled_Validates(t *testing.T) {
+	r := NewRegistry()
+	if err := r.AddBundled(SkillMeta{Name: "", BodyFunc: func() (string, error) { return "", nil }}); err == nil {
+		t.Error("expected error for empty name")
+	}
+	if err := r.AddBundled(SkillMeta{Name: "no-body"}); err == nil {
+		t.Error("expected error for nil BodyFunc")
+	}
+	var nilReg *Registry
+	if err := nilReg.AddBundled(SkillMeta{Name: "x", BodyFunc: func() (string, error) { return "", nil }}); err == nil {
+		t.Error("expected error for nil registry")
+	}
+}
+
+func TestAddBundled_OverriddenByLoadDir(t *testing.T) {
+	r := NewRegistry()
+	_ = r.AddBundled(SkillMeta{Name: "commit", BodyFunc: func() (string, error) { return "BUNDLED", nil }})
+
+	wd := t.TempDir()
+	writeSkill(t, wd, "commit", "# commit workdir version\nWORKDIR\n")
+	r.loadDir(wd, SourceWorkDir)
+
+	if got, _ := r.Get("commit"); got.Source != SourceWorkDir {
+		t.Errorf("loadDir should replace bundled: source=%v want workdir", got.Source)
+	}
+	warned := false
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "overrides") && strings.Contains(w, "commit") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected cross-source override warning; got %v", r.Warnings)
+	}
+}
+
+func TestParseTitleLine(t *testing.T) {
+	cases := []struct {
+		in       string
+		wantName string
+		wantDesc string
+		wantErr  bool
+	}{
+		{"# name desc here", "name", "desc here", false},
+		{"# name", "name", "", false},
+		{"  # name desc  ", "name", "desc", false},
+		{"# name   two  spaces", "name", "two  spaces", false},
+		{"#name", "", "", true},
+		{"name desc", "", "", true},
+		{"", "", "", true},
+		{"# ", "", "", true},
+		{"#", "", "", true},
+	}
+	for _, c := range cases {
+		name, desc, err := ParseTitleLine(c.in)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("ParseTitleLine(%q): expected error, got name=%q desc=%q", c.in, name, desc)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("ParseTitleLine(%q): unexpected error %v", c.in, err)
+			continue
+		}
+		if name != c.wantName || desc != c.wantDesc {
+			t.Errorf("ParseTitleLine(%q): got (%q, %q) want (%q, %q)", c.in, name, desc, c.wantName, c.wantDesc)
+		}
+	}
+}
+
+// TestPromptPath_DoesNotCallBodyFunc pins acceptance criterion A5: prompt
+// assembly (List/Names/Get) must never invoke BodyFunc — only LoadBody may.
+// A panicking BodyFunc proves it.
+func TestPromptPath_DoesNotCallBodyFunc(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Add(SkillMeta{
+		Name:        "panic-skill",
+		Description: "must not load at prompt time",
+		BodyFunc:    func() (string, error) { panic("BodyFunc called during prompt assembly") },
+	})
+	_ = r.List()
+	_ = r.Names()
+	if _, ok := r.Get("panic-skill"); !ok {
+		t.Fatal("panic-skill missing")
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("expected LoadBody to invoke the panicking BodyFunc")
+		}
+	}()
+	_, _ = r.LoadBody("panic-skill")
+}

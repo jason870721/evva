@@ -7,6 +7,49 @@ Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
 ## [Unreleased]
 
+## [v1.4.0] — Bundled skills
+
+Fills the empty `# Skills` section every fresh install shipped with. The
+skill framework (`pkg/skill`) has been complete and Stable since v1.0; this
+release adds evva's first batch of first-party Markdown skills, embedded in
+the binary and overlaid onto the disk catalog at boot. A user disk skill
+with the same name silently overrides the bundled body — bundled is the
+lowest-precedence tier.
+
+Versioning note: this release jumps from v1.1.0 to v1.4.0. Bundled skills
+(roadmap phase v1.4) shipped ahead of v1.2 (OpenAI provider) and v1.3 (MCP)
+by directive — they deliver day-one value and depend on neither. The version
+follows shipping order, not roadmap-phase order; v1.2 and v1.3 remain on deck.
+
+### Added
+
+- **Bundled skills** — five tier-1 SKILL.md bodies, embedded via `go:embed`
+  (`internal/skills/bundled`) and overlaid onto the disk catalog by
+  `agent.New`:
+  - `commit` — draft and create a git commit for the current diff, authored
+    as evva.
+  - `review` — review a GitHub pull request (uses `gh`).
+  - `security-review` — focused security pass on the branch's pending
+    changes, with parallel subagent false-positive filtering.
+  - `simplify` — three-reviewer parallel cleanup pass (reuse / quality /
+    efficiency) followed by direct fixes.
+  - `setup-hooks` — teaches the model (and through it, the user) how to author
+    `pkg/hooks` entries in `.evva/settings.json`: the schema, the decision
+    JSON, the six events, and a seven-step verification flow. Completes the
+    v1.1 hooks story.
+- **`skill.SourceBundled`** — new `SkillSource` constant; the lowest-precedence
+  tier (a same-named disk or programmatic skill wins silently).
+- **`skill.Registry.AddBundled`** — inserts a skill at `SourceBundled`,
+  silently skipping any name already present (user override wins without a
+  warning).
+- **`skill.ParseTitleLine`** — exported shared title-line parser used by both
+  the disk loader and the bundled loader so the two cannot drift.
+
+### Changed
+
+- `internal/agent/skills.go:loadDiskSkillRegistry` now overlays the bundled
+  catalog onto the disk-loaded registry. Hosts that inject their own registry
+  via `agent.WithSkillRegistry` are unaffected and still skip bundled.
 ## [v1.2.0] — OpenAI provider
 
 Closes the OpenAI integrity gap. The `constant.OPENAI` provider, the

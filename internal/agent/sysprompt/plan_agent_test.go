@@ -39,3 +39,11 @@ func TestPlanAgent_RegistersAsSubagentOnly(t *testing.T) {
 		t.Errorf("PlanAgent should omit memory injection (parent has full context)")
 	}
 }
+
+func TestPlanAgent_NoSkillsSection(t *testing.T) {
+	// AdvertiseSkills: false — the builder must ignore threaded-in Skills.
+	got := buildPlanPrompt(PromptContext{Skills: []SkillRef{{Name: "commit", Description: "y"}}})
+	if strings.Contains(got, "# Skills") {
+		t.Errorf("Plan subagent prompt must not contain a # Skills section")
+	}
+}

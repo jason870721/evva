@@ -36,3 +36,11 @@ func TestGeneralAgent_MentionsRead(t *testing.T) {
 		t.Errorf("General agent should mention the read tool by name")
 	}
 }
+
+func TestGeneralAgent_NoSkillsSection(t *testing.T) {
+	// AdvertiseSkills: false — the builder must ignore threaded-in Skills.
+	got := buildGeneralPrompt(PromptContext{Skills: []SkillRef{{Name: "commit", Description: "y"}}})
+	if strings.Contains(got, "# Skills") {
+		t.Errorf("General subagent prompt must not contain a # Skills section")
+	}
+}

@@ -1,7 +1,11 @@
 # v1.4 — Bundled Skills — Implementation Plan
 
 > **Audience:** senior engineers implementing this phase.
-> **Status:** ready to build.
+> **Status:** ready to build — **verified against the working tree on branch
+> `feature/v1.4` (2026-05-25).** Every inventory line number, symbol, path,
+> and `pkg/hooks` field cited below was checked against the live source;
+> the corrections from that pass are folded in and itemised in
+> §8 (Verification change log) at the end of this doc.
 > **Target release:** `v1.4.0` (additive, minor bump under the Stable-tier promise).
 > **Roadmap source:** `CLAUDE.md` → Roadmap → *v1.4 — Bundled skills*.
 > **Sequencing note:** this phase ships **before** `v1.2` (OpenAI provider) and
@@ -37,11 +41,18 @@ The skill framework (`pkg/skill`) is **already complete** and Stable:
   would bloat their context).
 
 **What is missing:** the framework has **no built-in content.** CLAUDE.md
-states that `/commit` ships, but
-`find /mnt/evva -name SKILL.md -not -path '*/ref/*' -not -path '*/pkg/skill/*'`
-returns **nothing** — there is no `/commit` body on disk and no programmatic
-skill registered anywhere in the binary. Today every fresh install boots
-with an empty `# Skills` section.
+states that `/commit` "already ships," but that is aspirational. A search
+for *committed* skill bodies — `git ls-files '*/SKILL.md'` — returns
+**nothing**, and no programmatic skill is registered anywhere in the
+binary (`skill.NewRegistry()` appears only in the nil-cfg fallback at
+`internal/agent/skills.go:22` and in `pkg/agent/options.go` doc comments;
+nothing calls `Registry.Add` outside tests). The dev tree *does* contain
+`<repo>/.evva/skills/commit/SKILL.md`, but `.evva/` is gitignored
+(`.gitignore:37`) — it is the local runtime `EVVA_HOME`, a *disk-loaded*
+skill, **not** shipped or embedded content (and it predates this plan,
+with a different Conventional-Commits body that ignores evva's `--author`
+policy). A fresh install has an empty `EVVA_HOME`, so today every fresh
+install boots with an empty `# Skills` section.
 
 This phase delivers two things:
 
@@ -96,7 +107,7 @@ deliverable, not the wiring.
 | `internal/agent/sysprompt/fragments.go:208 skillsSection(skills)` | Renders the `# Skills` block — `- <name>: <description>` per skill, **no bodies**. Adds a hint that the user can author more under `<workdir>/.evva/skills/` or `<APP_HOME>/skills/`. |
 | `internal/agent/sysprompt/agent_def.go:90-119` | `MainAgent` has `AdvertiseSkills: true`. `ExploreAgent`, `GeneralAgent`, `PlanAgent` all carry `AdvertiseSkills: false`. **Subagents will not see the bundled catalog — this is intentional and stays.** |
 | `pkg/agent/options.go:99 WithSkillRegistry(r)` | SDK opt-in: a downstream host can pre-install its own registry to skip the disk auto-load. |
-| `internal/agent/spawn.go:80-87` | Spawn passes `WithSkillRegistry` and `WithHookRegistry` down to subagents so the SKILL tool resolves on a subagent path too (though Main is the only profile that surfaces the catalog). |
+| `internal/agent/spawn.go:86` | Spawn passes `WithHookRegistry` to subagents (shares the parent's loaded hooks). It does **not** pass `WithSkillRegistry`: subagents (Explore/General/Plan) carry `AdvertiseSkills: false` and lack the `skill` tool in `ActiveTools`, so they never render or dispatch the catalog. (Their nil `SkillRegistry()` makes `agent.go:310` re-run the disk+bundled load per spawn; bodies are lazy so the cost is a few embed reads, never shown to the subagent. Skipping the overlay when `AdvertiseSkills` is false is a possible micro-opt — out of v1.4 scope.) |
 
 ### 2.3 `pkg/hooks` (v1.1, Experimental)
 
@@ -989,12 +1000,17 @@ evva's `pkg/hooks` settings format. Adapted from
 event names, and decision-JSON fields rewritten against
 `pkg/hooks/types.go`, `pkg/hooks/loader.go`, and `pkg/hooks/decision.go`.
 
-Critical: **evva's hook engine has six events**, not Claude Code's nine.
-The body must list exactly: `SessionStart`, `UserPromptSubmit`,
-`PreToolUse`, `PostToolUse`, `Stop`, `Notification`. PreCompact /
-PostCompact / SessionEnd / PostToolUseFailure / PermissionRequest are
-**reserved in `pkg/hooks/payload.go` but not wired** (v1.1 doc §6 lists
-them as out-of-scope) — the skill body must NOT advertise them.
+Critical: **evva's hook engine defines exactly six events** in
+`pkg/hooks/types.go` (the `Event` enum: `SessionStart`, `UserPromptSubmit`,
+`PreToolUse`, `PostToolUse`, `Stop`, `Notification`). That enum is the
+authoritative list — there is **no** "reserved extra events" set anywhere
+in `pkg/hooks`. The body must NOT advertise Claude Code's additional
+events (`PreCompact`, `PostCompact`, `SessionEnd`, `SubagentStop`,
+`PostToolUseFailure`, `PermissionRequest`); evva does not implement them
+(the v1.1 hooks doc lists them as out-of-scope). Note: the only thing
+`pkg/hooks/payload.go` *reserves* is the set of SessionStart `source`
+values (`"resume"`/`"clear"`/`"compact"`, beyond the active `"startup"`)
+— those are payload field values, not event types.
 
 ```markdown
 # setup-hooks Configure lifecycle hooks in evva's settings.json
@@ -1022,8 +1038,8 @@ evva supports exactly these events. Do not advertise others.
 | `UserPromptSubmit` | Each time the user submits a prompt | `prompt` | Yes — dropping the prompt with a `reason` | No | Yes — `additionalContext` appended to the prompt |
 | `PreToolUse` | Before the permission gate, for every tool call | `tool_name`, `tool_input`, `tool_use_id` | Yes — short-circuits the tool with `block` | Yes — `updatedInput` replaces the args the tool executes with | Yes — folded into the tool result |
 | `PostToolUse` | After the tool returns | `tool_name`, `tool_input`, `tool_response`, `is_error` | No (post-hoc) | No | Yes — `additionalContext` appended to the tool result content |
-| `Stop` | When the agent reaches a terminal turn (no more tool calls) | `last_message`, `stop_hook_active` | Yes — re-enters the loop exactly ONCE (the `stop_hook_active` flag guards a second pass) | No | No |
-| `Notification` | Out-of-band side channel — iteration limit, approval needed | `message`, `title`, `ntype` | No (async fire-and-forget) | No | No (stdout ignored) |
+| `Stop` | When the agent reaches a terminal turn (no more tool calls) | `last_assistant_message`, `stop_hook_active` | Yes — re-enters the loop exactly ONCE (the `stop_hook_active` flag guards a second pass) | No | No |
+| `Notification` | Out-of-band side channel — iteration limit, approval needed | `message`, `title`, `notification_type` | No (async fire-and-forget) | No | No (stdout ignored) |
 
 ## settings.json schema
 
@@ -1062,14 +1078,14 @@ Every hook receives a JSON envelope:
   "session_id": "...",
   "transcript_path": "...",
   "cwd": "/abs/path/to/workdir",
-  "permission_mode": "default" | "plan" | "acceptEdits" | "dontAsk",
+  "permission_mode": "default" | "accept_edits" | "plan" | "bypass",
   "agent_id": "...",
-  "agent_type": "main" | "explore" | "plan" | "general",
+  "agent_type": "main" | "explore" | "plan" | "general-purpose",
   "hook_event_name": "PreToolUse"
 }
 ```
 
-Per-event fields attach on top — PreToolUse adds `tool_name`, `tool_input` (the JSON the LLM emitted), `tool_use_id`. PostToolUse adds `tool_response`, `is_error`. UserPromptSubmit adds `prompt`. Stop adds `last_message`, `stop_hook_active`.
+Per-event fields attach on top — PreToolUse adds `tool_name`, `tool_input` (the JSON the LLM emitted), `tool_use_id`. PostToolUse adds `tool_response`, `is_error`. UserPromptSubmit adds `prompt`. Stop adds `last_assistant_message`, `stop_hook_active`.
 
 ## The decision JSON (parse stdout, exit 0)
 
@@ -1181,7 +1197,7 @@ Tell the user the hook is live, point them at the target settings file path so t
       "matcher": "write|edit",
       "hooks": [{
         "type": "command",
-        "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; gofmt -w \"$f\" 2>/dev/null || prettier --write \"$f\" 2>/dev/null; } || true"
+        "command": "jq -r '.tool_input.file_path' | { read -r f; gofmt -w \"$f\" 2>/dev/null || prettier --write \"$f\" 2>/dev/null; } || true"
       }]
     }]
   }
@@ -1388,17 +1404,17 @@ v1.2 and v1.3 remain on deck and will ship next, in the original order.
   still skip bundled.
 ```
 
-**`docs/sdk-stability.md`** — update the `pkg/skill` row to mention
-`SourceBundled` and `AddBundled`:
+**`docs/sdk-stability.md`** — the current `pkg/skill` row (line 27) reads:
 
-> | `pkg/skill` | `Registry`, `SkillMeta`, `SkillSource` constants
-> (`SourceHome`, `SourceWorkDir`, `SourceProgrammatic`, `SourceBundled`),
-> `LoadRegistry`, `NewRegistry`, `Registry.Add`, `Registry.AddBundled`,
-> `SkillTool`. Skill SDK landed in the Phase 19 sweep; v1.4 added
-> `AddBundled` for evva's own bundled-content channel. |
+> | `pkg/skill` | `Registry`, `SkillMeta`, `LoadRegistry`, `NewRegistry`, `Registry.Add`, `SkillTool`. Skill SDK landed in the Phase 19 "Out of scope" sweep. |
 
-**`docs/extending.md`** — add a paragraph at the end of `### Custom
-skills (Skill SDK)` (~ line 304):
+Replace it to add Task 1's three new Stable symbols:
+
+> | `pkg/skill` | `Registry`, `SkillMeta`, `SkillSource` constants (`SourceHome`, `SourceWorkDir`, `SourceProgrammatic`, `SourceBundled`), `LoadRegistry`, `NewRegistry`, `Registry.Add`, `Registry.AddBundled`, `ParseTitleLine`, `SkillTool`. Skill SDK landed in the Phase 19 "Out of scope" sweep; v1.4 added `SourceBundled` + `AddBundled` (evva's bundled-content channel) and exported `ParseTitleLine` (shared title parser for the disk + bundled loaders). |
+
+**`docs/extending.md`** — add a paragraph at the end of the `### Custom
+skills (Skill SDK)` section (heading at line 256; the section runs through
+the `# Skills` paragraph near line 304):
 
 > evva ships its own bundled SKILL.md catalog (the five tier-1 skills
 > listed in `CHANGELOG.md` under v1.4.0), overlaid onto the disk
@@ -1545,7 +1561,7 @@ Listed so contributors don't propose them as phase additions.
   SKILL.md additions.
 
 - **Skill arguments contract.** evva's `SKILL` tool already accepts an
-  optional `args` string parameter (see `pkg/skill/skill.go:65`) and
+  optional `args` string parameter (the `Args` field at `pkg/skill/skill.go:67`, appended to the body at `:107`) and
   appends it at the end of the returned body as `\\n\\nargs: <value>`.
   This is sufficient for the tier-1 skills' needs. Argument templating
   (`{{args}}` interpolation, multi-arg parsing) and a typed
@@ -1658,3 +1674,48 @@ Listed so contributors don't propose them as phase additions.
          model walks the 6-step verification flow and produces a
          syntactically valid `.evva/settings.json` entry that
          `jq -e .hooks` accepts.
+
+---
+
+## 8. Verification change log (2026-05-25, branch `feature/v1.4`)
+
+This plan was first drafted against an earlier sandbox (it referenced
+`/mnt/evva`). Before marking it ready-to-build, every load-bearing claim
+was re-checked against the live working tree.
+
+**Confirmed accurate (no change needed):** the `pkg/skill` surface and
+line numbers (`registry.go`: `SkillMeta`/`Source*`@41-46/`Add`@100/
+`LoadRegistry`@128/`NewRegistry`@86/`Get`@236/`List`@246/`Names`@260/
+`LoadBody`@273/`parseFirstLine`@180/`Warnings` field@77; `skill.go`:
+`Lookup`@24/`NewSkill`@37/framing string@105); the wiring sites
+(`skills.go:20/35`, `agent.go:310-319`, `toolset/builtins.go:100`,
+`profiles.go:127`, `options.go:99`, `fragments.go:48` author line /
+`:190` slash hint / `:208` skillsSection; `agent_def.go` `AdvertiseSkills`
+Main=true & Explore/General/Plan=false); the six-event `pkg/hooks` surface
+and decision-JSON shape; the tool wire-names (`pkg/tools/name.go`) and
+subagent kinds (`toolnames.go`); `cfg.AppHomeSkillsDir`/`cfg.WorkDirSkillsDir`;
+`Version == "1.1.0"` (so the bump to `1.4.0` is correct);
+`ref/src/commands/{commit,review,security-review}.ts` and
+`ref/src/skills/bundled/simplify.ts` all exist; author policy
+`--author="evva <frizoevva@gmail.com>"` (A7).
+
+**Corrections folded in:**
+
+| # | Where | Was | Now (verified) |
+| --- | --- | --- | --- |
+| 1 | §1 premise | `find /mnt/evva …` returns nothing | `git ls-files '*/SKILL.md'` returns nothing; clarified the gitignored `.evva/` local `EVVA_HOME` artifact (`.gitignore:37`) vs shipped/embedded content. Premise (empty `# Skills` on fresh install) still holds. |
+| 2 | §2.2 wiring table | `spawn.go:80-87` passes `WithSkillRegistry` **and** `WithHookRegistry` | `spawn.go:86` passes `WithHookRegistry` **only**; subagents have no `skill` tool and `AdvertiseSkills:false`, so the catalog is never surfaced. |
+| 3 | §3.5 preamble | extra events "reserved in `pkg/hooks/payload.go`" | No reserved-events set exists; the `Event` enum in `pkg/hooks/types.go` is authoritative (six events). `payload.go` only reserves SessionStart `source` values. |
+| 4 | `setup-hooks` event table + payload prose | Stop receives `last_message` | `last_assistant_message` (`pkg/hooks/payload.go:61`). |
+| 5 | `setup-hooks` event table | Notification receives `ntype` | `notification_type` (JSON tag; Go field is `NType`). |
+| 6 | `setup-hooks` payload JSON | `permission_mode: … "acceptEdits" \| "dontAsk"` | `"default" \| "accept_edits" \| "plan" \| "bypass"` (`pkg/permission/types.go:82-87`). |
+| 7 | `setup-hooks` payload JSON | `agent_type: … "general"` | `"general-purpose"` (`toolnames.go:60`). |
+| 8 | `setup-hooks` auto-format pattern | `jq -r '.tool_response.filePath // .tool_input.file_path'` | `jq -r '.tool_input.file_path'` — evva's `tool_response` is a plain string (`payload.go:49`), not an object, so `.filePath` was inert; `file_path` is the confirmed `edit`/`write` input key (`pkg/tools/fs`). |
+| 9 | §6 args contract | `pkg/skill/skill.go:65` | `Args` field at `:67`, appended at `:107`. |
+| 10 | Task 6 `sdk-stability.md` snippet | mis-quoted the existing row | quoted the real row (line 27) and added `ParseTitleLine` to the proposed Stable surface. |
+| 11 | Task 6 `extending.md` ref | "~ line 304" | heading at line 256 (section runs to ~304). |
+
+Nothing in the work breakdown's *shape* changed — Tasks 0–6 and the five
+tier-1 bodies stand. The corrections are factual-fidelity fixes,
+concentrated (by design) in the `setup-hooks` body, which §5 flags as a
+"documentation surface" that must track `pkg/hooks` exactly.

@@ -9,6 +9,7 @@
   - [/profile — Switch Persona](#profile--switch-persona)
   - [/effort — Thinking Effort](#effort--thinking-effort)
   - [/resume — Resume a Previous Session](#resume--resume-a-previous-session)
+  - [Bundled skills](#bundled-skills)
 - [3. Keybindings](#3-keybindings)
 - [4. Yank Mode — Copying from the Transcript](#4-yank-mode--copying-from-the-transcript)
 - [5. Transcript Search](#5-transcript-search)
@@ -261,6 +262,20 @@ The picker lists the 10 most-recently-touched sessions per page, sorted by last-
 **Subagents:** only the root agent's session is persisted. Subagents spawned via the Agent tool are ephemeral by design and never appear in `/resume`.
 
 Resuming is refused if a run is in flight; press Esc first to cancel, then `/resume` again.
+
+### Bundled skills
+
+evva ships five **bundled skills** out of the box — first-party instruction documents the agent can invoke. The model uses them automatically when a request matches, and you can invoke any of them yourself by typing `/<name>`:
+
+| Skill | What it does |
+| --- | --- |
+| `/commit` | Draft and create a git commit for the current diff, authored as evva. |
+| `/review` | Review a GitHub pull request (uses `gh`). |
+| `/security-review` | Focused security pass on the branch's pending changes. |
+| `/simplify` | Three-reviewer cleanup pass (reuse / quality / efficiency), then applies the fixes. |
+| `/setup-hooks` | Walk you through authoring a lifecycle hook in `.evva/settings.json` (see §8). |
+
+Bundled skills are the **lowest-precedence** tier: drop your own `SKILL.md` at `~/.evva/skills/<name>/SKILL.md` or `<workdir>/.evva/skills/<name>/SKILL.md` with the **same name** to override the built-in body silently. Skills load at startup — restart evva after adding or editing one. For authoring custom skills and the SDK path, see [Building on evva](#12-building-on-evva--the-sdk-for-developers) and `docs/extending.md`.
 
 ---
 

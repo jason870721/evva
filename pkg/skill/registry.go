@@ -33,9 +33,13 @@ import (
 	"strings"
 )
 
-// SkillSource identifies where a skill was loaded from. WorkDir always wins
-// over Home on a name clash; Programmatic always wins over both because it
-// represents an explicit SDK choice the host made at startup. The field is
+// SkillSource identifies where a skill was loaded from. Precedence on a
+// name clash, highest to lowest: Programmatic (an explicit SDK choice the
+// host made at startup) > WorkDir > Home > Bundled (evva's own first-party
+// content, embedded in the binary). Bundled is intentionally lowest so a
+// user's disk skill or a host's programmatic skill silently overrides it —
+// overriding a bundled body is the documented extension point, not a
+// surprise, so that override is NOT recorded as a Warning. The field is
 // exposed mostly for logging and a future `/skills` slash command that
 // wants to surface origin.
 type SkillSource string
@@ -44,6 +48,10 @@ const (
 	SourceHome         SkillSource = "home"
 	SourceWorkDir      SkillSource = "workdir"
 	SourceProgrammatic SkillSource = "programmatic"
+	// SourceBundled is the lowest-precedence tier: a same-named disk skill
+	// (Home or WorkDir) or a Programmatic skill wins silently. Registered
+	// via Registry.AddBundled (see internal/skills/bundled).
+	SourceBundled SkillSource = "bundled"
 )
 
 // SkillMeta is the resolved metadata for a single skill. Body content is
@@ -114,6 +122,41 @@ func (r *Registry) Add(m SkillMeta) error {
 		r.skills = map[string]SkillMeta{}
 	}
 	m.Source = SourceProgrammatic
+	r.skills[m.Name] = m
+	return nil
+}
+
+// AddBundled inserts a skill at the SourceBundled tier — evva's own
+// first-party content. It differs from Add in two ways:
+//
+//  1. If a skill with the same Name already exists (typically loaded from
+//     disk by LoadRegistry, or added programmatically), AddBundled silently
+//     skips the insert and returns nil. The existing entry wins WITHOUT a
+//     Warning — overriding a bundled body is the documented extension point,
+//     not surprise shadowing.
+//  2. Source is force-set to SourceBundled regardless of the caller's value,
+//     mirroring how Add force-sets SourceProgrammatic.
+//
+// Validation matches Add: Name non-empty, BodyFunc non-nil, non-nil
+// receiver. Callers live in internal/skills/bundled; external SDK consumers
+// should use Add for content they ship.
+func (r *Registry) AddBundled(m SkillMeta) error {
+	if r == nil {
+		return fmt.Errorf("skill: nil registry")
+	}
+	if strings.TrimSpace(m.Name) == "" {
+		return fmt.Errorf("skill: name is required")
+	}
+	if m.BodyFunc == nil {
+		return fmt.Errorf("skill: bundled %q has no BodyFunc", m.Name)
+	}
+	if r.skills == nil {
+		r.skills = map[string]SkillMeta{}
+	}
+	if _, exists := r.skills[m.Name]; exists {
+		return nil // user/programmatic override wins; silent skip.
+	}
+	m.Source = SourceBundled
 	r.skills[m.Name] = m
 	return nil
 }
@@ -204,28 +247,42 @@ func (r *Registry) parseFirstLine(path, folder string) (string, bool) {
 		r.warnf("skill: %q has no title line", path)
 		return "", false
 	}
-	if !strings.HasPrefix(first, "# ") {
-		r.warnf("skill: %q first line must start with `# `: got %q", path, first)
+	titleName, desc, err := ParseTitleLine(first)
+	if err != nil {
+		r.warnf("skill: %q: %v", path, err)
 		return "", false
-	}
-	rest := strings.TrimSpace(strings.TrimPrefix(first, "# "))
-	if rest == "" {
-		r.warnf("skill: %q has empty title", path)
-		return "", false
-	}
-
-	// Split into name token + description. We accept both `<name> <desc>`
-	// (the documented form) and a bare `<name>` (description empty).
-	parts := strings.SplitN(rest, " ", 2)
-	titleName := parts[0]
-	desc := ""
-	if len(parts) == 2 {
-		desc = strings.TrimSpace(parts[1])
 	}
 	if titleName != folder {
 		r.warnf("skill: %q title names %q but folder is %q; using folder name", path, titleName, folder)
 	}
 	return desc, true
+}
+
+// ParseTitleLine parses a SKILL.md's first non-blank line — the canonical
+// `# <name> [<description>]` shape — into its name token and optional
+// description. It is the single source of truth both the disk loader
+// (parseFirstLine) and the bundled loader (internal/skills/bundled) call, so
+// a title that loads as a disk skill also loads as a bundled skill and vice
+// versa. Errors carry no package prefix; callers wrap them with context.
+func ParseTitleLine(line string) (name, description string, err error) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return "", "", fmt.Errorf("empty title line")
+	}
+	if !strings.HasPrefix(trimmed, "# ") {
+		return "", "", fmt.Errorf("title line must start with `# `: got %q", trimmed)
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))
+	if rest == "" {
+		return "", "", fmt.Errorf("empty title")
+	}
+	// Accept both `<name> <desc>` (documented) and a bare `<name>`.
+	parts := strings.SplitN(rest, " ", 2)
+	name = parts[0]
+	if len(parts) == 2 {
+		description = strings.TrimSpace(parts[1])
+	}
+	return name, description, nil
 }
 
 func (r *Registry) warnf(format string, args ...any) {

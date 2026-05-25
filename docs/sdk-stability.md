@@ -24,7 +24,7 @@ new options) land in minor versions.
 | `pkg/event` | `Event`, `Kind` constants, payload structs, `Sink` interface. |
 | `pkg/tools` | `Tool`, `Result`, `ToolName` constants, `State` interface. |
 | `pkg/llm` | `Client`, `Message`, `Response`, `Option`, `Registry`, `ClientFactory`. |
-| `pkg/skill` | `Registry`, `SkillMeta`, `LoadRegistry`, `NewRegistry`, `Registry.Add`, `SkillTool`. Skill SDK landed in the Phase 19 "Out of scope" sweep. |
+| `pkg/skill` | `Registry`, `SkillMeta`, `SkillSource` constants (`SourceHome`, `SourceWorkDir`, `SourceProgrammatic`, `SourceBundled`), `LoadRegistry`, `NewRegistry`, `Registry.Add`, `Registry.AddBundled`, `ParseTitleLine`, `SkillTool`. Skill SDK landed in the Phase 19 "Out of scope" sweep; v1.4 added `SourceBundled` + `AddBundled` (evva's bundled-content channel) and exported `ParseTitleLine`. |
 | `pkg/constant` | `LLMProvider`, `Model` constants, `MODEL_CONTEXT_SIZE`. |
 | `pkg/version` | `Version` constant, `BuildStamp`, `String()`. |
 | `pkg/ui` | `UI`, `Controller`, `Skill`, `ProfileChoice`, the read-model accessors, and the `PermissionDecision` / `QuestionResponse` payloads. v2.1 removed the internal-type leaks (`Session()` / `ToolState()` → public read-models); v2.5 rebuilt the bundled TUI on this contract, proving it self-sufficient. |

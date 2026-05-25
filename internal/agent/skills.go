@@ -2,6 +2,7 @@ package agent
 
 import (
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
+	"github.com/johnny1110/evva/internal/skills/bundled"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/skill"
 )
@@ -17,11 +18,18 @@ import (
 // Two reads per agent boot is acceptable for startup; deduping would
 // require threading a pre-built registry through Profile, which couples
 // the public Profile API to skill.Registry.
+//
+// After the disk catalog loads, evva's first-party bundled skills are
+// overlaid via bundled.Register. Bundled is the lowest-precedence tier, so
+// a same-named disk skill (Home or WorkDir) silently wins; bundled warnings
+// (e.g. a malformed embedded title) join reg.Warnings so callers surface
+// them on the agent logger exactly like disk-load warnings.
 func loadDiskSkillRegistry(cfg *config.Config) *skill.Registry {
 	if cfg == nil {
 		return skill.NewRegistry()
 	}
 	reg, _ := skill.LoadRegistry(cfg.AppHomeSkillsDir, cfg.WorkDirSkillsDir)
+	reg.Warnings = append(reg.Warnings, bundled.Register(reg)...)
 	return reg
 }
 
