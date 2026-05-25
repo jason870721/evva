@@ -255,6 +255,66 @@ Listed so contributors don't propose them as phase additions.
 
 ---
 
+## Release workflow
+
+### Branch strategy
+
+```
+main  ← production (beta = latest; no stable release yet)
+  ↑ Sat fast-forward merge
+pre-release  ← staging (weekly feature accumulation, alpha tag)
+  ↑ Sat merge
+dev  ← integration
+  ↑ feature PR, squash/merge after review
+feature/*  ← topic branches (cut from dev)
+```
+
+### Daily development
+
+1. Branch off `dev`: `git checkout -b feature/<ticket-or-name>`.
+2. Commit with conventional prefixes (`feat`, `fix`, `chore`, `docs`, `refactor`, `test`).
+3. Push, open a PR targeting `dev`, wait for merge review.
+
+### Weekly release (Saturday morning)
+
+Currently early-stage — all releases are beta (latest), alpha tags are pre-release only.
+
+**Beta (pre-release → main):**
+
+```bash
+git checkout main && git merge pre-release --ff-only
+git tag -a v<X>.<Y>.<Z>-beta.<N> -m "..."
+git push origin v<X>.<Y>.<Z>-beta.<N>
+gh release create v<X>.<Y>.<Z>-beta.<N> --target main --title "..."
+```
+
+**Alpha (dev → pre-release):**
+
+```bash
+git checkout pre-release && git merge dev
+git tag -a v<X>.<Y>.<Z>-alpha.<N> -m "..."
+git push origin v<X>.<Y>.<Z>-alpha.<N>
+gh release create v<X>.<Y>.<Z>-alpha.<N> --target pre-release --prerelease --title "..."
+```
+
+### Version numbering
+
+`vX.Y.Z`: X = major (new direction), Y = minor (features), Z = patch (bug fixes + small adjustments).
+
+Pre-release suffix: `-beta.<N>` on main, `-alpha.<N>` on pre-release. N starts at 1 per base version.
+
+### CHANGELOG
+
+Only beta releases get a changelog entry. Bump `## [Unreleased]` → `## [vX.Y.Z-beta.N]`, add a new `[Unreleased]` section, summarize under `### Added / Fixed / Changed / Breaking`, update comparison URLs.
+
+### Key rules
+
+- `pkg/version/version.go` stores the current version constant; bump in a separate commit before tagging.
+- Always ask before pushing tags or releases.
+- `gh release create` targets `main` for beta, `pre-release` for alpha.
+
+---
+
 ## Project conventions
 
 - All source under `internal/` is private. Public extension points live in `pkg/`.

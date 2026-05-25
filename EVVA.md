@@ -208,54 +208,93 @@ Key boundaries:
 
 ## Release workflow
 
-Every tagged release follows this sequence. No exceptions — follow it even when the change is a single-line fix.
-
-### 1. Commit the actual changes
+### Branch strategy
 
 ```
-git add <files> && git commit -m "<type>: <description>"
+main  ← production (beta = latest; no stable release yet)
+  ↑ Sat fast-forward merge
+pre-release  ← staging (weekly feature accumulation, alpha tag)
+  ↑ Sat merge
+dev  ← integration
+  ↑ feature PR, squash/merge after review
+feature/*  ← topic branches (cut from dev)
 ```
 
-Conventional commit prefixes: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`.
+### Daily development
 
-### 2. Bump the version
+1. Branch off `dev`: `git checkout -b feature/<ticket-or-name>` (e.g. `feature/PRD-11`, `feature/bundle-skill`).
+2. Commit changes with conventional commit prefixes: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`.
+3. Push to GitHub, open a PR targeting `dev`, wait for merge review.
 
-Edit `pkg/version/version.go` — update the `Version` constant (semver, no leading `v`).
+### Weekly release (every Saturday morning)
 
-### 3. Update CHANGELOG.md
+The project is in early-stage: all releases are beta; no stable release yet. Beta tags are marked as `latest` on GitHub; alpha tags are pre-release only.
 
-Three things happen in one edit:
+**Step 1 — Beta release (pre-release → main)**
 
-1. Rename the existing `## [Unreleased]` heading to `## [v<new-version>]` (the content that was unreleased now belongs to this release).
-2. Insert a fresh `## [Unreleased]` section at the top. If there are known unresolved issues worth flagging, list them here under a `### Known issues` subheading. Otherwise leave it empty.
-3. Insert a `## [v<new-version>]` entry (above the one from step 1) with a summary of what this release contains — use `### Added`, `### Fixed`, `### Changed`, `### Breaking` subheadings as appropriate.
-
-Also update the comparison URLs at the bottom of the file — add links for the new version and bump the `[Unreleased]` compare base.
-
-### 4. Commit the version bump
-
-```
-git add pkg/version/version.go CHANGELOG.md && git commit -m "chore: bump version to <new-version>"
+```bash
+git checkout main
+git merge pre-release --ff-only   # pre-release must be a direct descendant
 ```
 
-### 5. Tag and push — GitHub Release
-
-Example:
+Then bump the version and tag:
 
 ```
-git tag -a v0.2.6-alpha.1 -m "v0.2.6-alpha.1 — Phase 16+17: bash run_in_background + MonitorTool"
-git push origin v0.2.6-alpha.1 2>&1 | tail -3
-gh release create v0.2.6-alpha.1 --target roadmap/phase-16-17 --prerelease --title "v0.2.6-alpha.1 — Bash run_in_background + MonitorTool"
+git tag -a v<X>.<Y>.<Z>-beta.<N> -m "v<X>.<Y>.<Z>-beta.<N> — <summary>"
+git push origin v<X>.<Y>.<Z>-beta.<N>
+gh release create v<X>.<Y>.<Z>-beta.<N> --target main --title "v<X>.<Y>.<Z>-beta.<N> — <summary>"
 ```
 
-Always ask before pushing — pushing is a shared-state operation.
+**Step 2 — Alpha release (dev → pre-release)**
 
-### Files involved
+```bash
+git checkout pre-release
+git merge dev
+```
 
-| File | What changes |
+Then bump the version and tag:
+
+```
+git tag -a v<X>.<Y>.<Z>-alpha.<N> -m "v<X>.<Y>.<Z>-alpha.<N> — <summary>"
+git push origin v<X>.<Y>.<Z>-alpha.<N>
+gh release create v<X>.<Y>.<Z>-alpha.<N> --target pre-release --prerelease --title "v<X>.<Y>.<Z>-alpha.<N> — <summary>"
+```
+
+### Version numbering
+
+`vX.Y.Z` where:
+
+| Component | Meaning |
 |---|---|
-| `pkg/version/version.go` | `Version` constant |
-| `CHANGELOG.md` | Relabel `[Unreleased]` → version, add new `[Unreleased]` + version entry, bump compare URLs |
+| **X** (major) | Breaking changes, new direction |
+| **Y** (minor) | Feature updates |
+| **Z** (patch) | Bug fixes + small adjustments |
+
+Pre-release suffix: `-beta.<N>` (on main), `-alpha.<N>` (on pre-release). N starts at 1 per base version.
+
+### CHANGELOG
+
+Only beta releases get a changelog entry (they're the user-facing release). Each beta entry summarizes the features and fixes accumulated since the last beta. Alpha releases do not get separate changelog entries.
+
+When a beta is published, edit `CHANGELOG.md`:
+
+1. Rename `## [Unreleased]` → `## [v<X>.<Y>.<Z>-beta.<N>]`.
+2. Insert a fresh `## [Unreleased]` section at the top.
+3. Add a summary of what this release contains under `### Added`, `### Fixed`, `### Changed`, `### Breaking`.
+4. Update the comparison URLs at the bottom of the file.
+
+Then commit:
+
+```
+git add CHANGELOG.md && git commit -m "chore: changelog for v<X>.<Y>.<Z>-beta.<N>"
+```
+
+### Key rules
+
+- `pkg/version/version.go` stores the *current* version constant.
+- Bump the version in a separate commit before tagging.
+- Always ask before pushing tags or releases — pushing is a shared-state operation.
+- `gh release create` targets `main` for beta, `pre-release` for alpha.
 
 ---
 

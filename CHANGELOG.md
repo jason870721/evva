@@ -5,6 +5,10 @@ here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
 Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
+Entries up to v1.4.0 predate the branch-based release model (see EVVA.md).
+Going forward, only beta releases on `main` get changelog entries; alpha
+releases on `pre-release` are staging-only and do not get separate entries.
+
 ## [Unreleased]
 
 ## [v1.4.0] — Bundled skills
@@ -711,7 +715,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.0...HEAD
+[v1.4.0]: https://github.com/johnny1110/evva/compare/v1.2.0...v1.4.0
 [v1.2.0]: https://github.com/johnny1110/evva/compare/v1.1.0...v1.2.0
 [v1.1.0]: https://github.com/johnny1110/evva/compare/v1.0.0...v1.1.0
 [v1.0.0]: https://github.com/johnny1110/evva/compare/v0.2.8-alpha.6...v1.0.0
