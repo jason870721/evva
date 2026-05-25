@@ -164,17 +164,76 @@ its tools appear via `tool_search` and execute; list/read resources work.
 
 **Acceptance:** all four bundled skills are invocable in the TUI.
 
-### v1.5 — Harden Experimental → Stable
+### v1.5 — ConfigTool  *(power: give the model a typed handle on its own settings)*
 
-- Per-package tier review in `docs/sdk-stability.md`: `pkg/tools/lsp`
-  (most mature) is the prime Stable candidate; confirm or stabilize
-  `pkg/observable` and `pkg/tools/kits`; `pkg/ui/bubbletea` likely stays
-  Experimental (UI churn) but its contract gets documented.
-- For each package promoted to Stable, add a separate-module compile guard
-  (the `pkg/agent/downstream_test.go` pattern).
+Today the model can only change evva's settings by asking the user to
+open `/config` or hand-edit `evva-config.yml`. ConfigTool is the
+model-facing analogue of that overlay: one tool, `{setting, value?}`,
+that reads when `value` is omitted and writes when it is set. The
+permission posture mirrors `ref/src/tools/ConfigTool/`: auto-allow on
+read, ask on write.
 
-**Acceptance:** every Experimental package has an explicit documented
-disposition; promoted ones gain the downstream compile guard.
+- New `internal/tools/config/`: a `SUPPORTED_SETTINGS` registry that wraps
+  every typed `Set*` accessor on `*pkg/config.Config` (`SetMaxIterations`,
+  `SetDisplayThinking`, `SetEnableAutoMemory`, `SetFetchMaxBytes`,
+  `SetTavilyAPIKey`, `SetProviderAPIKey/URL`, `SetDefaultEffort`, etc.)
+  plus per-setting metadata (`type`, `description`, `options`, optional
+  `validate`) cribbed from `ref/src/tools/ConfigTool/supportedSettings.ts`.
+- New `tools.CONFIG` constant in `pkg/tools/name.go`; factory in
+  `internal/toolset/builtins.go`; added to the Main profile's
+  `ActiveTools` (concurrency-safe; read is `isReadOnly`).
+- Permission gate: read (`value` omitted) → auto-allow; write → `ask`
+  with a "Set `<key>` to `<value>`" message.
+- Prompt generated dynamically from the registry (the "Configurable
+  settings list" block in `ref/src/tools/ConfigTool/prompt.ts`) so the
+  source of truth is one Go map, not duplicated documentation.
+
+**Acceptance:** the model can ask for and change every setting the
+`/config` overlay exposes; reads land without a prompt; writes go
+through the permission broker; unknown settings return a clean error;
+options-validated settings reject out-of-range values.
+
+### v1.6 — (open slot)
+
+Reserved for the next phase the team prioritises. Candidates: harden
+Experimental→Stable per-package review (the deferred v1.0-era item);
+a `/dream` / background-consolidation memory phase; provider rate-limit
+& retry middleware; whatever surfaces from v1.1–v1.5 usage.
+
+### v1.7 — BriefTool  *(integrity: a dedicated, visible reply channel)*
+
+evva today emits assistant text as plain `Content` on each turn. The TUI
+renders it, but the model has no way to **mark** a turn as "the answer
+the user should read" vs. "interstitial work I'm narrating". Port
+`ref/src/tools/BriefTool/` as evva's `send_user_message` tool so the
+model has one explicit channel for messages the user must see — with
+a `status` flag (`normal` | `proactive`) downstream code can route on,
+and an `attachments` list for inline file references.
+
+- New `pkg/tools/brief/` (Stable-candidate; downstream agents will want
+  this surface): `BriefTool` with the input shape
+  `{message, status, attachments?}` ported from
+  `ref/src/tools/BriefTool/BriefTool.ts`.
+- New `tools.SEND_USER_MESSAGE` constant in `pkg/tools/name.go`;
+  factory in `internal/toolset/builtins.go`; tool is **read-only,
+  concurrency-safe**, and enabled by default on the Main profile.
+- The tool emits a new `event.KindUserMessage` (or repurposes an
+  existing assistant-text event) so the TUI can render Brief messages
+  with their `status` and attachments visible, distinct from plain
+  narration.
+- System-prompt fragment lifted from
+  `ref/src/tools/BriefTool/prompt.ts:BRIEF_PROACTIVE_SECTION` (the
+  "Talking to the user" guidance) so the model learns when to use the
+  channel.
+- Attachment resolution (file path → metadata blob) ports from
+  `ref/src/tools/BriefTool/attachments.ts`, scoped to the local
+  filesystem (no Claude.ai upload — out of scope; see below).
+
+**Acceptance:** the model uses `send_user_message` for every reply the
+user is expected to read; `status:"proactive"` messages are visibly
+distinct in the TUI; attachments resolve to relative paths the user
+can click; plain assistant text outside the tool still renders but is
+deprioritised in the UI.
 
 ---
 
@@ -190,8 +249,9 @@ Listed so contributors don't propose them as phase additions.
   not bundled, until there's demand.
 - **Cross-platform shell** (Windows PowerShell, `ref/src/tools/PowerShellTool`)
   — evva is bash-first; revisit if Windows demand appears.
-- **Minor ref tools** — `ConfigTool`, `BriefTool`, `REPLTool`: no current
-  demand; port individually if a use case shows up.
+- **Minor ref tools** — `REPLTool` only (Python/JS scratch REPL): no
+  current demand; port if a use case shows up. (`ConfigTool` and
+  `BriefTool` were promoted to v1.5 and v1.7 respectively.)
 
 ---
 
