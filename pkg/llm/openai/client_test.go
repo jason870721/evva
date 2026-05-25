@@ -19,7 +19,7 @@ func TestOpenAIEffort(t *testing.T) {
 		{1, "low"},
 		{2, "medium"},
 		{3, "high"},
-		{4, "xhigh"},
+		{4, "high"},
 		{5, ""}, // out-of-range
 	}
 	for _, tt := range tests {
@@ -120,48 +120,6 @@ func TestCompleteRoundTrip(t *testing.T) {
 	}
 	if resp.Content != "Hello!" {
 		t.Errorf("Content: got %q, want Hello!", resp.Content)
-	}
-}
-
-// TestCompleteRoundTripNonReasoning verifies that sampling params ARE sent
-// for a hypothetical non-reasoning model. Since no such model currently
-// exists in the constant table, this test overrides the isReasoningModel
-// guard by using a model name that doesn't match the reasoning allowlist.
-// This test will need updating when isReasoningModel grows real logic.
-func TestCompleteRoundTripNonReasoning(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body apiRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		// Currently all models are reasoning-class, so this test is
-		// documenting the expected behavior for when a non-reasoning
-		// model is added. For now, temperature is still stripped.
-		// When isReasoningModel grows real logic, this test should
-		// use a gpt-4* model name and expect Temperature != nil.
-		_ = body
-		resp := apiResponse{
-			Choices: []struct {
-				Message      apiMessage `json:"message"`
-				FinishReason string     `json:"finish_reason"`
-			}{
-				{Message: apiMessage{Role: "assistant", Content: "OK"}},
-			},
-		}
-		w.Header().Set("content-type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
-	c := New(llm.APIConfig{ApiURL: server.URL, ApiSecret: "test-key"}, "gpt-5.4-mini",
-		llm.WithTemperature(0.7),
-	)
-
-	_, err := c.Complete(t.Context(), []llm.Message{
-		{Role: llm.RoleUser, Content: "hi"},
-	}, nil)
-	if err != nil {
-		t.Fatalf("Complete: %v", err)
 	}
 }
 
@@ -267,5 +225,31 @@ func TestCompleteAPIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "429") {
 		t.Errorf("error should mention status 429: %v", err)
+	}
+}
+
+// TestCompleteAPIErrorBody verifies that a 200 OK carrying an error object is
+// surfaced (e.g. when OpenAI returns the error in the JSON body rather than as
+// an HTTP status).
+func TestCompleteAPIErrorBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"error": {"type": "invalid_request_error", "message": "Unrecognized model: gpt-fake"}}`))
+	}))
+	defer server.Close()
+
+	c := New(llm.APIConfig{ApiURL: server.URL, ApiSecret: "test-key"}, "gpt-5.5")
+	_, err := c.Complete(t.Context(), []llm.Message{
+		{Role: llm.RoleUser, Content: "hi"},
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error for 200 with error body")
+	}
+	if !strings.Contains(err.Error(), "invalid_request_error") {
+		t.Errorf("error should mention error type: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Unrecognized model") {
+		t.Errorf("error should mention error message: %v", err)
 	}
 }

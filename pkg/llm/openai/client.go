@@ -125,7 +125,7 @@ type apiStreamOptions struct {
 //	1 → "low"     (evva "low")
 //	2 → "medium"  (evva "medium", default — matches OpenAI's default)
 //	3 → "high"    (evva "high")
-//	4 → "xhigh"   (evva "ultra")
+//	4 → "high"    (evva "ultra" — capped; OpenAI has no "xhigh")
 //
 // Sending an out-of-range value would 400 from OpenAI.
 func openaiEffort(effort int) string {
@@ -134,10 +134,8 @@ func openaiEffort(effort int) string {
 		return "low"
 	case 2:
 		return "medium"
-	case 3:
+	case 3, 4:
 		return "high"
-	case 4:
-		return "xhigh"
 	default:
 		return ""
 	}
@@ -206,7 +204,7 @@ func (c *Client) Complete(ctx context.Context, messages []llm.Message, toolSet [
 		MaxTokens:       params.MaxTokens,
 		Stop:            params.StopSequences,
 		Tools:           toAPITools(toolSet),
-		ReasoningEffort: openaiEffort(c.params.Effort),
+		ReasoningEffort: openaiEffort(params.Effort),
 	}
 
 	payload, err := json.Marshal(body)

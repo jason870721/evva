@@ -25,7 +25,7 @@ factory.
   `llm.Client` contract over OpenAI's Chat Completions API. Supports
   streaming, tool calling, automatic prompt caching (server-side; reported
   via `Usage.CacheReadTokens`), and reasoning-effort levels mapped onto
-  OpenAI's `reasoning_effort` enum (`low` / `medium` / `high` / `xhigh`).
+  OpenAI's `reasoning_effort` enum (`low` / `medium` / `high`).
 - **OpenAI factory registered in `pkg/llm/builtins`** — blank-importing
   `pkg/llm/builtins` now wires anthropic, deepseek, openai, **and** ollama.
 
@@ -33,7 +33,9 @@ factory.
 
 - **`pkg/constant/llm.go`** — replaced the solitary `GPT_5_5` model entry
   with a fast/pro pair (`GPT_5_4_MINI` / `GPT_5_5`). `MODEL_CONTEXT_SIZE`
-  updated to match the documented context windows (400K / 1,050K).
+  updated to match the documented context windows (400K / 1,050K). The
+  `GPT_5_5` entry was also corrected from the old 500K placeholder to
+  OpenAI's documented 1,050K.
 
 ### Notes
 
