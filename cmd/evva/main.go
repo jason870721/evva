@@ -23,7 +23,8 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/fs"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/ui"
-	_ "github.com/johnny1110/evva/pkg/ui/bubbletea" // register the "bubbletea" UI into ui.DefaultRegistry
+	_ "github.com/johnny1110/evva/pkg/ui/bubbletea" // register the "bubbletea" UI into ui's registry
+	_ "github.com/johnny1110/evva/pkg/ui/lp"        // register the "lp" (low-profile) UI
 	"github.com/johnny1110/evva/pkg/update"
 	"github.com/joho/godotenv"
 )
