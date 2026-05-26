@@ -66,7 +66,11 @@ func TestBare_WithStamp(t *testing.T) {
 	if got != want {
 		t.Errorf("Bare() = %q; want %q", got, want)
 	}
-	if strings.HasPrefix(got, "v") {
-		t.Errorf("Bare() should NOT carry the leading 'v'; got %q", got)
+	// Bare() returns Version verbatim plus the build metadata; it must not
+	// ADD a "v" prefix of its own. The dev placeholder Version is itself
+	// "vX.Y.Z-dev", so only assert the absence of an added 'v' when Version
+	// is stored bare (the form real release tags use).
+	if !strings.HasPrefix(Version, "v") && strings.HasPrefix(got, "v") {
+		t.Errorf("Bare() should NOT add a leading 'v'; got %q", got)
 	}
 }

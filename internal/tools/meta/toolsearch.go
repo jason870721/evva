@@ -198,8 +198,9 @@ func searchDescriptors(query string, max int, all []tools.Descriptor) []string {
 	}
 
 	// 3. MCP-prefix fast path: query like "mcp__server" returns every tool
-	//    in that server's namespace. Unused today (evva has no MCP tools)
-	//    but kept so Phase 13 doesn't reintroduce the logic.
+	//    in that server's namespace. Populated once an MCP server connects
+	//    and pkg/mcp registers its mcp__<server>__<tool> names in the
+	//    deferred allowlist (see internal/agent/mcp_wiring.go).
 	if strings.HasPrefix(q, "mcp__") && len(q) > 5 {
 		var out []string
 		for _, d := range all {

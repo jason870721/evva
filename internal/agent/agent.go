@@ -164,6 +164,11 @@ type Agent struct {
 	hookRegistry   *hooks.Registry
 	hookDispatcher *hooks.Dispatcher
 
+	// mcpManagerSet records whether a host injected an MCP manager via
+	// WithMcpManager (even a nil one). When false, New auto-loads the
+	// manager from settings.json — mirroring memSnapSet's auto-load gate.
+	mcpManagerSet bool
+
 	sink event.Sink // event to ui
 
 	// maxIters is the agent loop's safety cap. Atomic so the TUI's
@@ -346,6 +351,16 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		}
 	}
 
+	// Auto-load the MCP manager (settings.json) unless a host injected one
+	// via WithMcpManager. Mirrors the skill / LSP auto-load above: one disk
+	// read at startup, zero cost when nothing is configured. Done here (not
+	// in cmd/evva) so every host — bundled CLI, SDK consumers, examples —
+	// gets MCP for free. foldMcpIntoProfile then re-renders the MAIN prompt
+	// so discovered mcp__<server>__<tool> names appear in the deferred
+	// catalog and the allowlist before the LLM client is built below.
+	a.autoLoadMcp(lgr)
+	a.foldMcpIntoProfile()
+
 	// Register any custom tools the caller staged via WithCustomTool, and
 	// extend the profile's active list so they show up to the LLM. Duplicate
 	// registrations are silently absorbed — agents constructed back-to-back
@@ -439,9 +454,12 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	// Question broker is process-wide and shared by root and subagents alike.
 	a.toolState.SetQuestionBroker(a.questionBroker)
 
-	effortOpts := append(profile.LLMOptions, llm.WithEffort(llm.ParseEffort(a.effort)))
+	// Read from a.profile (not the param) so foldMcpIntoProfile's prompt
+	// re-render — which swapped a.profile.LLMOptions with the MCP-aware
+	// WithSystem — is the prompt the client is built with.
+	effortOpts := append(a.profile.LLMOptions, llm.WithEffort(llm.ParseEffort(a.effort)))
 	effortOpts = append(effortOpts, runtimeLLMOptions(a.cfg)...)
-	llmClient, err := buildLLMClient(a.cfg, profile.LLMProvider, profile.LLMModel, effortOpts)
+	llmClient, err := buildLLMClient(a.cfg, a.profile.LLMProvider, a.profile.LLMModel, effortOpts)
 	if err != nil {
 		return nil, fmt.Errorf("agent: init llm client: %w", err)
 	}
@@ -474,6 +492,15 @@ func (a *Agent) AgentID() string {
 // its TUI ctx is cancelled) to avoid leaking goroutines that outlive
 // the session.
 func (a *Agent) Shutdown() {
+	// Close MCP sessions before cancelling the root context so stdio
+	// subprocess servers exit cleanly (SDK sends Cancel, closes stdin)
+	// rather than waiting on EOF. Root-only: subagents share the parent's
+	// manager and must not tear it down. Idempotent.
+	if !a.IsSubagent() {
+		if mgr := a.toolState.McpManager(); mgr != nil {
+			mgr.Shutdown()
+		}
+	}
 	if a.rootCancel != nil {
 		a.rootCancel()
 	}
@@ -586,7 +613,11 @@ func (a *Agent) SwitchProfile(name string) error {
 		return fmt.Errorf("agent: profile name is required")
 	}
 
-	newProfile, err := ResolveMainProfile(a.cfg, a.agentRegistry, name, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions))
+	// Thread the live MCP catalog through the rebuild so the new persona's
+	// prompt advertises mcp__<server>__<tool> names and the deferred
+	// allowlist still admits them after the switch (acceptance A16). The
+	// *mcp.Manager lives on the reused toolState, so no re-connect happens.
+	newProfile, err := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, name, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, a.mcpDiscoveredNames())
 	if err != nil {
 		return err
 	}
@@ -732,10 +763,11 @@ func (a *Agent) ResumeSnapshot(snap *session.Snapshot) error {
 		model = fallback
 	}
 
-	newProfile, err := ResolveMainProfile(a.cfg, a.agentRegistry, personaName, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions))
+	mcpNames := a.mcpDiscoveredNames()
+	newProfile, err := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, personaName, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, mcpNames)
 	if err != nil {
 		a.logger.Warn("resume: persona unavailable; falling back to evva", "want", personaName, "err", err)
-		newProfile, err = ResolveMainProfile(a.cfg, a.agentRegistry, "evva", a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions))
+		newProfile, err = resolveMainProfileWithExtra(a.cfg, a.agentRegistry, "evva", a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, mcpNames)
 		if err != nil {
 			return fmt.Errorf("agent: resume fallback to evva failed: %w", err)
 		}
@@ -1101,7 +1133,7 @@ func (a *Agent) SwitchWorkdir(path string) error {
 	// ResolveMainProfile so disk personas refresh the same way the
 	// built-in does.
 	if a.cfg != nil && a.activePersona != "" {
-		newProfile, perr := ResolveMainProfile(a.cfg, a.agentRegistry, a.activePersona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions))
+		newProfile, perr := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, a.activePersona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, a.mcpDiscoveredNames())
 		if perr == nil {
 			a.profile.SystemPrompt = newProfile.SystemPrompt
 			a.profile.LLMOptions = newProfile.LLMOptions

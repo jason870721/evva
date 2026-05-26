@@ -6,6 +6,7 @@ import (
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/internal/tools/ux"
+	"github.com/johnny1110/evva/pkg/mcp"
 	"github.com/johnny1110/evva/pkg/skill"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -136,6 +137,17 @@ func init() {
 	r.MustRegister(tools.LSP_REQUEST, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
 		return lsp.NewTool(ts.LSPManager(), ts.Workdir()), nil
+	})
+
+	// --- mcp resource meta tools (deferred) ---
+	// Per-server tools and per-server authenticate tools are registered
+	// dynamically by mcp.Manager.RegisterFactories at agent boot; these two
+	// static meta tools work across whichever servers are connected.
+	r.MustRegister(tools.LIST_MCP_RESOURCES, func(s tools.State) (tools.Tool, error) {
+		return mcp.NewListResourcesTool(s.(*ToolState).McpManager()), nil
+	})
+	r.MustRegister(tools.READ_MCP_RESOURCE, func(s tools.State) (tools.Tool, error) {
+		return mcp.NewReadResourceTool(s.(*ToolState).McpManager()), nil
 	})
 
 	// --- cron (stateless stubs) ---

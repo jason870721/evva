@@ -25,13 +25,18 @@
   - [File Shape](#file-shape)
   - [Events](#events)
   - [Payload and Decision](#payload-and-decision)
-- [9. Configuration Reference](#9-configuration-reference)
+- [9. MCP Servers](#9-mcp-servers)
+  - [Configuring Servers](#configuring-servers)
+  - [Using MCP Tools](#using-mcp-tools)
+  - [Resources](#resources)
+  - [OAuth-Protected Servers](#oauth-protected-servers)
+- [10. Configuration Reference](#10-configuration-reference)
   - [evva-config.yml](#evva-configyml)
   - [.env](#env-optional)
   - [CLI Flags](#cli-flags)
-- [10. Modes — TUI vs CLI](#10-modes--tui-vs-cli)
-- [11. Logs](#11-logs)
-- [12. Building on evva — the SDK (for developers)](#12-building-on-evva--the-sdk-for-developers)
+- [11. Modes — TUI vs CLI](#11-modes--tui-vs-cli)
+- [12. Logs](#12-logs)
+- [13. Building on evva — the SDK (for developers)](#13-building-on-evva--the-sdk-for-developers)
   - [Quickstart — a full host in ~40 lines](#quickstart--a-full-host-in-40-lines)
   - [Extension points at a glance](#extension-points-at-a-glance)
   - [Stability & where to go deeper](#stability--where-to-go-deeper)
@@ -679,7 +684,77 @@ Subprocesses exceeding `timeout` are killed; their decisions are discarded. HTTP
 
 ---
 
-## 9. Configuration Reference
+## 9. MCP Servers
+
+evva can consume tools and resources from any [Model Context Protocol](https://modelcontextprotocol.io) server — filesystem, GitHub, Slack, Notion, or your own internal servers — without per-server code. Configured servers connect at startup; their tools then appear in evva's deferred-tool catalog as `mcp__<server>__<tool>` and load on demand via `tool_search`.
+
+### Configuring Servers
+
+MCP servers live under an `mcpServers` block in the **same `settings.json` files as hooks** — one place for all evva extension config:
+
+- **Project:** `<workdir>/.evva/settings.json`
+- **User:** `~/.evva/settings.json` (`<APP_HOME>/settings.json`)
+
+Project entries override user entries with the same name.
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/work"]
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {"Authorization": "Bearer ${GITHUB_MCP_TOKEN}"}
+    }
+  }
+}
+```
+
+Per-server fields:
+
+| Field | Applies to | Notes |
+| --- | --- | --- |
+| `type` | both | `"stdio"` or `"http"`. Inferred from `command`→stdio / `url`→http when omitted. |
+| `command`, `args`, `env` | stdio | Spawns a subprocess. `${VAR}` and `${VAR:-default}` expand from your environment at load time. |
+| `url`, `headers` | http | Streamable HTTP transport (2025-03-26 spec). Header values expand env vars too. |
+| `timeout` | both | Connect timeout in seconds. Default 30, max 600. |
+| `disabled` | both | `true` skips the server entirely — no subprocess, no request. |
+
+A broken server entry never blocks startup: the failure is logged (look for `mcp: connect` lines in the [logs](#12-logs)), that server is skipped, and every other server still connects. Editing `settings.json` takes effect on the next launch (no hot-reload).
+
+### Using MCP Tools
+
+Discovered tools are **deferred** — they're listed by name in the system prompt's `<available-deferred-tools>` block but their schemas aren't pre-loaded. evva fetches a tool's schema with `tool_search` the first time it needs it, exactly like any other deferred tool. You don't do anything special: just ask evva to do the thing, and it locates and calls the MCP tool.
+
+MCP tool calls flow through the same machinery as built-in tools:
+
+- **Permissions** ([§6](#6-permission-system)): the first call to an unknown MCP tool prompts for approval. Make it permanent by adding a rule keyed on the fully-qualified name — `mcp__filesystem__read_file` — or a glob like `mcp__filesystem__*` / `mcp__*`. Deny rules block.
+- **Hooks** ([§8](#8-hooks)): a `PreToolUse` matcher such as `mcp__**__write_*` fires before matching MCP calls and can block, rewrite the input, or override the permission decision — handy for auditing every MCP write with one rule.
+- **Sub-agents** ([§7](#7-sub-agents-and-personas)): subagents share the parent's live MCP sessions, so a delegated task can reach the same servers without re-connecting.
+
+### Resources
+
+Some MCP servers expose **resources** (files, records, documents) in addition to tools. Two deferred tools work across every connected server:
+
+- `list_mcp_resources` — lists available resources (each tagged with its `server`). Optional `server` arg filters to one.
+- `read_mcp_resource` — reads one resource given `{server, uri}`. Text comes back inline; binary blobs are saved under `~/.evva/mcp-blobs/` and the path is returned (read it back with the `read` tool if you need the bytes).
+
+### OAuth-Protected Servers
+
+If an HTTP server answers `401 Unauthorized` on first connect, evva marks it `needs-auth` and offers a one-off `mcp__<server>__authenticate` tool instead of the server's real tools. When evva invokes it, you'll get an `ask_user_question` prompt with an authorization URL:
+
+1. Open the URL in your browser and complete the sign-in.
+2. Choose **"I'm done"** in the prompt.
+
+evva then reconnects and the server's real tools become available for the rest of the session. (Tokens are kept in memory only in this release — you'll re-authorize after restarting evva.)
+
+---
+
+## 10. Configuration Reference
 
 ### evva-config.yml
 
@@ -747,7 +822,7 @@ echo "list files in /tmp" | evva -no-tui   # piped prompt
 
 ---
 
-## 10. Modes — TUI vs CLI
+## 11. Modes — TUI vs CLI
 
 **Interactive TUI** (default when stdout is a TTY). Transcript, panels, status bar, the works.
 
@@ -755,13 +830,13 @@ echo "list files in /tmp" | evva -no-tui   # piped prompt
 
 ---
 
-## 11. Logs
+## 12. Logs
 
 Per-agent text logs land under `$EVVA_HOME/logs/<agent-id>/<agent-id>.log` by default — no setup needed after `make install`. To redirect to a custom directory, set `LOG_DIR=/your/path` in `.env`. To revert to the old stdout-only dev mode (logs streamed to the terminal instead of disk), set `LOG_DIR=` explicitly to empty. `LOG_LEVEL=debug` exposes every iteration's `turn.start` / `llm.call` / `tool.dispatch` / `tool.result` lines — handy when debugging an agent that's stuck or looping.
 
 ---
 
-## 12. Building on evva — the SDK (for developers)
+## 13. Building on evva — the SDK (for developers)
 
 Everything above describes evva as an app. evva is *also* an embeddable Go
 SDK: another program can `import "github.com/johnny1110/evva/pkg/agent"`

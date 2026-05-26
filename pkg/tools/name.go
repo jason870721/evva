@@ -122,6 +122,15 @@ const (
 	WEB_SEARCH ToolName = "web_search"
 )
 
+// MCP resource tools — deferred meta tools that work across any configured
+// MCP server. Per-server tools and per-server auth tools are registered
+// dynamically by pkg/mcp.Manager and follow the mcp__<server>__<tool>
+// naming convention (not declared here — they're runtime-discovered).
+const (
+	LIST_MCP_RESOURCES ToolName = "list_mcp_resources"
+	READ_MCP_RESOURCE  ToolName = "read_mcp_resource"
+)
+
 // Others.
 const (
 	// this is for explore agent (read only)
