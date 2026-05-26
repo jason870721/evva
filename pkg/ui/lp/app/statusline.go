@@ -54,7 +54,7 @@ func (s *StatusLine) Render(width int, th *theme.Theme) string {
 	}
 	sep := th.StatusSep.Render(" · ")
 
-	left := " " + th.UserPrompt.Render("lp") + sep + renderState(s.state, th) + sep +
+	left := " " + th.UserPrompt.Render("LP") + sep + renderState(s.state, th) + sep +
 		th.StatusValue.Render(modelOrDash(s.model)) + effortSuffix(s.effort, th)
 	if s.workdir != "" {
 		left += sep + th.DimText.Render(shortPath(s.workdir))
