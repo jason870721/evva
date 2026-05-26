@@ -136,8 +136,9 @@ func mainProfile(cfg *config.Config, provider constant.LLMProvider, model consta
 	activeTools := slices.Concat(fs.Names(), shell.Names(), meta.Names(), skill.Names(), todo.Names())
 	// enter/exit_plan_mode are always-active on Main so the model can flip
 	// the session into ModePlan without a tool_search round-trip. The
-	// worktree pair stays deferred (Phase 10).
-	activeTools = append(activeTools, tools.ENTER_PLAN_MODE, tools.EXIT_PLAN_MODE)
+	// worktree pair stays deferred (Phase 10). config is always-active too so
+	// the model can read/change settings on demand; subagents don't get it.
+	activeTools = append(activeTools, tools.ENTER_PLAN_MODE, tools.EXIT_PLAN_MODE, tools.CONFIG)
 	// Auto-memory tools — registered only when the user has the feature
 	// enabled. The sysprompt's auto-memory guidance section is gated on the
 	// same flag (see ctx.EnableAutoMemory below), so prompt and toolset

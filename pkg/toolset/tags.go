@@ -54,6 +54,9 @@ var toolTags = map[tools.ToolName][]string{
 	// utils
 	tools.JSON_QUERY: {"json", "query", "filter", "extract", "parse"},
 	tools.CALC:       {"math", "calculate", "sum", "product", "average"},
+
+	// config
+	tools.CONFIG: {"config", "setting", "settings", "configure", "preference", "option"},
 }
 
 // TagsFor returns the keywords associated with a tool name, or nil if none
@@ -121,6 +124,9 @@ var toolHints = map[tools.ToolName]string{
 
 	// dev
 	tools.FEEDBACK: "Report a bug, suggest an improvement, or request a new tool from evva developers.",
+
+	// config
+	tools.CONFIG: "Get or set evva configuration settings (iteration cap, memory toggle, effort, provider keys).",
 }
 
 // HintFor returns the curated search hint for a tool name, or "" if none is

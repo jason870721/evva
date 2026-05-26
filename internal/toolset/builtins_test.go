@@ -1,11 +1,13 @@
 package toolset
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
-	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
+	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/tools"
+	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 )
 
 // TestDefaultRegistry_PopulatedWithBuiltins ensures the init() side-effect
@@ -44,5 +46,33 @@ func TestDefaultRegistry_BuildAllNamesProducesValidJSONSchemas(t *testing.T) {
 		if err := json.Unmarshal(schema, &v); err != nil {
 			t.Errorf("%s: schema is invalid JSON: %v", name, err)
 		}
+	}
+}
+
+// TestConfigToolWiring proves the config tool builds through the registry
+// with a config-backed state and that a GET runs end-to-end.
+func TestConfigToolWiring(t *testing.T) {
+	cfg, err := config.Load(config.LoadOptions{
+		AppName: "wiring-test",
+		AppHome: t.TempDir(),
+		WorkDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	state := NewToolState()
+	state.SetConfig(cfg)
+
+	tool, err := pubtoolset.DefaultRegistry().Build("config", state)
+	if err != nil {
+		t.Fatalf("Build(config): %v", err)
+	}
+	if tool.Name() != "config" {
+		t.Errorf("tool name = %q, want config", tool.Name())
+	}
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
+		json.RawMessage(`{"setting":"display_thinking"}`))
+	if res.IsError {
+		t.Errorf("GET through registry errored: %s", res.Content)
 	}
 }

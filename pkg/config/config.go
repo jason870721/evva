@@ -569,6 +569,62 @@ func (c *Config) SetProviderAPIURL(name, url string) error {
 	return c.SaveFile()
 }
 
+// GetMaxIterations returns the agent-loop iteration cap under the read
+// lock. Paired with SetMaxIterations.
+func (c *Config) GetMaxIterations() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DefaultMaxIterations
+}
+
+// GetMaxTokens returns the per-completion output-token cap under the read
+// lock. 0 means "provider default". Paired with SetMaxTokens.
+func (c *Config) GetMaxTokens() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DefaultMaxTokens
+}
+
+// GetFetchMaxBytes returns the web_fetch byte cap under the read lock.
+// Paired with SetFetchMaxBytes.
+func (c *Config) GetFetchMaxBytes() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.FetchMaxBytes
+}
+
+// GetTavilyAPIKey returns the Tavily key under the read lock. Empty means
+// web_search is disabled. Paired with SetTavilyAPIKey.
+func (c *Config) GetTavilyAPIKey() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.TavilyAPIKey
+}
+
+// GetDefaultProfile returns the boot persona name under the read lock.
+// Empty falls back to "evva" at bootstrap. Paired with SetDefaultProfile.
+func (c *Config) GetDefaultProfile() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DefaultProfile
+}
+
+// GetProviderAPIKey returns the stored api key for the named provider
+// under the read lock, or "" when the provider has no entry.
+func (c *Config) GetProviderAPIKey(name string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.LLMProviderConfig[name].ApiSecret
+}
+
+// GetProviderAPIURL returns the stored api base URL for the named provider
+// under the read lock, or "" when the provider has no entry.
+func (c *Config) GetProviderAPIURL(name string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.LLMProviderConfig[name].ApiURL
+}
+
 // SaveFile re-serializes the user-tunable subset to AppHomeConfigFile.
 // The /config setters and the runtime /model switch both call this.
 //

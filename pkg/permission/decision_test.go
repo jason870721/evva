@@ -259,3 +259,64 @@ func TestDecide_SessionRuleBeatsUserRule(t *testing.T) {
 		t.Errorf("deny rule must win over session allow; got %v (%s)", d.Behavior, d.Reason)
 	}
 }
+
+// --- config tool: read auto-allows, write asks (value-aware), plan denies writes ---
+
+func cfgCall(input string) ToolCall {
+	return ToolCall{Name: "config", Input: []byte(input)}
+}
+
+func TestDecide_ConfigGetAllows(t *testing.T) {
+	get := cfgCall(`{"setting":"display_thinking"}`)
+	for _, mode := range []Mode{ModeDefault, ModeAcceptEdits, ModePlan} {
+		d := Decide(get, mode, NewStore(), Hint{}, "")
+		if d.Behavior != BehaviorAllow {
+			t.Errorf("config GET in %s: want allow, got %v (%s)", mode, d.Behavior, d.Reason)
+		}
+	}
+}
+
+func TestDecide_ConfigSetAsksWithMessage(t *testing.T) {
+	set := cfgCall(`{"setting":"display_thinking","value":false}`)
+	for _, mode := range []Mode{ModeDefault, ModeAcceptEdits} {
+		d := Decide(set, mode, NewStore(), Hint{}, "")
+		if d.Behavior != BehaviorAsk {
+			t.Errorf("config SET in %s: want ask, got %v (%s)", mode, d.Behavior, d.Reason)
+		}
+		if d.Reason != "Set display_thinking to false" {
+			t.Errorf("config SET reason = %q, want %q", d.Reason, "Set display_thinking to false")
+		}
+	}
+}
+
+func TestDecide_ConfigSetStringMessageUnquoted(t *testing.T) {
+	d := Decide(cfgCall(`{"setting":"default_effort","value":"high"}`), ModeDefault, NewStore(), Hint{}, "")
+	if d.Reason != "Set default_effort to high" {
+		t.Errorf("string-valued SET reason = %q, want %q", d.Reason, "Set default_effort to high")
+	}
+}
+
+func TestDecide_ConfigSetDeniedInPlanMode(t *testing.T) {
+	d := Decide(cfgCall(`{"setting":"display_thinking","value":false}`), ModePlan, NewStore(), Hint{}, "")
+	if d.Behavior != BehaviorDeny {
+		t.Errorf("config SET in plan mode: want deny, got %v (%s)", d.Behavior, d.Reason)
+	}
+}
+
+func TestDecide_ConfigDenyRuleBeatsGetAllow(t *testing.T) {
+	store := NewStore()
+	store.ReplaceAll([]Rule{{ToolName: "config", Behavior: BehaviorDeny, Source: SourceProject}})
+	d := Decide(cfgCall(`{"setting":"display_thinking"}`), ModeDefault, store, Hint{}, "")
+	if d.Behavior != BehaviorDeny {
+		t.Errorf("deny rule must beat config GET allow; got %v (%s)", d.Behavior, d.Reason)
+	}
+}
+
+func TestDecide_ConfigNullValueIsWrite(t *testing.T) {
+	// {"value":null} is a write (matches the tool's own get/set split), so it
+	// must ask, not auto-allow.
+	d := Decide(cfgCall(`{"setting":"display_thinking","value":null}`), ModeDefault, NewStore(), Hint{}, "")
+	if d.Behavior != BehaviorAsk {
+		t.Errorf("config {value:null} should ask (write), got %v (%s)", d.Behavior, d.Reason)
+	}
+}

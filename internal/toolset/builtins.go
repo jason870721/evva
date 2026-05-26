@@ -1,6 +1,7 @@
 package toolset
 
 import (
+	configtool "github.com/johnny1110/evva/internal/tools/config"
 	"github.com/johnny1110/evva/internal/tools/dev"
 	"github.com/johnny1110/evva/internal/tools/memory"
 	"github.com/johnny1110/evva/internal/tools/meta"
@@ -8,7 +9,6 @@ import (
 	"github.com/johnny1110/evva/internal/tools/ux"
 	"github.com/johnny1110/evva/pkg/mcp"
 	"github.com/johnny1110/evva/pkg/skill"
-	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/cron"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
@@ -20,6 +20,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/tools/util"
 	"github.com/johnny1110/evva/pkg/tools/web"
+	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 )
 
 // init wires evva's bundled tools into pkg/toolset.DefaultRegistry().
@@ -116,9 +117,9 @@ func init() {
 		return monitor.NewMonitor(s.(*ToolState)), nil
 	})
 	r.MustRegister(tools.ENTER_PLAN_MODE, func(s tools.State) (tools.Tool, error) {
-			ts := s.(*ToolState)
-			return mode.NewEnterPlanMode(ts.PlanController), nil
-		})
+		ts := s.(*ToolState)
+		return mode.NewEnterPlanMode(ts.PlanController), nil
+	})
 	r.MustRegister(tools.EXIT_PLAN_MODE, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
 		return mode.NewExitPlanMode(ts.PlanController), nil
@@ -181,6 +182,11 @@ func init() {
 	// --- dev (evva developer tools, gated by config.IsDevelopment) ---
 	r.MustRegister(tools.FEEDBACK, func(s tools.State) (tools.Tool, error) {
 		return dev.NewFeedback(s.Config()), nil
+	})
+
+	// --- config (let the model read/write evva settings) ---
+	r.MustRegister(tools.CONFIG, func(s tools.State) (tools.Tool, error) {
+		return configtool.New(s.Config()), nil
 	})
 
 	// --- memory (auto-memory writers; gated by config.GetEnableAutoMemory

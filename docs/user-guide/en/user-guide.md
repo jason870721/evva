@@ -135,6 +135,23 @@ API key fields open a password-masked editor; pasting works (display stays maske
 
 Every edit writes immediately to `~/.evva/config/evva-config.yml`.
 
+#### Changing settings from chat
+
+You don't have to open the form yourself — you can ask evva to read or
+change a setting in plain language ("what's my display_thinking setting?",
+"turn auto-memory off", "set max_iterations to 40"). Behind the scenes the
+model uses a `config` tool that exposes the same keys this form does
+(`max_iterations`, `display_thinking`, `default_effort`,
+`<provider>.api_key`, …) plus a couple the form doesn't (`default_effort`,
+`default_profile`).
+
+Reads land directly with no prompt. Writes go through the permission
+prompt, shown as `Set <key> to <value>`, so nothing changes without your
+approval. Secrets read back masked (`****wxyz`). The model can't switch the
+active model (use `/model`) or change the permission mode (use Shift+Tab)
+through this tool. To stop being asked about a specific setting, type
+`/permissions` and add an allow-rule for `config`.
+
 ### /model — Switch Provider/Model
 
 Opens a flat list of every `(provider, model)` pair the binary knows about, cursor pre-positioned on the active one:

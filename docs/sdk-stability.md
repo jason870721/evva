@@ -20,7 +20,7 @@ new options) land in minor versions.
 | Package | Why it's stable |
 | --- | --- |
 | `pkg/agent` | The agent constructor and Agent interface — every downstream app touches this. |
-| `pkg/config` | `Config`, `Load`, `LoadOptions`, `APIConfig`, the setter helpers. |
+| `pkg/config` | `Config`, `Load`, `LoadOptions`, `APIConfig`, the setter/getter helpers (the `config` tool added `Get*` reads in the v1.5 ConfigTool work). |
 | `pkg/event` | `Event`, `Kind` constants, payload structs, `Sink` interface. |
 | `pkg/tools` | `Tool`, `Result`, `ToolName` constants, `State` interface. |
 | `pkg/llm` | `Client`, `Message`, `Response`, `Option`, `Registry`, `ClientFactory`. |

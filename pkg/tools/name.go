@@ -144,4 +144,10 @@ const (
 
 	// this is for dev phase
 	FEEDBACK ToolName = "feedback"
+
+	// CONFIG — get or set evva configuration settings. One tool, one
+	// {setting, value?} shape: read when value is omitted, write when set.
+	// Active on the Main profile; subagents don't get it. Permission posture:
+	// auto-allow on read, ask on write (see pkg/permission.Decide).
+	CONFIG ToolName = "config"
 )

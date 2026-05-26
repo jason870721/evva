@@ -11,6 +11,31 @@ releases on `pre-release` are staging-only and do not get separate entries.
 
 ## [Unreleased]
 
+### Added
+
+- **`config` tool** — the model can now read and change evva's
+  configuration directly instead of asking the user to type `/config`.
+  One input `{setting, value?}`: omitting `value` reads the current value
+  (auto-allowed); supplying it writes (gated by an `ask` permission prompt
+  that reads `Set <key> to <value>`). Mirrors the `/config` overlay's
+  setting catalog plus a small set of model-relevant extras
+  (`default_effort`, `default_profile`). Active on Main only — subagents
+  don't get it. Lives in `internal/tools/config` (`internal/`, not a
+  public package); a `SUPPORTED_SETTINGS` registry wraps the typed
+  `*config.Config` setters so adding a setting in one place grows the
+  tool's prompt, schema, and permission posture together.
+- **`pkg/config` read accessors** — `GetMaxIterations`, `GetMaxTokens`,
+  `GetFetchMaxBytes`, `GetTavilyAPIKey`, `GetDefaultProfile`,
+  `GetProviderAPIKey`, `GetProviderAPIURL` (race-free reads under the
+  config mutex; paired with the existing setters).
+
+### Changed
+
+- **`pkg/permission.Decide`** now classifies the `config` tool by input:
+  a read (no `value`) auto-allows in every mode; a write asks (and is
+  denied in plan mode, like any other write). Additive — no existing
+  tool's behaviour changes.
+
 ## [v1.6.0] — MCP client support
 
 Ships evva's Model Context Protocol client. Configure MCP servers under
