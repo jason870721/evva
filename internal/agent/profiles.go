@@ -33,6 +33,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/monitor"
 	"github.com/johnny1110/evva/pkg/tools/notebook"
+	"github.com/johnny1110/evva/pkg/tools/repl"
 	"github.com/johnny1110/evva/pkg/tools/shell"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/tools/util"
@@ -160,6 +161,7 @@ func mainProfile(cfg *config.Config, provider constant.LLMProvider, model consta
 		cron.Names(),
 		web.Names(),
 		util.Names(),
+		repl.Names(),
 		mcpResourceToolNames(),
 	)
 	// Fold MCP-discovered tool names in last so they appear in both the

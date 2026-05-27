@@ -142,6 +142,10 @@ const (
 	JSON_QUERY ToolName = "json_query"
 	CALC       ToolName = "calc"
 
+	// REPL — run a Python or JavaScript snippet in a fresh subprocess and
+	// return combined stdout+stderr. Deferred; surfaced via tool_search.
+	REPL ToolName = "repl"
+
 	// this is for dev phase
 	FEEDBACK ToolName = "feedback"
 

@@ -16,6 +16,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/monitor"
 	"github.com/johnny1110/evva/pkg/tools/notebook"
+	"github.com/johnny1110/evva/pkg/tools/repl"
 	"github.com/johnny1110/evva/pkg/tools/shell"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/tools/util"
@@ -178,6 +179,11 @@ func init() {
 	// --- util (stateless) ---
 	r.MustRegister(tools.JSON_QUERY, func(tools.State) (tools.Tool, error) { return util.JSONQuery, nil })
 	r.MustRegister(tools.CALC, func(tools.State) (tools.Tool, error) { return util.Calc, nil })
+
+	// --- repl (runs a Python/JS snippet in a fresh subprocess) ---
+	r.MustRegister(tools.REPL, func(s tools.State) (tools.Tool, error) {
+		return repl.NewREPL(s.Workdir()), nil
+	})
 
 	// --- dev (evva developer tools, gated by config.IsDevelopment) ---
 	r.MustRegister(tools.FEEDBACK, func(s tools.State) (tools.Tool, error) {

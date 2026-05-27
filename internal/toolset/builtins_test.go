@@ -18,7 +18,7 @@ func TestDefaultRegistry_PopulatedWithBuiltins(t *testing.T) {
 	reg := pubtoolset.DefaultRegistry()
 	for _, name := range []tools.ToolName{
 		tools.READ_FILE, tools.BASH, tools.AGENT, tools.TOOL_SEARCH,
-		tools.TODO_WRITE, tools.WEB_FETCH, tools.CALC,
+		tools.TODO_WRITE, tools.WEB_FETCH, tools.CALC, tools.REPL,
 	} {
 		if !reg.Has(name) {
 			t.Errorf("DefaultRegistry missing built-in tool %q", name)

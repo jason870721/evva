@@ -145,6 +145,16 @@ func mainToolsGuideSection() string {
 		"Extract a value from a JSON blob using a simple path expression.\n\n" +
 		"## Calculate tools (`" + nameCalc + "`)\n" +
 		"Evaluate a mathematical expression and return the result, use it when you need to calculate a big number or complex math calculations.\n\n" +
+		"## REPL tool (`" + nameRepl + "`)\n" +
+		"`" + nameRepl + "` runs a self-contained Python or JavaScript snippet in a fresh subprocess and returns its combined stdout+stderr. Set `language` (\"python\" or \"javascript\"; defaults to python) and pass the whole program in `code`. State does NOT persist between calls — each invocation is a brand-new interpreter, so put everything one run needs into a single `code` string.\n\n" +
+		"When to use:\n" +
+		"- Quick computation or data wrangling where a real language is clearer than shell — reshaping JSON, math over a list, a regex over a string, sanity-checking a small algorithm.\n" +
+		"- Verifying a piece of logic in isolation before wiring it into the codebase.\n\n" +
+		"When NOT to use:\n" +
+		"- Shell/CLI operations (git, build, test, file moves) — use `" + nameBash + "`.\n" +
+		"- Reading, writing, or editing project files — use `" + nameRead + "` / `" + nameWrite + "` / `" + nameEdit + "`. `" + nameRepl + "` is a scratchpad, not a file tool; don't use it to mutate the workspace.\n" +
+		"- A one-line arithmetic result — `" + nameCalc + "` is lighter.\n\n" +
+		"`" + nameRepl + "` executes arbitrary code, so it is NOT auto-approved — every call goes through the permission gate like a non-trivial `" + nameBash + "` command. It is synchronous (timeout defaults to 2 min, max 10 min); there is no background mode.\n\n" +
 		"## LSP tools (`" + nameLspRequest + "`)\n" +
 		"`" + nameLspRequest + "` is a deferred tool that queries language servers for semantic code intelligence — it gives compiler-grade answers that grep cannot. The server starts automatically on first use.\n\n" +
 		"Supported operations:\n" +
