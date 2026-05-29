@@ -5,38 +5,23 @@ here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
 Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
-Entries up to v1.4.0 predate the branch-based release model (see EVVA.md).
-Going forward, only beta releases on `main` get changelog entries; alpha
-releases on `pre-release` are staging-only and do not get separate entries.
+Only beta releases on `main` get changelog entries; alpha releases on
+`pre-release` are staging-only and do not get separate entries (see
+CLAUDE.md). The v1.2.0–v1.6.0 work that was documented ahead of release
+was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
-### Added
+## [v1.3.0-beta.1] — 2026-05-29
 
-- **`config` tool** — the model can now read and change evva's
-  configuration directly instead of asking the user to type `/config`.
-  One input `{setting, value?}`: omitting `value` reads the current value
-  (auto-allowed); supplying it writes (gated by an `ask` permission prompt
-  that reads `Set <key> to <value>`). Mirrors the `/config` overlay's
-  setting catalog plus a small set of model-relevant extras
-  (`default_effort`, `default_profile`). Active on Main only — subagents
-  don't get it. Lives in `internal/tools/config` (`internal/`, not a
-  public package); a `SUPPORTED_SETTINGS` registry wraps the typed
-  `*config.Config` setters so adding a setting in one place grows the
-  tool's prompt, schema, and permission posture together.
-- **`pkg/config` read accessors** — `GetMaxIterations`, `GetMaxTokens`,
-  `GetFetchMaxBytes`, `GetTavilyAPIKey`, `GetDefaultProfile`,
-  `GetProviderAPIKey`, `GetProviderAPIURL` (race-free reads under the
-  config mutex; paired with the existing setters).
+First beta since v1.1.0. `main` jumps straight from 1.1.0 to 1.3.0, so
+this single beta bundles the full accumulation staged on `pre-release`:
+the OpenAI provider, bundled skills, the MCP client, the `config` tool,
+the REPL tool, and the low-profile TUI. The release is numbered v1.3.0
+under the roadmap-aligned tag scheme (MCP = roadmap phase v1.3); the
+per-feature notes below retain their original roadmap-phase framing.
 
-### Changed
-
-- **`pkg/permission.Decide`** now classifies the `config` tool by input:
-  a read (no `value`) auto-allows in every mode; a write asks (and is
-  denied in plan mode, like any other write). Additive — no existing
-  tool's behaviour changes.
-
-## [v1.6.0] — MCP client support
+### MCP client support
 
 Ships evva's Model Context Protocol client. Configure MCP servers under
 `mcpServers` in `.evva/settings.json` (project) or
@@ -45,11 +30,7 @@ Ships evva's Model Context Protocol client. Configure MCP servers under
 `tool_search`. Tool calls compose with the permission gate and the v1.1
 hooks engine, and subagents share the parent's live sessions.
 
-Sequencing: this is the Phase MCP work (v1.3 in CLAUDE.md). Roadmap phase
-numbers in CLAUDE.md stay stable; the release tag is `v1.6.0` because
-shipping order moved bundled skills / OpenAI ahead of MCP.
-
-### Added
+#### Added
 
 - **`pkg/mcp`** — public Experimental-tier MCP client package. Exports
   `Config`, `ServerConfig`, `ServerStatus`, `ServerState`, `Manager`,
@@ -75,7 +56,7 @@ shipping order moved bundled skills / OpenAI ahead of MCP.
   the auth URL via the question broker and reconnects on completion. Token
   disk persistence is deferred to a later phase.
 
-### Changed
+#### Changed
 
 - `internal/agent.New` re-renders the MAIN system prompt after MCP
   discovery so the discovered names extend `Profile.DeferredTools` and the
@@ -84,7 +65,7 @@ shipping order moved bundled skills / OpenAI ahead of MCP.
   the tools survive a persona change without re-connecting. No public API
   change.
 
-### Notes
+#### Notes
 
 - Dependency added: `github.com/modelcontextprotocol/go-sdk` v1.6.1
   (Apache 2.0), plus its small transitive set (`golang.org/x/oauth2`,
@@ -99,7 +80,15 @@ shipping order moved bundled skills / OpenAI ahead of MCP.
   transport so an SDK bump that changes it goes red.
 - Public surface ships at the **Experimental** stability tier.
 
-## [v1.4.0] — Bundled skills
+### MCP enhancements
+
+- **`setup-mcp` bundled skill** — teaches the model (and the user) how to
+  configure MCP servers in `.evva/settings.json`.
+- **`/mcp` server-review command** — a bubbletea TUI overlay
+  (`pkg/ui/bubbletea/components/overlays/mcp.go`) that lists configured MCP
+  servers and their connection status.
+
+### Bundled skills
 
 Fills the empty `# Skills` section every fresh install shipped with. The
 skill framework (`pkg/skill`) has been complete and Stable since v1.0; this
@@ -108,12 +97,7 @@ the binary and overlaid onto the disk catalog at boot. A user disk skill
 with the same name silently overrides the bundled body — bundled is the
 lowest-precedence tier.
 
-Versioning note: this release jumps from v1.1.0 to v1.4.0. Bundled skills
-(roadmap phase v1.4) shipped ahead of v1.2 (OpenAI provider) and v1.3 (MCP)
-by directive — they deliver day-one value and depend on neither. The version
-follows shipping order, not roadmap-phase order; v1.2 and v1.3 remain on deck.
-
-### Added
+#### Added
 
 - **Bundled skills** — five tier-1 SKILL.md bodies, embedded via `go:embed`
   (`internal/skills/bundled`) and overlaid onto the disk catalog by
@@ -137,12 +121,13 @@ follows shipping order, not roadmap-phase order; v1.2 and v1.3 remain on deck.
 - **`skill.ParseTitleLine`** — exported shared title-line parser used by both
   the disk loader and the bundled loader so the two cannot drift.
 
-### Changed
+#### Changed
 
 - `internal/agent/skills.go:loadDiskSkillRegistry` now overlays the bundled
   catalog onto the disk-loaded registry. Hosts that inject their own registry
   via `agent.WithSkillRegistry` are unaffected and still skip bundled.
-## [v1.2.0] — OpenAI provider
+
+### OpenAI provider
 
 Closes the OpenAI integrity gap. The `constant.OPENAI` provider, the
 `openai.api_key` / `openai.api_url` config fields, and the `/model` picker
@@ -154,7 +139,7 @@ deviations called out) and registers it via the builtins side-effect, so
 every name in `constant.GetAllProviders()` now resolves through the
 factory.
 
-### Added
+#### Added
 
 - **`pkg/llm/openai`** — new bundled provider implementing the full
   `llm.Client` contract over OpenAI's Chat Completions API. Supports
@@ -164,7 +149,7 @@ factory.
 - **OpenAI factory registered in `pkg/llm/builtins`** — blank-importing
   `pkg/llm/builtins` now wires anthropic, deepseek, openai, **and** ollama.
 
-### Changed
+#### Changed
 
 - **`pkg/constant/llm.go`** — replaced the solitary `GPT_5_5` model entry
   with a fast/pro pair (`GPT_5_4_MINI` / `GPT_5_5`). `MODEL_CONTEXT_SIZE`
@@ -172,7 +157,7 @@ factory.
   `GPT_5_5` entry was also corrected from the old 500K placeholder to
   OpenAI's documented 1,050K.
 
-### Notes
+#### Notes
 
 - `openai.Client.SupportsDeferLoading()` returns `false`. OpenAI relies on
   automatic prefix-prompt caching; the agent must therefore keep the
@@ -184,6 +169,48 @@ factory.
 - Reasoning content is **not** streamed (OpenAI Chat Completions does not
   surface it). For reasoning visibility, use the Anthropic or DeepSeek
   providers, both of which emit `llm.ChunkThinking` deltas.
+
+### `config` tool
+
+#### Added
+
+- **`config` tool** — the model can now read and change evva's
+  configuration directly instead of asking the user to type `/config`.
+  One input `{setting, value?}`: omitting `value` reads the current value
+  (auto-allowed); supplying it writes (gated by an `ask` permission prompt
+  that reads `Set <key> to <value>`). Mirrors the `/config` overlay's
+  setting catalog plus a small set of model-relevant extras
+  (`default_effort`, `default_profile`). Active on Main only — subagents
+  don't get it. Lives in `internal/tools/config` (`internal/`, not a
+  public package); a `SUPPORTED_SETTINGS` registry wraps the typed
+  `*config.Config` setters so adding a setting in one place grows the
+  tool's prompt, schema, and permission posture together.
+- **`pkg/config` read accessors** — `GetMaxIterations`, `GetMaxTokens`,
+  `GetFetchMaxBytes`, `GetTavilyAPIKey`, `GetDefaultProfile`,
+  `GetProviderAPIKey`, `GetProviderAPIURL` (race-free reads under the
+  config mutex; paired with the existing setters).
+
+#### Changed
+
+- **`pkg/permission.Decide`** now classifies the `config` tool by input:
+  a read (no `value`) auto-allows in every mode; a write asks (and is
+  denied in plan mode, like any other write). Additive — no existing
+  tool's behaviour changes.
+
+### REPL tool
+
+- **`pkg/tools/repl`** — new tool family exposing the deferred `repl` tool
+  (`tools.REPL`): runs a Python or JavaScript snippet in a subprocess with
+  `cmd.Dir` set to the workdir. `NewREPL(workdir)` constructs the tool and
+  `repl.Names()` reports `[repl]`.
+
+### Low-profile TUI
+
+- **`pkg/ui/lp`** — a compact "low-profile" terminal UI, registered
+  alongside the bubbletea TUI.
+- **`pkg/ui` UI registry** — `Factory`, `Register`, `Lookup`, and `Names`
+  let a host register and select named UI implementations; the bundled
+  bubbletea and lp UIs register themselves via blank import.
 
 ## [v1.1.0] — Lifecycle hooks
 
@@ -803,9 +830,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.0...HEAD
-[v1.4.0]: https://github.com/johnny1110/evva/compare/v1.2.0...v1.4.0
-[v1.2.0]: https://github.com/johnny1110/evva/compare/v1.1.0...v1.2.0
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.3.0-beta.1...HEAD
+[v1.3.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.1.0...v1.3.0-beta.1
 [v1.1.0]: https://github.com/johnny1110/evva/compare/v1.0.0...v1.1.0
 [v1.0.0]: https://github.com/johnny1110/evva/compare/v0.2.8-alpha.6...v1.0.0
 [v0.2.8-alpha.6]: https://github.com/johnny1110/evva/releases/tag/v0.2.8-alpha.6
