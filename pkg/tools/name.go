@@ -122,6 +122,15 @@ const (
 	WEB_SEARCH ToolName = "web_search"
 )
 
+// MCP resource tools — deferred meta tools that work across any configured
+// MCP server. Per-server tools and per-server auth tools are registered
+// dynamically by pkg/mcp.Manager and follow the mcp__<server>__<tool>
+// naming convention (not declared here — they're runtime-discovered).
+const (
+	LIST_MCP_RESOURCES ToolName = "list_mcp_resources"
+	READ_MCP_RESOURCE  ToolName = "read_mcp_resource"
+)
+
 // Others.
 const (
 	// this is for explore agent (read only)
@@ -133,6 +142,16 @@ const (
 	JSON_QUERY ToolName = "json_query"
 	CALC       ToolName = "calc"
 
+	// REPL — run a Python or JavaScript snippet in a fresh subprocess and
+	// return combined stdout+stderr. Deferred; surfaced via tool_search.
+	REPL ToolName = "repl"
+
 	// this is for dev phase
 	FEEDBACK ToolName = "feedback"
+
+	// CONFIG — get or set evva configuration settings. One tool, one
+	// {setting, value?} shape: read when value is omitted, write when set.
+	// Active on the Main profile; subagents don't get it. Permission posture:
+	// auto-allow on read, ask on write (see pkg/permission.Decide).
+	CONFIG ToolName = "config"
 )

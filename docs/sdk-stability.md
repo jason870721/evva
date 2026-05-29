@@ -20,7 +20,7 @@ new options) land in minor versions.
 | Package | Why it's stable |
 | --- | --- |
 | `pkg/agent` | The agent constructor and Agent interface — every downstream app touches this. |
-| `pkg/config` | `Config`, `Load`, `LoadOptions`, `APIConfig`, the setter helpers. |
+| `pkg/config` | `Config`, `Load`, `LoadOptions`, `APIConfig`, the setter/getter helpers (the `config` tool added `Get*` reads in the v1.5 ConfigTool work). |
 | `pkg/event` | `Event`, `Kind` constants, payload structs, `Sink` interface. |
 | `pkg/tools` | `Tool`, `Result`, `ToolName` constants, `State` interface. |
 | `pkg/llm` | `Client`, `Message`, `Response`, `Option`, `Registry`, `ClientFactory`. |
@@ -49,6 +49,7 @@ specific minor version and watch the changelog before upgrading.
 | `pkg/observable` | The Store / Change framework is the right shape for evva but might tighten its semantics around concurrent emitters. |
 | `pkg/tools/kits` | Phase 19d ships four kits (GeneralPurpose / ReadOnly / Coding / Research); the exact membership of each kit may grow as new tool families land. The named-kit pattern itself is stable. |
 | `pkg/hooks` | Lifecycle hook engine (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / Notification). The event set and payload shapes follow Claude Code's settings-file contract; the Go surface (`Registry`, `Dispatcher`, `BasePayload`, `WithHookRegistry`) may flex as downstream consumers exercise it. |
+| `pkg/mcp` | MCP client (Model Context Protocol) — `Manager`, `ServerConfig`, `Open`/`Load`, the OAuth bridge, and result conversion. Wraps the official `modelcontextprotocol/go-sdk` for the protocol layer. Surface may flex as downstream usage exercises edge cases (transport quirks, OAuth token persistence, result-type expansion). |
 
 ### Internal helper
 

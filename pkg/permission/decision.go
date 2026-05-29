@@ -2,7 +2,17 @@ package permission
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 )
+
+// configToolName is the wire name of the `config` tool (internal/tools/config).
+// The config tool is the one tool whose risk depends on its input: reading a
+// setting (no "value") is safe and auto-allows; writing one asks. Decide
+// special-cases it the same way it special-cases bash — by name, since the
+// permission package classifies tools by name rather than via a method on the
+// tool itself.
+const configToolName = "config"
 
 // Decide runs the permission pipeline for a single tool call and returns
 // the resolved Behavior + Reason. An Ask outcome is escalated to the
@@ -66,6 +76,13 @@ func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir string) D
 		}
 		return Decision{Behavior: BehaviorAllow, Reason: reason}
 	}
+	// config reads (no "value") are side-effect-free — allow them in every
+	// mode, including plan. config writes fall through: in plan mode they hit
+	// the write-deny below; otherwise they reach the config-set ask near the
+	// end of the pipeline.
+	if call.Name == configToolName && configIsRead(call.Input) {
+		return Decision{Behavior: BehaviorAllow, Reason: "config: read-only get"}
+	}
 
 	if mode == ModePlan {
 		if isPlanFileWrite(call, workdir) {
@@ -99,6 +116,13 @@ func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir string) D
 		}
 	}
 
+	// config writes reach here in non-plan modes (plan mode denied them
+	// above). Ask with a setting-specific message so the prompt reads
+	// "Set <key> to <value>" instead of a generic "no matching rule".
+	if call.Name == configToolName {
+		return Decision{Behavior: BehaviorAsk, Reason: configSetMessage(call.Input)}
+	}
+
 	reason := "no matching rule"
 	if hint.IsDangerous {
 		reason = "dangerous command"
@@ -107,6 +131,41 @@ func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir string) D
 		}
 	}
 	return Decision{Behavior: BehaviorAsk, Reason: reason}
+}
+
+// configIsRead reports whether a config tool call is a GET (no "value").
+// It mirrors the tool's own get/set split (internal/tools/config): the value
+// is absent or empty-bytes for a read. A present-but-null value
+// ({"value":null}) counts as a write, matching the tool. A parse failure is
+// treated as a write (the safe default — fall through to ask).
+func configIsRead(raw []byte) bool {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return false
+	}
+	v, ok := m["value"]
+	return !ok || len(v) == 0
+}
+
+// configSetMessage renders the approval prompt for a config write as
+// "Set <key> to <value>". A JSON string value is shown unquoted for
+// readability ("Set default_effort to high"). Secret values are shown raw —
+// transcript/prompt redaction of secrets is a separate, not-yet-built concern
+// (see v1.5 design notes §5.6).
+func configSetMessage(raw []byte) string {
+	var m struct {
+		Setting string          `json:"setting"`
+		Value   json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil || m.Setting == "" {
+		return "modify configuration"
+	}
+	val := strings.TrimSpace(string(m.Value))
+	var s string
+	if json.Unmarshal(m.Value, &s) == nil {
+		val = s
+	}
+	return fmt.Sprintf("Set %s to %s", m.Setting, val)
 }
 
 // isPlanFileWrite reports whether call is a Write or Edit targeting a path

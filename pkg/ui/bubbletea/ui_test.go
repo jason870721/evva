@@ -28,6 +28,19 @@ func TestNew(t *testing.T) {
 	}
 }
 
+// TestRegisteredAsBubbletea pins the side effect of register.go: importing
+// this package must register the "bubbletea" UI so `evva -tui bubbletea`
+// resolves. The factory must build a non-nil ui.UI.
+func TestRegisteredAsBubbletea(t *testing.T) {
+	factory, ok := ui.Lookup("bubbletea")
+	if !ok {
+		t.Fatal(`ui.Lookup("bubbletea") = _, false; register.go init() did not run`)
+	}
+	if got := factory("/tmp/evva-v2-test-home"); got == nil {
+		t.Fatal("bubbletea factory returned a nil ui.UI")
+	}
+}
+
 // NOTE: there's no Emit-before-Run test. tea.Program.Send blocks on an
 // unbuffered channel until Run() starts the read loop, so the
 // "pathological" case of emitting before Run can't be exercised from a

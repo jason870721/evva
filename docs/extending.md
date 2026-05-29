@@ -599,6 +599,125 @@ ag, _ := agent.NewWithProfile(prof,
 The one-call `pkg/agent.New` loads hooks from disk automatically alongside
 `permission.Load`. A nil registry is safe — the dispatcher noops.
 
+## MCP servers
+
+evva consumes Model Context Protocol servers as a source of tools and
+resources. Configure them under `mcpServers` in the same settings.json
+files that hold hooks:
+
+- Project: `<workdir>/.evva/settings.json`
+- User: `<APP_HOME>/settings.json` (typically `~/.evva/settings.json`)
+
+### settings.json shape
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/work"],
+      "env": {"NODE_OPTIONS": "--enable-source-maps"}
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.example.com/mcp",
+      "headers": {"X-Custom-Header": "${MY_HEADER_VAR:-default}"}
+    }
+  }
+}
+```
+
+Per-server fields:
+- `type`: `"stdio"` or `"http"`. Inferred from `command` (→stdio) or `url`
+  (→http) when omitted.
+- `command`, `args`, `env`: stdio only. `${VAR}` and `${VAR:-default}`
+  expansion happens at load time (process environment).
+- `url`, `headers`: http only (Streamable HTTP, 2025-03-26 spec).
+- `timeout`: connect timeout in seconds; default 30, max 600.
+- `disabled`: skip this server entirely (no subprocess, no HTTP).
+
+A misconfigured server never blocks startup: the failure is logged, the
+server shows `failed`/`needs-auth` in `Manager.Status()`, and every other
+configured server still connects (concurrently, no head-of-line blocking).
+
+### Tool naming
+
+Every discovered tool becomes `mcp__<server>__<tool>` in evva's tool
+catalog (lowercased and char-sanitized to `^[a-zA-Z0-9_-]{1,64}$`). The
+names are deferred — they appear in `<available-deferred-tools>` and load
+on demand via `tool_search`. Permission rules and hooks target this
+fully-qualified name:
+
+```json
+{
+  "permissions": {
+    "alwaysAllow": ["mcp__filesystem__read_file"],
+    "deny": ["mcp__filesystem__delete_file"]
+  },
+  "hooks": {
+    "PreToolUse": [{"matcher": "mcp__**__write_*", "hooks": [{"type":"command","command":"./audit.sh"}]}]
+  }
+}
+```
+
+The default stance for an unknown tool is `ask`, so the first MCP write
+prompts; add a rule to make it permanent. A glob hook like
+`mcp__**__write_*` is a one-rule way to audit or redact every MCP write
+across every server.
+
+### Resources
+
+`list_mcp_resources` returns the resource catalog across connected servers
+(each entry tagged with its `server`); `read_mcp_resource` takes
+`{server, uri}` and returns text inline. Binary blobs are persisted under
+`<APP_HOME>/mcp-blobs/` and the path is returned in place of the bytes —
+read it back with the `read` tool if needed.
+
+### OAuth-protected HTTP servers
+
+When an HTTP server returns 401 on initial connection, evva flags it
+`needs-auth` and registers a one-off `mcp__<server>__authenticate` tool.
+Invoking it surfaces the authorization URL to the user (via the question
+broker — the bundled TUI's `ask_user_question` overlay), waits for them to
+finish the in-browser flow, then reconnects and makes the server's real
+tools available. Tokens live in SDK-managed memory only in this release —
+re-auth on session restart.
+
+### SDK usage
+
+Downstream hosts that construct agents via `pkg/agent.NewWithProfile` opt
+into MCP with `WithMcpManager`:
+
+```go
+cfg, warns := mcp.Load(workdir, evvaHome)
+mgr, openWarns := mcp.Open(ctx, cfg, mcp.OpenOptions{
+    Logger:   logger,
+    EvvaHome: evvaHome,
+    // OAuthPrompt: yourPromptFn,  // optional; nil disables the OAuth flow.
+    //                              // Hosts that want the bundled
+    //                              // ask_user_question flow should build an
+    //                              // adapter bridging OAuthPromptFn to their UI.
+})
+mgr.RegisterFactories(toolset.DefaultRegistry())
+
+ag, _ := agent.NewWithProfile(prof,
+    agent.WithMcpManager(mgr),
+)
+```
+
+The one-call `pkg/agent.New` loads + opens the manager automatically,
+including wiring `OAuthPrompt` to the bundled `ask_user_question` flow. A
+nil manager is safe — the resource tools and dynamic factories just have
+nothing to surface.
+
+### Out of scope (v1.6 first cut)
+
+Sampling, prompts, roots, elicitation, SSE-IDE / WebSocket / SDK
+transports, plugin-provided servers, hot-reload, and disk-persisted OAuth
+tokens are deliberately omitted. See `docs/roadmap/v1/v1-3-mcp.md` §6 for
+the full list and follow-up candidates.
+
 ## What you can't change
 
 These are by design — see CLAUDE.md's Phase 13 goals for the rationale.

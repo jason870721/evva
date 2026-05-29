@@ -11,6 +11,94 @@ releases on `pre-release` are staging-only and do not get separate entries.
 
 ## [Unreleased]
 
+### Added
+
+- **`config` tool** — the model can now read and change evva's
+  configuration directly instead of asking the user to type `/config`.
+  One input `{setting, value?}`: omitting `value` reads the current value
+  (auto-allowed); supplying it writes (gated by an `ask` permission prompt
+  that reads `Set <key> to <value>`). Mirrors the `/config` overlay's
+  setting catalog plus a small set of model-relevant extras
+  (`default_effort`, `default_profile`). Active on Main only — subagents
+  don't get it. Lives in `internal/tools/config` (`internal/`, not a
+  public package); a `SUPPORTED_SETTINGS` registry wraps the typed
+  `*config.Config` setters so adding a setting in one place grows the
+  tool's prompt, schema, and permission posture together.
+- **`pkg/config` read accessors** — `GetMaxIterations`, `GetMaxTokens`,
+  `GetFetchMaxBytes`, `GetTavilyAPIKey`, `GetDefaultProfile`,
+  `GetProviderAPIKey`, `GetProviderAPIURL` (race-free reads under the
+  config mutex; paired with the existing setters).
+
+### Changed
+
+- **`pkg/permission.Decide`** now classifies the `config` tool by input:
+  a read (no `value`) auto-allows in every mode; a write asks (and is
+  denied in plan mode, like any other write). Additive — no existing
+  tool's behaviour changes.
+
+## [v1.6.0] — MCP client support
+
+Ships evva's Model Context Protocol client. Configure MCP servers under
+`mcpServers` in `.evva/settings.json` (project) or
+`<APP_HOME>/settings.json` (user); every discovered tool appears as
+`mcp__<server>__<tool>` in the deferred-tool catalog and is loadable via
+`tool_search`. Tool calls compose with the permission gate and the v1.1
+hooks engine, and subagents share the parent's live sessions.
+
+Sequencing: this is the Phase MCP work (v1.3 in CLAUDE.md). Roadmap phase
+numbers in CLAUDE.md stay stable; the release tag is `v1.6.0` because
+shipping order moved bundled skills / OpenAI ahead of MCP.
+
+### Added
+
+- **`pkg/mcp`** — public Experimental-tier MCP client package. Exports
+  `Config`, `ServerConfig`, `ServerStatus`, `ServerState`, `Manager`,
+  `NewManager`, `Open`, `OpenOptions`, `Load`, `NormalizeName`,
+  `BuildToolName`, `ParseToolName`, `ToolNamePrefix`, `ExpandEnv`,
+  `ConvertResult`, the OAuth seam (`OAuthPrompt`, `OAuthPromptFn`,
+  `OAuthHandler`, `NewOAuthHandler`), and the `NewListResourcesTool` /
+  `NewReadResourceTool` factories. Wraps the official
+  `modelcontextprotocol/go-sdk` for the protocol layer.
+- **`agent.WithMcpManager`** — SDK opt-in for hosts that construct the
+  manager themselves. Auto-loaded by the one-call `agent.New` when omitted
+  (and wired to the bundled `ask_user_question` OAuth prompt).
+- **Two new deferred tools**: `list_mcp_resources`, `read_mcp_resource`.
+- **Dynamic tool registration**: every discovered MCP tool registers a
+  `pkg/toolset.DefaultRegistry` factory under `mcp__<server>__<tool>` and
+  lands in the per-agent deferred allowlist + the MAIN prompt's
+  `<available-deferred-tools>` block before the first turn.
+- **Transports**: stdio (subprocess) and Streamable HTTP (2025-03-26
+  spec). SSE-only, WebSocket, SDK, SSE-IDE, WS-IDE, claudeai-proxy are out
+  of scope (see `docs/roadmap/v1/v1-3-mcp.md` §6).
+- **OAuth**: HTTP servers that answer 401 land in `needs-auth` and surface
+  an `mcp__<server>__authenticate` tool; invoking it prompts the user with
+  the auth URL via the question broker and reconnects on completion. Token
+  disk persistence is deferred to a later phase.
+
+### Changed
+
+- `internal/agent.New` re-renders the MAIN system prompt after MCP
+  discovery so the discovered names extend `Profile.DeferredTools` and the
+  deferred catalog before the prompt is built. `/profile` switch, resume,
+  and worktree-switch thread the live MCP catalog through the rebuild so
+  the tools survive a persona change without re-connecting. No public API
+  change.
+
+### Notes
+
+- Dependency added: `github.com/modelcontextprotocol/go-sdk` v1.6.1
+  (Apache 2.0), plus its small transitive set (`golang.org/x/oauth2`,
+  `github.com/google/jsonschema-go`, `github.com/segmentio/encoding`,
+  `github.com/yosida95/uritemplate/v3`). The protocol layer (JSON-RPC,
+  session-id handling, resumability, OAuth flow) is delegated to the SDK;
+  evva owns the policy layer (config loading, status tracking, dynamic
+  factory registration, OAuth broker bridge, result conversion).
+- Session-expiry detection uses the SDK's exported `ErrSessionMissing`
+  sentinel (`errors.Is`) rather than string-matching; `TestErrorMatchers_PinSDKShape`
+  pins the auth-error shape (no sentinel exists for 401/403) against a real
+  transport so an SDK bump that changes it goes red.
+- Public surface ships at the **Experimental** stability tier.
+
 ## [v1.4.0] — Bundled skills
 
 Fills the empty `# Skills` section every fresh install shipped with. The

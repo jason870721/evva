@@ -22,6 +22,7 @@ var bundledNames = []string{
 	"security-review",
 	"simplify",
 	"setup-hooks",
+	"setup-mcp",
 }
 
 // readBundled returns the raw SKILL.md content for a bundled skill. It

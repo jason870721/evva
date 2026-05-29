@@ -283,6 +283,9 @@ Currently early-stage — all releases are beta (latest), alpha tags are pre-rel
 
 ```bash
 git checkout main && git merge pre-release --ff-only
+```
+Before tagging, verify `pkg/version/version.go` has the correct beta version and `CHANGELOG.md` is updated with the matching version.
+```bash
 git tag -a v<X>.<Y>.<Z>-beta.<N> -m "..."
 git push origin v<X>.<Y>.<Z>-beta.<N>
 gh release create v<X>.<Y>.<Z>-beta.<N> --target main --title "..."
@@ -292,6 +295,9 @@ gh release create v<X>.<Y>.<Z>-beta.<N> --target main --title "..."
 
 ```bash
 git checkout pre-release && git merge dev
+```
+Before tagging, verify `pkg/version/version.go` has the correct alpha version. Alpha releases do not get a separate CHANGELOG entry, but the version should reflect the scope accumulated on dev.
+```bash
 git tag -a v<X>.<Y>.<Z>-alpha.<N> -m "..."
 git push origin v<X>.<Y>.<Z>-alpha.<N>
 gh release create v<X>.<Y>.<Z>-alpha.<N> --target pre-release --prerelease --title "..."

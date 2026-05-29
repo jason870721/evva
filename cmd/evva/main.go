@@ -23,7 +23,8 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/fs"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/ui"
-	"github.com/johnny1110/evva/pkg/ui/bubbletea"
+	_ "github.com/johnny1110/evva/pkg/ui/bubbletea" // register the "bubbletea" UI into ui's registry
+	_ "github.com/johnny1110/evva/pkg/ui/lp"        // register the "lp" (low-profile) UI
 	"github.com/johnny1110/evva/pkg/update"
 	"github.com/joho/godotenv"
 )
@@ -62,7 +63,8 @@ func main() {
 	temp := flag.Float64("temp", -1, "sampling temperature (-1 → leave unset)")
 	maxTokens := flag.Int("max-tokens", cfg.DefaultMaxTokens, "max output tokens (0 → provider default)")
 	maxIters := flag.Int("max-iters", cfg.DefaultMaxIterations, "max loop iterations before pausing for Continue")
-	noTUI := flag.Bool("no-tui", false, "disable the bubbletea TUI; read a prompt and run once with plain CLI output")
+	noTUI := flag.Bool("no-tui", false, "disable the interactive TUI; read a prompt and run once with plain CLI output")
+	tuiName := flag.String("tui", "bubbletea", "interactive UI to use (available: "+strings.Join(ui.Names(), ", ")+")")
 	permModeFlag := flag.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
 	flag.Parse()
 
@@ -95,21 +97,29 @@ func main() {
 
 	useTUI := !*noTUI && isTTY(os.Stdout)
 	if useTUI {
-		runTUI(ctx, acfg, cfg.AppHome)
+		runTUI(ctx, acfg, cfg.AppHome, *tuiName)
 		return
 	}
 	runCLI(ctx, acfg)
 }
 
-// runTUI is the interactive path. The bubbletea UI owns the screen; the
+// runTUI is the interactive path. The selected UI owns the screen; the
 // agent emits events into it; the user drives prompts from the textarea.
-// evvaHome lets the TUI resolve banner.txt (and any future user config).
+// evvaHome lets the UI resolve banner.txt (and any future user config).
+//
+// tuiName picks the UI from ui's registry (default "bubbletea"); built-in
+// and third-party UIs register themselves via a blank import. An unknown
+// name is a clean exit, not a panic.
 //
 // With a sink installed the agent emits KindApprovalNeeded /
-// KindQuestionNeeded to the TUI, which renders the overlay and resolves via
+// KindQuestionNeeded to the UI, which renders the overlay and resolves via
 // Controller.RespondPermission / RespondQuestion — no host broker wiring.
-func runTUI(ctx context.Context, acfg agent.Config, evvaHome string) {
-	tui := bubbletea.New(evvaHome)
+func runTUI(ctx context.Context, acfg agent.Config, evvaHome, tuiName string) {
+	factory, ok := ui.Lookup(tuiName)
+	if !ok {
+		exitf(2, "evva: unknown -tui %q (available: %s)", tuiName, strings.Join(ui.Names(), ", "))
+	}
+	tui := factory(evvaHome)
 
 	ag, err := agent.New(acfg,
 		agent.WithSink(tui),

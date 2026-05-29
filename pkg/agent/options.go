@@ -7,6 +7,7 @@ import (
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/pkg/hooks"
+	"github.com/johnny1110/evva/pkg/mcp"
 	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -151,4 +152,16 @@ func WithPermissionBroker(b permission.Broker) Option {
 // subagent so one settings.json load drives the whole agent tree.
 func WithHookRegistry(r *hooks.Registry) Option {
 	return agent_impl.WithHookRegistry(r)
+}
+
+// WithMcpManager installs a pre-built MCP connection manager, suppressing
+// the one-call agent.New's auto-load. Build it with mcp.Load + mcp.Open and
+// call mgr.RegisterFactories(toolset.DefaultRegistry()) before passing it
+// here when you want a custom logger, OAuth prompt, or a manager shared
+// across agents. Omit it to let New load + open the manager from
+// settings.json (and wire the bundled ask_user_question OAuth flow)
+// automatically. nil is safe — MCP tools and resources just have nothing
+// to surface. Subagents inherit the parent's manager.
+func WithMcpManager(m *mcp.Manager) Option {
+	return agent_impl.WithMcpManager(m)
 }

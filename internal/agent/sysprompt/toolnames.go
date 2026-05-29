@@ -48,6 +48,9 @@ const (
 
 	// LSP — semantic code intelligence.
 	nameLspRequest = "lsp_request"
+
+	// REPL — scratch Python/JS code execution.
+	nameRepl = "repl"
 )
 
 // Subagent identifiers — the strings the main agent quotes in its

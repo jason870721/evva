@@ -82,8 +82,9 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 		WithPermissionMode(a.PermissionMode()),
 		WithPermissionStore(a.permissionStore),
 		WithPermissionBroker(a.permissionBroker),
-		WithQuestionBroker(a.questionBroker), // share the root's wired question broker
-		WithHookRegistry(a.hookRegistry),     // share the parent's loaded hooks
+		WithQuestionBroker(a.questionBroker),     // share the root's wired question broker
+		WithHookRegistry(a.hookRegistry),         // share the parent's loaded hooks
+		WithMcpManager(a.toolState.McpManager()), // share the parent's live MCP sessions (no re-connect)
 	)
 	if err != nil {
 		if isolationSession != nil {

@@ -237,6 +237,11 @@ git checkout main
 git merge pre-release --ff-only   # pre-release must be a direct descendant
 ```
 
+Before tagging, verify:
+
+1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 beta 版號（例如 `v1.2.0-beta.1`）。
+2. `CHANGELOG.md` 中的 `[Unreleased]` 已改名為對應的 beta 版號，版號與內容一致。
+
 Then bump the version and tag:
 
 ```
@@ -251,6 +256,11 @@ gh release create v<X>.<Y>.<Z>-beta.<N> --target main --title "v<X>.<Y>.<Z>-beta
 git checkout pre-release
 git merge dev
 ```
+
+Before tagging, verify:
+
+1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 alpha 版號（例如 `v1.2.0-alpha.2`）。
+2. Alpha release 不另寫 CHANGELOG，但版號應與 dev 分支累積的變更範圍一致。
 
 Then bump the version and tag:
 

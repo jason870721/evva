@@ -33,6 +33,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/monitor"
 	"github.com/johnny1110/evva/pkg/tools/notebook"
+	"github.com/johnny1110/evva/pkg/tools/repl"
 	"github.com/johnny1110/evva/pkg/tools/shell"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/tools/util"
@@ -117,6 +118,15 @@ type Profile struct {
 // Callers who want the old buffered behavior can pass WithStream(false) at
 // agent construction.
 func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
+	return mainProfile(cfg, provider, model, skills, mem, options, nil)
+}
+
+// mainProfile is Main with an extra slice of deferred tool names folded in
+// (MCP-discovered mcp__<server>__<tool> names). The extras land in BOTH
+// the Profile.DeferredTools allowlist and the prompt's
+// <available-deferred-tools> block so the model can locate them via
+// tool_search. extraDeferred is nil for the plain Main path.
+func mainProfile(cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName) Profile {
 	// nil skills means "auto-load from cfg's skill dirs" — keeps downstream
 	// SDK callers (pkg/agent.New passes nil) and cmd/evva from having to
 	// re-implement the disk walk. An explicit empty slice still suppresses
@@ -127,8 +137,9 @@ func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Mode
 	activeTools := slices.Concat(fs.Names(), shell.Names(), meta.Names(), skill.Names(), todo.Names())
 	// enter/exit_plan_mode are always-active on Main so the model can flip
 	// the session into ModePlan without a tool_search round-trip. The
-	// worktree pair stays deferred (Phase 10).
-	activeTools = append(activeTools, tools.ENTER_PLAN_MODE, tools.EXIT_PLAN_MODE)
+	// worktree pair stays deferred (Phase 10). config is always-active too so
+	// the model can read/change settings on demand; subagents don't get it.
+	activeTools = append(activeTools, tools.ENTER_PLAN_MODE, tools.EXIT_PLAN_MODE, tools.CONFIG)
 	// Auto-memory tools — registered only when the user has the feature
 	// enabled. The sysprompt's auto-memory guidance section is gated on the
 	// same flag (see ctx.EnableAutoMemory below), so prompt and toolset
@@ -150,7 +161,12 @@ func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Mode
 		cron.Names(),
 		web.Names(),
 		util.Names(),
+		repl.Names(),
+		mcpResourceToolNames(),
 	)
+	// Fold MCP-discovered tool names in last so they appear in both the
+	// allowlist and the prompt's deferred catalog.
+	deferredTools = append(deferredTools, extraDeferred...)
 
 	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
 	ctx.Skills = skills
@@ -189,6 +205,17 @@ func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Mode
 // error so callers (bootstrap fallback, the /profile picker) can surface
 // the failure.
 func ResolveMainProfile(cfg *config.Config, reg *AgentRegistry, name string, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) (Profile, error) {
+	return resolveMainProfileWithExtra(cfg, reg, name, skills, mem, options, cfg.DefaultProvider, cfg.DefaultModel, nil)
+}
+
+// resolveMainProfileWithExtra is ResolveMainProfile with explicit
+// provider/model and an extra slice of deferred tool names (MCP-discovered
+// mcp__<server>__<tool> names) folded into the resulting profile. The
+// agent's MCP wiring uses it so a re-rendered persona prompt advertises the
+// live MCP catalog and the deferred allowlist still admits MCP tool calls
+// after a /profile switch (acceptance A16). ResolveMainProfile delegates
+// here with cfg defaults + nil extras, so its public behavior is unchanged.
+func resolveMainProfileWithExtra(cfg *config.Config, reg *AgentRegistry, name string, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, provider constant.LLMProvider, model constant.Model, extraDeferred []tools.ToolName) (Profile, error) {
 	if name == "" {
 		name = "evva"
 	}
@@ -206,7 +233,7 @@ func ResolveMainProfile(cfg *config.Config, reg *AgentRegistry, name string, ski
 		if name != "evva" {
 			return Profile{}, fmt.Errorf("agent: unknown main profile %q (no registry)", name)
 		}
-		return Main(cfg, cfg.DefaultProvider, cfg.DefaultModel, skills, mem, options), nil
+		return mainProfile(cfg, provider, model, skills, mem, options, extraDeferred), nil
 	}
 	def, ok := reg.Get(name)
 	if !ok {
@@ -216,9 +243,17 @@ func ResolveMainProfile(cfg *config.Config, reg *AgentRegistry, name string, ski
 		return Profile{}, fmt.Errorf("agent: %q is not a main-tier persona", name)
 	}
 	if def.Name == "evva" {
-		return Main(cfg, cfg.DefaultProvider, cfg.DefaultModel, skills, mem, options), nil
+		return mainProfile(cfg, provider, model, skills, mem, options, extraDeferred), nil
 	}
-	return mainProfileFromDiskAgent(def, cfg, cfg.DefaultProvider, cfg.DefaultModel, skills, mem, options), nil
+	return mainProfileFromDiskAgent(def, cfg, provider, model, skills, mem, options, extraDeferred), nil
+}
+
+// mcpResourceToolNames returns the two static MCP meta tools that are
+// deferred on every Main profile regardless of whether any MCP server is
+// configured. Per-server mcp__<server>__<tool> names are runtime-discovered
+// and arrive via the extraDeferred path, not here.
+func mcpResourceToolNames() []tools.ToolName {
+	return []tools.ToolName{tools.LIST_MCP_RESOURCES, tools.READ_MCP_RESOURCE}
 }
 
 // ResolveMainProfileAutoMem is ResolveMainProfile with the EVVA.md /
@@ -241,7 +276,7 @@ func ResolveMainProfileAutoMem(cfg *config.Config, reg *AgentRegistry, name stri
 // (loaded from tools.yml). The deferred catalog is rendered into the
 // prompt so disk personas see their lazy-loadable tools the same way
 // built-in evva does.
-func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
+func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName) Profile {
 	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
 	if def.AdvertiseSkills {
 		ctx.Skills = skills
@@ -252,7 +287,11 @@ func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config,
 		ctx.ProjectMemoryIndex = mem.ProjectMemoryIndex
 		ctx.EnableAutoMemory = cfg.GetEnableAutoMemory()
 	}
-	ctx.DeferredTools = deferredToolSpecs(def.DeferredTools)
+	// Disk personas declare their own deferred set; fold MCP-discovered
+	// names in so an opted-in persona advertises and can reach the live
+	// MCP catalog after a /profile switch.
+	deferred := append(append([]tools.ToolName{}, def.DeferredTools...), extraDeferred...)
+	ctx.DeferredTools = deferredToolSpecs(deferred)
 	ctx.Model = string(model)
 	body := def.BuildSystemPrompt(ctx)
 	sp := sysprompt.ComposeDiskMainPrompt(body, ctx, def)
@@ -261,7 +300,7 @@ func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config,
 		Type:          MAIN,
 		SystemPrompt:  sp,
 		ActiveTools:   def.ActiveTools,
-		DeferredTools: def.DeferredTools,
+		DeferredTools: deferred,
 		LLMProvider:   provider,
 		LLMModel:      model,
 		LLMOptions:    options,

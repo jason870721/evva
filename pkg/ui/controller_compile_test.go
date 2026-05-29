@@ -46,6 +46,7 @@ func (publicOnlyController) SetLLMTemperature(*float64) error                   
 func (publicOnlyController) SetLLMTopK(*int) error                                 { return nil }
 func (publicOnlyController) SetLLMTopP(*float64) error                             { return nil }
 func (publicOnlyController) Skills() []ui.Skill                                    { return nil }
+func (publicOnlyController) MCPServers() []ui.MCPServerInfo                        { return nil }
 func (publicOnlyController) Compact(context.Context, string) error                 { return nil }
 func (publicOnlyController) PermissionModeName() string                            { return "" }
 func (publicOnlyController) CyclePermissionMode() string                           { return "" }

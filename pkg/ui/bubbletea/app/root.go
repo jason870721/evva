@@ -13,6 +13,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/johnny1110/evva/pkg/banner"
+	"github.com/johnny1110/evva/pkg/config"
+	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/llm"
+	"github.com/johnny1110/evva/pkg/tools/todo"
+	"github.com/johnny1110/evva/pkg/ui"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/components/agents"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/components/bgtasks"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/components/input"
@@ -25,12 +31,6 @@ import (
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/events"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/mouse"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/theme"
-	"github.com/johnny1110/evva/pkg/banner"
-	"github.com/johnny1110/evva/pkg/config"
-	"github.com/johnny1110/evva/pkg/event"
-	"github.com/johnny1110/evva/pkg/llm"
-	"github.com/johnny1110/evva/pkg/tools/todo"
-	"github.com/johnny1110/evva/pkg/ui"
 )
 
 // defaultGreeting is the welcome line rendered inside the banner box
@@ -759,6 +759,16 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 		a.input.Reset()
 		a.slash.Reset()
 		if o := overlays.NewProfile(a.controller); o != nil {
+			a.focus.Push(o)
+			a.relayout()
+		} else {
+			a.state.SetHint("no controller attached")
+		}
+		return a, nil
+	case "/mcp":
+		a.input.Reset()
+		a.slash.Reset()
+		if o := overlays.NewMCP(a.controller); o != nil {
 			a.focus.Push(o)
 			a.relayout()
 		} else {

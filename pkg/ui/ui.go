@@ -57,6 +57,21 @@ type Skill struct {
 	Description string
 }
 
+// MCPServerInfo is the UI-facing view of one configured MCP server — the
+// flattened snapshot the /mcp panel renders. Like Skill / ProfileChoice it
+// deliberately exposes only plain types so the ui package never imports
+// pkg/mcp; the agent layer maps mcp.ServerState into this shape.
+type MCPServerInfo struct {
+	Name          string // server name (the mcpServers key)
+	Transport     string // "stdio" | "http"
+	Status        string // "connected" | "pending" | "failed" | "needs-auth" | "disabled"
+	Scope         string // "user" | "project" — which settings.json it came from
+	Detail        string // one-line summary: the launch command (stdio) or url (http)
+	ToolCount     int    // tools discovered (0 unless connected)
+	ResourceCount int    // 1 when the server advertises resources, else 0
+	Error         string // connection error, populated for failed / needs-auth
+}
+
 // Controller is the narrow API a UI uses to send commands back to the
 // agent. Implemented by *agent.Agent.
 //
@@ -170,6 +185,12 @@ type Controller interface {
 	// description; the agent decides if/when to invoke them via the
 	// SKILL tool. Returns nil when no skills are installed.
 	Skills() []Skill
+
+	// MCPServers returns a snapshot of every configured MCP server and its
+	// live connection status, for the read-only /mcp panel. Includes
+	// disabled servers. Returns nil when no MCP servers are configured (or
+	// no manager is installed) — callers render an empty state.
+	MCPServers() []MCPServerInfo
 
 	// Compact forces an immediate compaction of the current session.
 	// kind is "micro" (elide older tool results, no LLM call) or

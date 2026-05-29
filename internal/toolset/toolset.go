@@ -27,6 +27,7 @@ import (
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/pkg/config"
+	"github.com/johnny1110/evva/pkg/mcp"
 	"github.com/johnny1110/evva/pkg/observable"
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -88,6 +89,15 @@ type ToolState struct {
 	// instances built against this ToolState. Set by the agent during New
 	// after loading the LSP config; nil when no LSP servers are configured.
 	lspManager *lsp.Manager
+
+	// mcpManager holds the discovered MCP server connections. Installed once
+	// at startup by agent.New (auto-load) or by the host via
+	// agent.WithMcpManager; read by every dynamic mcp__<server>__<tool>
+	// factory and by the list_mcp_resources / read_mcp_resource tools.
+	// Subagents inherit the pointer via agent.WithMcpManager so MCP tools
+	// are reachable from a subagent's tool dispatch. nil when no MCP
+	// servers are configured.
+	mcpManager *mcp.Manager
 
 	// signalSender carries the callbacks the agent installs in New so
 	// tool families can deliver event-driven results without importing
@@ -383,6 +393,20 @@ func (s *ToolState) LSPManager() *lsp.Manager {
 // construction after loading the LSP config.
 func (s *ToolState) SetLSPManager(m *lsp.Manager) {
 	s.lspManager = m
+}
+
+// McpManager returns the MCP connection manager, or nil if none is
+// configured. The dynamic mcp__<server>__<tool> factories and the
+// list_mcp_resources / read_mcp_resource tools read through this accessor.
+func (s *ToolState) McpManager() *mcp.Manager {
+	return s.mcpManager
+}
+
+// SetMcpManager installs the MCP manager. Called once by the agent during
+// construction (auto-load) or via agent.WithMcpManager. Subagents inherit
+// the parent's manager so MCP tools resolve without re-connecting.
+func (s *ToolState) SetMcpManager(m *mcp.Manager) {
+	s.mcpManager = m
 }
 
 // HasUserPromptQueue reports whether a UserPromptQueue has already been

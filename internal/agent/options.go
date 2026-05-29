@@ -9,6 +9,7 @@ import (
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/pkg/hooks"
+	"github.com/johnny1110/evva/pkg/mcp"
 	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -167,6 +168,20 @@ func WithQuestionBroker(b question.Broker) Option {
 // settings.json load drives the whole agent tree.
 func WithHookRegistry(r *hooks.Registry) Option {
 	return func(a *Agent) { a.hookRegistry = r }
+}
+
+// WithMcpManager installs a pre-built MCP connection manager on the
+// agent's ToolState, suppressing agent.New's auto-load. Hosts that want
+// to construct the manager themselves (custom logger, custom OAuth
+// prompt, shared across agents) use this; subagents inherit the parent's
+// manager via spawn.go so they share live sessions instead of
+// re-connecting. nil is safe — the resource tools and dynamic factories
+// just have nothing to surface.
+func WithMcpManager(m *mcp.Manager) Option {
+	return func(a *Agent) {
+		a.toolState.SetMcpManager(m)
+		a.mcpManagerSet = true
+	}
 }
 
 // WithAgentRegistry installs the merged built-in + disk agent registry on
