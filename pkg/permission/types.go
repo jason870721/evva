@@ -30,24 +30,52 @@ const PlanDirSegment = ".evva/plans"
 const WorktreeDirSegment = ".evva/worktrees"
 
 // IsPlanFilePath reports whether absPath sits inside <workdir>/.evva/plans/.
-// Both args are resolved with filepath.Abs + filepath.Clean before comparison
-// so callers can pass user-supplied paths without pre-normalising. An empty
-// workdir or relative absPath that can't be resolved returns false (the
-// carve-out should never apply when the caller can't prove containment).
+// Both args are resolved with filepath.Abs before comparison so callers can
+// pass user-supplied paths without pre-normalising. An empty workdir or a path
+// that can't be proven contained returns false (the carve-out should never
+// apply when the caller can't prove containment).
 func IsPlanFilePath(workdir, absPath string) bool {
-	if workdir == "" || absPath == "" {
+	if workdir == "" {
 		return false
 	}
 	wd, err := filepath.Abs(workdir)
 	if err != nil {
 		return false
 	}
-	p, err := filepath.Abs(absPath)
+	return pathWithin(filepath.Join(wd, filepath.FromSlash(PlanDirSegment)), absPath)
+}
+
+// IsAutoMemPath reports whether absPath sits inside the auto-memory directory
+// memDir. memDir is the already-resolved <appHome>/memory path — the caller
+// derives it from memdir.MemoryDir so pkg/permission stays free of an
+// internal/memdir import. Same containment shape as IsPlanFilePath (rejects the
+// dir root itself, "..", siblings, and absolute-elsewhere). Port of
+// ref/src/memdir/paths.ts:isAutoMemPath, narrowed to one fixed dir — evva drops
+// ref's user-configurable autoMemoryDirectory and its malicious-repo attack
+// surface (PRD §5.8). Empty memDir → false, so the carve-out is inert when
+// auto-memory is off.
+func IsAutoMemPath(memDir, absPath string) bool {
+	return pathWithin(memDir, absPath)
+}
+
+// pathWithin reports whether abs sits strictly inside root — not root itself,
+// not a sibling, not reachable only via "..". Both are resolved with
+// filepath.Abs first so callers can pass user-supplied paths without
+// pre-normalising. This is the single containment check behind both
+// IsPlanFilePath and IsAutoMemPath.
+func pathWithin(root, abs string) bool {
+	if root == "" || abs == "" {
+		return false
+	}
+	r, err := filepath.Abs(root)
 	if err != nil {
 		return false
 	}
-	root := filepath.Join(wd, filepath.FromSlash(PlanDirSegment))
-	rel, err := filepath.Rel(root, p)
+	p, err := filepath.Abs(abs)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(r, p)
 	if err != nil {
 		return false
 	}

@@ -99,6 +99,17 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 	}
 
 	a.session.Append(llm.Message{Role: llm.RoleUser, Content: prompt})
+
+	// Per-turn memory recall: a cheap side-query selects the few stored memories
+	// relevant to this prompt and injects their bodies as a single
+	// <system-reminder> user message. The bodies ride in a MESSAGE, never the
+	// static system prompt, so the cached prefix stays byte-stable (§5.3). No-op
+	// for subagents, when auto-memory/recall is off, when the dir is empty, or on
+	// any failure — recall must never break the user's actual turn (§5.4).
+	if reminder := a.runMemoryRecall(ctx, prompt); reminder != "" {
+		a.session.Append(llm.Message{Role: llm.RoleUser, Content: reminder})
+	}
+
 	a.logger.Debug("run.start", "name", a.Name, "prompt_bytes", len(prompt),
 		"messages", len(a.session.Messages), "prompt", prompt)
 	return a.runLoop(ctx) // core agent loop.

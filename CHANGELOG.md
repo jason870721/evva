@@ -12,6 +12,52 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Typed memory directory
+
+Replaces the fixed-section, two-store auto-memory model with a single global
+directory of typed, individually-addressable memory files plus a model-maintained
+`MEMORY.md` index. The model writes memory files itself with the standard
+`write`/`edit` tools (no dedicated tool); a permission carve-out auto-allows
+writes confined to the memory dir. The always-loaded index seeds the prompt; the
+few memories relevant to each turn are pulled in on demand by a cheap relevance
+side-query and carry freshness caveats when stale. **This is a clean break — no
+migration.**
+
+#### Added
+
+- **`internal/memdir` typed-file read layer** — frontmatter parser, `MemoryType`
+  taxonomy (`user` / `feedback` / `project` / `reference`), age/freshness helpers,
+  recursive `ScanMemoryFiles` (newest-first, caps at 200, excludes `MEMORY.md`),
+  `ReadIndex` (200-line / 25 KB truncation), and the global-dir path helpers
+  (`MemoryDir`, `MemoryIndexPath`, `EnsureMemoryDir`, `IsInMemoryDir`). Stdlib-only.
+- **`internal/memdir/recall`** — `FindRelevant`, a per-turn LLM side-query that
+  selects ≤5 relevant memories by name/description; returns `nil` on any failure
+  so a recall hiccup never breaks a turn. Defaults to a Sonnet-class model when an
+  Anthropic key is configured, else the active model.
+- **`pkg/permission.IsAutoMemPath`** + an `isAutoMemWrite` carve-out in `Decide`
+  (new `memDir` param): a `write`/`edit` confined to `<APP_HOME>/memory/`
+  auto-allows in default + accept-edits modes (plan mode still denies).
+- **Config**: `enable_memory_recall` (default on) and `memory_recall_model`
+  settings — YAML, the `config` tool registry, and the `/config` overlay.
+- **Prompt**: a typed-memory guidance block (ported from ref `buildMemoryLines` +
+  the INDIVIDUAL taxonomy) and a `# Memory index` section rendering `MEMORY.md`.
+
+#### Changed
+
+- **The model maintains memory itself** via `write`/`edit` (file + `MEMORY.md`
+  index line), replacing the `update_*` tools. `Decide` gains a `memDir` parameter.
+- **Single global store** at `<APP_HOME>/memory/` — the cross-project /
+  per-repo scope split is gone.
+
+#### Removed
+
+- **`update_user_profile` and `update_project_memory` tools** (and the
+  `UPDATE_USER_PROFILE` / `UPDATE_PROJECT_MEMORY` tool-name constants,
+  `MemoryDiff`, the fixed-section parser, and the profile/project write helpers).
+- **`USER_PROFILE.md` and per-project `projects/<key>/MEMORY.md`** are no longer
+  read or written. **No migration** — old files are left untouched on disk; copy
+  anything worth keeping into a new memory and let the model file it.
+
 ## [v1.3.0-beta.1] — 2026-05-29
 
 First beta since v1.1.0. `main` jumps straight from 1.1.0 to 1.3.0, so

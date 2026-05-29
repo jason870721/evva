@@ -21,8 +21,9 @@ func TestGeneralAgent_HasSharedPrefix(t *testing.T) {
 
 func TestGeneralAgent_NoMemorySection(t *testing.T) {
 	ctx := PromptContext{
-		WorkdirMemory: "do-not-leak-project",
-		UserProfile:   "do-not-leak-user",
+		WorkdirMemory:    "do-not-leak-project",
+		MemoryIndex:      "do-not-leak-index",
+		EnableAutoMemory: true,
 	}
 	got := buildGeneralPrompt(ctx)
 	if strings.Contains(got, "do-not-leak") {

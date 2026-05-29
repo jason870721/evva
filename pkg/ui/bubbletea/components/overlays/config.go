@@ -384,6 +384,22 @@ func buildConfigFields(cfg *config.Config, ctrl ui.Controller) []ConfigField {
 			},
 		},
 		{
+			Label: "enable_memory_recall", Kind: cfgKindBool,
+			Get: func() string { return strconv.FormatBool(cfg.GetEnableMemoryRecall()) },
+			Apply: func(s string) error {
+				b, err := strconv.ParseBool(strings.TrimSpace(s))
+				if err != nil {
+					return fmt.Errorf("not a bool: %s", s)
+				}
+				return cfg.SetEnableMemoryRecall(b)
+			},
+		},
+		{
+			Label: "memory_recall_model", Kind: cfgKindString,
+			Get:   func() string { return cfg.GetMemoryRecallModel() },
+			Apply: func(s string) error { return cfg.SetMemoryRecallModel(strings.TrimSpace(s)) },
+		},
+		{
 			Label: "fetch_max_bytes", Kind: cfgKindInt,
 			Get: func() string { return strconv.Itoa(cfg.FetchMaxBytes) },
 			Apply: func(s string) error {

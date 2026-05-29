@@ -35,7 +35,7 @@ func TestDetectContext_PopulatesIdentityAndEnv(t *testing.T) {
 }
 
 func TestDetectContext_LeavesUserSlotsZero(t *testing.T) {
-	// Skills, ProjectMemory, UserProfile are caller-supplied — DetectContext
+	// Skills, WorkdirMemory, MemoryIndex are caller-supplied — DetectContext
 	// must not populate them.
 	ctx := DetectContext("evva", "/h", "prod")
 	if ctx.Skills != nil {
@@ -44,8 +44,8 @@ func TestDetectContext_LeavesUserSlotsZero(t *testing.T) {
 	if ctx.WorkdirMemory != "" {
 		t.Errorf("WorkdirMemory should be empty; got %q", ctx.WorkdirMemory)
 	}
-	if ctx.UserProfile != "" {
-		t.Errorf("UserProfile should be empty; got %q", ctx.UserProfile)
+	if ctx.MemoryIndex != "" {
+		t.Errorf("MemoryIndex should be empty; got %q", ctx.MemoryIndex)
 	}
 }
 

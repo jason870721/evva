@@ -23,6 +23,13 @@ const configToolName = "config"
 // runs) may pass "" to skip the carve-out; the rest of the pipeline is
 // workdir-independent.
 //
+// memDir is the resolved auto-memory directory (<appHome>/memory) when
+// auto-memory is on, or "" when it's off — callers pass memdir.MemoryDir's
+// value (which is already gated on the auto-memory toggle). A write/edit
+// confined to memDir auto-allows in default + accept-edits so the model can
+// maintain its typed memory files without a prompt; an empty memDir makes the
+// carve-out inert.
+//
 // Pipeline:
 //
 //  1. ModeBypass → allow (no rule lookup; bypass means bypass).
@@ -33,18 +40,20 @@ const configToolName = "config"
 //     - Tool ∈ ReadOnlyOrSelfTools → allow.
 //     - Bash + classifier says read-only → allow.
 //     - Else → deny "plan mode forbids writes".
-//  5. ReadOnlyOrSelfTools → allow (the baseline safe set).
-//  6. Bash + classifier says read-only → allow.
-//  7. ModeAcceptEdits-only:
+//  5. Write/Edit confined to memDir → allow (auto-memory carve-out; after the
+//     plan-mode ceiling so plan mode still denies, inert when memDir == "").
+//  6. ReadOnlyOrSelfTools → allow (the baseline safe set).
+//  7. Bash + classifier says read-only → allow.
+//  8. ModeAcceptEdits-only:
 //     - tool ∈ AcceptEditsAutoAllow (edit/write/notebook_edit) → allow.
 //     - Bash + classifier says common-fs (mkdir/mv/cp/touch/...) → allow.
-//  8. Allow rules → allow.
-//  9. Else → ask.
+//  9. Allow rules → allow.
+//  10. Else → ask.
 //
 // The order ensures deny rules always win (step 2), user-forced asks
 // always show (step 3), and plan mode's hard ceiling is enforced before
-// the auto-allow path can let a write through (step 4 before step 7).
-func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir string) Decision {
+// the auto-allow paths can let a write through (step 4 before steps 5 / 8).
+func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir, memDir string) Decision {
 	if mode == ModeBypass {
 		return Decision{Behavior: BehaviorAllow, Reason: "bypass mode"}
 	}
@@ -92,6 +101,14 @@ func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir string) D
 			Behavior: BehaviorDeny,
 			Reason:   "plan mode forbids writes — Shift+Tab to exit plan mode",
 		}
+	}
+
+	// Auto-memory write carve-out. Placed AFTER the plan-mode ceiling so plan
+	// mode still hard-denies writes (A8), and before the accept-edits branch so
+	// it also fires in default mode. Inert when memDir == "" (auto-memory off,
+	// A9). Mirrors isPlanFileWrite.
+	if isAutoMemWrite(call, memDir) {
+		return Decision{Behavior: BehaviorAllow, Reason: "auto-memory dir write"}
 	}
 
 	if mode == ModeAcceptEdits {
@@ -192,4 +209,28 @@ func isPlanFileWrite(call ToolCall, workdir string) bool {
 	}
 	p, _ := m["file_path"].(string)
 	return IsPlanFilePath(workdir, p)
+}
+
+// isAutoMemWrite reports whether call is a Write or Edit whose file_path is
+// confined to the auto-memory dir memDir. Mirrors isPlanFileWrite: only
+// write/edit, parse file_path, defer containment to IsAutoMemPath. Returns
+// false when memDir is empty (auto-memory off) so the carve-out is inert. A
+// JSON parse failure disables the carve-out for that call (falls through to the
+// normal gate).
+func isAutoMemWrite(call ToolCall, memDir string) bool {
+	if memDir == "" {
+		return false
+	}
+	if call.Name != "write" && call.Name != "edit" {
+		return false
+	}
+	if len(call.Input) == 0 {
+		return false
+	}
+	var m map[string]any
+	if err := json.Unmarshal(call.Input, &m); err != nil {
+		return false
+	}
+	p, _ := m["file_path"].(string)
+	return IsAutoMemPath(memDir, p)
 }

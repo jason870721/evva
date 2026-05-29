@@ -150,39 +150,50 @@ func TestMainAgent_OmitsProjectMemoryWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestMainAgent_RendersUserProfileWhenPresent(t *testing.T) {
+func TestMainAgent_RendersMemoryIndexWhenPresent(t *testing.T) {
 	ctx := mainCtx()
-	ctx.UserProfile = "Preferences: terse output, no summaries."
+	ctx.EnableAutoMemory = true
+	ctx.MemoryIndex = "- [role](user/role.md) — senior Go dev"
 	got := buildMainPrompt(ctx)
 
-	if !strings.Contains(got, "# User profile (from USER_PROFILE.md)") {
-		t.Error("user profile heading missing when UserProfile set")
+	if !strings.Contains(got, "# Memory index (from /tmp/.evva/memory/MEMORY.md)") {
+		t.Error("memory index heading missing when MemoryIndex set")
 	}
-	if !strings.Contains(got, "Preferences: terse output") {
-		t.Error("user profile body missing")
+	if !strings.Contains(got, "- [role](user/role.md) — senior Go dev") {
+		t.Error("memory index body missing")
 	}
-}
-
-func TestMainAgent_OmitsUserProfileWhenEmpty(t *testing.T) {
-	got := buildMainPrompt(mainCtx())
-	if strings.Contains(got, "User profile") {
-		t.Errorf("user profile heading should be absent when empty")
+	// The typed-memory guidance block renders alongside the index.
+	if !strings.Contains(got, "# Memory") || !strings.Contains(got, "## Types of memory") {
+		t.Error("typed-memory guidance block missing when auto-memory on")
 	}
 }
 
-func TestMainAgent_BothMemorySectionsWhenBothPresent(t *testing.T) {
+func TestMainAgent_OmitsMemorySectionsWhenAutoMemoryOff(t *testing.T) {
+	ctx := mainCtx() // EnableAutoMemory defaults false
+	ctx.MemoryIndex = "- [x](x.md) — hook"
+	got := buildMainPrompt(ctx)
+	if strings.Contains(got, "# Memory index") {
+		t.Errorf("memory index should be absent when auto-memory is off")
+	}
+	if strings.Contains(got, "## Types of memory") {
+		t.Errorf("typed-memory guidance should be absent when auto-memory is off")
+	}
+}
+
+func TestMainAgent_ProjectMemoryBeforeMemoryIndex(t *testing.T) {
 	ctx := mainCtx()
+	ctx.EnableAutoMemory = true
 	ctx.WorkdirMemory = "proj"
-	ctx.UserProfile = "user"
+	ctx.MemoryIndex = "idx"
 	got := buildMainPrompt(ctx)
 
 	idxProj := strings.Index(got, "# Project memory")
-	idxUser := strings.Index(got, "# User profile")
-	if idxProj < 0 || idxUser < 0 {
-		t.Fatalf("both memory headings should be present; project=%d user=%d", idxProj, idxUser)
+	idxMem := strings.Index(got, "# Memory index")
+	if idxProj < 0 || idxMem < 0 {
+		t.Fatalf("both headings should be present; project=%d index=%d", idxProj, idxMem)
 	}
-	if idxProj >= idxUser {
-		t.Errorf("project memory should appear before user profile (proj=%d user=%d)", idxProj, idxUser)
+	if idxProj >= idxMem {
+		t.Errorf("EVVA.md project memory should appear before the memory index (proj=%d index=%d)", idxProj, idxMem)
 	}
 }
 

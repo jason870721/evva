@@ -68,14 +68,15 @@ func main() {
 	permModeFlag := flag.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
 	flag.Parse()
 
-	// First-session notice for auto-memory: no USER_PROFILE.md yet. Quiet
-	// thereafter — once the file exists the user has seen it (or opted in by
-	// their own writes). agent.New auto-loads EVVA.md / USER_PROFILE.md into
-	// the prompt itself and logs any load warnings, so the host no longer
-	// reads the memory files directly.
+	// First-session notice for auto-memory: no MEMORY.md index yet. Quiet
+	// thereafter — once the index exists the user has seen it (or opted in by
+	// their own writes). agent.New ensures the memory dir, loads EVVA.md + the
+	// index into the prompt itself, and logs any load warnings, so the host no
+	// longer reads the memory files directly.
 	if cfg.GetEnableAutoMemory() {
-		if _, err := os.Stat(filepath.Join(cfg.AppHome, "USER_PROFILE.md")); errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintln(os.Stderr, "evva: auto-memory is enabled — the agent will save persistent notes to USER_PROFILE.md and projects/<key>/MEMORY.md. Disable with /config.")
+		memDir := filepath.Join(cfg.AppHome, "memory")
+		if _, err := os.Stat(filepath.Join(memDir, "MEMORY.md")); errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "evva: auto-memory is enabled — the agent saves persistent, typed notes under %s and maintains a MEMORY.md index there. Disable with /config.\n", memDir)
 		}
 	}
 

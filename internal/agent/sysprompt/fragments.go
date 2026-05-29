@@ -259,10 +259,11 @@ func devFeedbackSection() string {
 // Those would conflict with the persona's own definition; the persona
 // supplies its own conduct rules in body.
 func ComposeDiskMainPrompt(body string, ctx PromptContext, def AgentDefinition) string {
-	var memProject, memUser, skillsList string
+	var memProject, memGuidance, memIndex, skillsList string
 	if !def.OmitMemory {
 		memProject = memorySection("Project memory (from EVVA.md)", ctx.WorkdirMemory)
-		memUser = memorySection("User profile (from USER_PROFILE.md)", ctx.UserProfile)
+		memGuidance = autoMemoryGuidanceSection(ctx)
+		memIndex = memoryIndexSection(ctx)
 	}
 	if def.AdvertiseSkills {
 		skillsList = skillsSection(ctx.Skills)
@@ -271,7 +272,8 @@ func ComposeDiskMainPrompt(body string, ctx PromptContext, def AgentDefinition) 
 		identitySection(ctx),
 		environmentSection(ctx),
 		memProject,
-		memUser,
+		memGuidance,
+		memIndex,
 		body,
 		skillsList,
 		devSectionIfEnabled(ctx),

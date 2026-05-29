@@ -171,9 +171,9 @@ constructor below.
 pass. `New(Config, ...Option)` is the batteries-included one — it absorbs
 the whole bootstrap a host used to hand-wire, driven by a declarative
 `Config` plus a few options. From `Config` alone it resolves the persona
-(with an `evva` fallback), auto-loads `EVVA.md` / `USER_PROFILE.md` memory
-and the skill catalog, loads the permission store, resolves the mode, and
-installs the approval + question brokers.
+(with an `evva` fallback), auto-loads `EVVA.md` + the global typed-memory
+directory (`<APP_HOME>/memory/`) and the skill catalog, loads the permission
+store, resolves the mode, and installs the approval + question brokers.
 
 ```go
 cfg := config.Get() // or config.Load(LoadOptions{...})

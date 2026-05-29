@@ -460,8 +460,13 @@ func (a *Agent) permissionGateWithOverride(ctx context.Context, call *tools.Call
 	mode := a.PermissionMode()
 	hint := buildHint(call)
 
+	// a.memSnap.MemoryDir is the resolved <appHome>/memory dir when auto-memory
+	// is on, "" when off — so it doubles as the carve-out gate (A9). The model
+	// maintains its typed memory files with write/edit; a write confined to that
+	// dir auto-allows without a prompt (default + accept-edits; plan mode still
+	// denies). See pkg/permission.isAutoMemWrite.
 	pcall := permission.ToolCall{Name: call.Name, Input: effectiveInput}
-	d := permission.Decide(pcall, mode, store, hint, a.workdir)
+	d := permission.Decide(pcall, mode, store, hint, a.workdir, a.memSnap.MemoryDir)
 
 	// When the hook says "ask", force the Ask branch even if Decide
 	// returned Allow or Deny. This lets a hook prompt the user for a

@@ -18,7 +18,6 @@ import (
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/tools/dev"
-	"github.com/johnny1110/evva/internal/tools/memory"
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/internal/tools/ux"
@@ -140,13 +139,11 @@ func mainProfile(cfg *config.Config, provider constant.LLMProvider, model consta
 	// worktree pair stays deferred (Phase 10). config is always-active too so
 	// the model can read/change settings on demand; subagents don't get it.
 	activeTools = append(activeTools, tools.ENTER_PLAN_MODE, tools.EXIT_PLAN_MODE, tools.CONFIG)
-	// Auto-memory tools — registered only when the user has the feature
-	// enabled. The sysprompt's auto-memory guidance section is gated on the
-	// same flag (see ctx.EnableAutoMemory below), so prompt and toolset
-	// stay consistent.
-	if cfg.GetEnableAutoMemory() {
-		activeTools = append(activeTools, memory.Names()...)
-	}
+	// Auto-memory needs no dedicated write tool: the model writes typed memory
+	// files itself with write/edit (a permission carve-out auto-allows writes
+	// confined to the memory dir — see pkg/permission + state_machine.go). The
+	// prompt's typed-memory guidance + MEMORY.md index are gated on the same
+	// GetEnableAutoMemory() flag below, so prompt and toolset stay consistent.
 	// dev env tools for collect agent feedback
 	if cfg.IsDevelopment() {
 		activeTools = append(activeTools, dev.Names()...)
@@ -171,8 +168,7 @@ func mainProfile(cfg *config.Config, provider constant.LLMProvider, model consta
 	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
 	ctx.Skills = skills
 	ctx.WorkdirMemory = mem.WorkdirMemory
-	ctx.UserProfile = mem.UserProfile
-	ctx.ProjectMemoryIndex = mem.ProjectMemoryIndex
+	ctx.MemoryIndex = mem.MemoryIndex
 	ctx.EnableAutoMemory = cfg.GetEnableAutoMemory()
 	ctx.DeferredTools = deferredToolSpecs(deferredTools)
 	ctx.Model = string(model)
@@ -283,8 +279,7 @@ func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config,
 	}
 	if !def.OmitMemory {
 		ctx.WorkdirMemory = mem.WorkdirMemory
-		ctx.UserProfile = mem.UserProfile
-		ctx.ProjectMemoryIndex = mem.ProjectMemoryIndex
+		ctx.MemoryIndex = mem.MemoryIndex
 		ctx.EnableAutoMemory = cfg.GetEnableAutoMemory()
 	}
 	// Disk personas declare their own deferred set; fold MCP-discovered

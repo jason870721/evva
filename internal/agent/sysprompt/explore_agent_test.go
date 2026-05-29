@@ -24,14 +24,15 @@ func TestExploreAgent_NoMemorySection(t *testing.T) {
 	// the contract; this test ensures the builder honors it structurally
 	// (subagent prompts do not have a memory section at all).
 	ctx := PromptContext{
-		WorkdirMemory: "should-not-appear",
-		UserProfile:   "should-not-appear-either",
+		WorkdirMemory:    "should-not-appear",
+		MemoryIndex:      "should-not-appear-either",
+		EnableAutoMemory: true,
 	}
 	got := buildExplorePrompt(ctx)
 	if strings.Contains(got, "should-not-appear") {
 		t.Errorf("Explore prompt leaked memory content")
 	}
-	if strings.Contains(got, "Project memory") || strings.Contains(got, "User profile") {
+	if strings.Contains(got, "Project memory") || strings.Contains(got, "Memory index") {
 		t.Errorf("Explore prompt should not have memory headings")
 	}
 }
