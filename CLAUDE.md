@@ -29,6 +29,48 @@ may still change in minor versions.
 
 ---
 
+## Core direction (post-v1.0.0): Veronica — the swarm subsystem
+
+**As of 2026-06-02, evva's single core development goal is Veronica** — an
+in-repo subsystem that grows evva from a single-agent runtime into a
+multi-agent **swarm workstation**. `evva service start` runs a background
+`:8888` web service (vue.js); `evva swarm .` registers a cluster of
+long-lived agents that collaborate through a message bus + a shared SQLite
+ledger, coordinated by a Leader agent. **All other roadmap items (the v1.x
+feature phases below) are paused** until Veronica's first two phases land.
+This is a long-term, carefully-planned arc — **quality over speed**, not a
+sprint.
+
+Two phases:
+
+1. **Phase 1 — the swarm itself.** The infrastructure: supervisor /
+   scheduler / roster, message bus + mailboxes, the `.vero/` SQLite task
+   ledger + 5-state machine, the `:8888` service + vue.js UI. Built on the
+   public `pkg/*` surface only, so it doubles as evva's **multi-agent
+   completeness oracle** (if evva's own swarm can be built on `pkg/*`
+   alone, a third party's can too).
+2. **Phase 2 — the trader-team validation.** A crypto trading-strategy
+   swarm (friday / trader / analyst / risk-monitor / reviewer) that proves
+   the swarm is practical on a real, continuous, multi-role workload.
+
+The framing inverts: **evva exists to serve Veronica.** The swarm consumes
+only public `pkg/*`; the single runtime change it needs — a loop-level
+*inbox-drainer* seam so a busy agent folds incoming messages mid-run —
+lands as a public, additive `pkg/agent` extension (it generalizes the
+existing `KindDrainBackgroundTask` mechanism). The "one runtime, many
+personas" Vision still holds — each swarm member *is* a persona — Veronica
+is its extension into the multi-agent dimension, and where new work goes
+first.
+
+**Authoritative docs (read in this order):**
+
+- Design / architecture: `docs/veronica/veronica-design-v1.md`
+- Roadmap (both phases, milestone gates): `docs/veronica/roadmap.md`
+- Phase 1 PRD (swarm): `docs/veronica/prd-phase1-swarm.md`
+- Phase 2 PRD (trader-team): `docs/veronica/prd-phase2-trader-team.md`
+
+---
+
 ## Agent definitions
 
 All agents — main personas and subagent kinds alike — share one on-disk layout:
@@ -55,6 +97,13 @@ One schema, one loader, two visibility surfaces. This is also the seam Phase 6 (
 ---
 
 ## Roadmap (post-v1.0.0)
+
+> **⏸ PAUSED (2026-06-02)** — superseded as the *active* priority by the
+> Veronica swarm subsystem (see "Core direction" above). The v1.x feature
+> phases below stay as the record of intent and resume after Veronica's
+> Phase 1–2 land. Some may already have shipped since this list was
+> written — verify against `docs/extending.md` and the `pkg/` tree before
+> resuming any of them.
 
 `v1.0.0` shipped a complete agent harness and a Stable SDK surface. The
 post-v1 roadmap is ordered by one principle, not by dependency:
@@ -241,9 +290,12 @@ deprioritised in the UI.
 
 Listed so contributors don't propose them as phase additions.
 
-- **Teams / SendMessage** — Claude Code's multi-agent runtime depends on a
-  bridge layer (UDS sockets, remote control, JWT, cross-machine session
-  forwarding). No second agent process exists to talk to yet.
+- **Cross-machine Teams / SendMessage bridge** — *in-process* multi-agent
+  swarms are now in scope via Veronica (one process, in-memory bus; see
+  "Core direction"). What stays out of scope is the *cross-machine* bridge
+  layer (UDS sockets, remote control, JWT, cross-machine session
+  forwarding); Veronica v1 deliberately stays single-process to avoid it
+  (the process-model "C" evolution in the design doc revisits this).
 - **Bundled vendor MCP integrations** (Atlassian, Figma, IDE diagnostics)
   — v1.3 ships the MCP *framework*; specific servers are user-configured,
   not bundled, until there's demand.
