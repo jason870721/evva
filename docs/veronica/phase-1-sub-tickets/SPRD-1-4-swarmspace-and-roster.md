@@ -1,6 +1,6 @@
 # SPRD-1-4 — SwarmSpace assembly + per-space Roster + event-sink wiring
 
-> Milestone: M0 ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-1, 1-3
+> Milestone: M0 ｜ Status: IN REVIEW ｜ Owner: (unassigned) ｜ Depends on: 1-1, 1-3
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 3,6) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §3.1, §5.2
 
 ## 1. Goal
@@ -80,7 +80,15 @@ func (r *Roster) Snapshot() []RosterEntry  // for list_members + /api/swarm
 
 ## 7. Definition of Done
 
-- [ ] `SwarmSpace` + `Roster` + tagged event wiring; agents idle & addressable.
-- [ ] Per-space isolation + per-space name scoping proven by test (invariant #2).
-- [ ] Tool injection via `ToolSet` interface (no hard dep on 1-7).
-- [ ] `-race` clean; no `internal/agent` import (invariant #1).
+- [x] `SwarmSpace` + `Roster` + tagged event wiring; after `NewSpace` every member is **active + idle** and addressable by name (`TestNewSpaceConstructsRoster`). Events arrive on `Events()` stamped `(SpaceID, AgentID)` (`TestSpaceEventTagging`).
+- [x] Per-space isolation + per-space name scoping proven (`TestTwoSpaceIsolation`: two spaces, same member names, distinct controllers / stores / workdirs / AgentIDs; `TestNewSpaceDuplicateNameErrors`).
+- [x] Tool injection via the `ToolSet` interface (DI; `nil` → `noToolSet`), so no hard dep on SPRD-1-7.
+- [x] `-race` clean; dep-check green (no DIRECT `internal/agent` import — reaches the runtime only through `pkg/agent`/`pkg/config`/`pkg/event`/`pkg/ui`).
+
+### Implementation design / decisions
+
+- **Construction path:** one `agent.BuildAgentRegistry(cfg.AppHome)` per space, then `Register` each member's `AgentDefinition`, then `agent.New(Config{Persona, Personas, AppConfig: cfg.Clone(), PermissionMode, MaxIters}, WithSink, WithSkillRegistry, WithName, WithRootContext, …toolset)`. Each agent gets its **own `cfg.Clone()`** because `agent.New` mutates `DefaultProvider`/`DefaultModel`.
+- **`As` is forced to include `main` at registration** (`ensureMain`). In Veronica all members are root agents, but `ResolveMainProfile` only resolves main-tier personas; the leader/worker distinction is carried by the Roster's `Role`, not `As`.
+- **Event stamping:** `event.Event` has no SpaceID field, so each agent's sink wraps emissions in `SpacedEvent{SpaceID, Event}` (AgentID is already on the event). The space `out` channel is buffered (1024) with a blocking send (backpressure over loss, per the `pkg/event` contract); the service/consumer must drain `Events()`.
+- **Roster** keeps the two orthogonal dimensions (membership active|frozen, run idle|busy|suspended) and a private `ui.Controller` handle; `Snapshot()` returns handle-free `MemberView`s for `list_members` + webapi. The `set*` mutators are the seam the scheduler/supervisor (SPRD-1-6) drives; tested here via the roster unit test.
+- **Out of scope (per ticket):** no scheduling/wake and no per-run `recover()` guard yet — those land with the Supervisor/Scheduler in SPRD-1-6 (this ticket leaves all agents idle).
