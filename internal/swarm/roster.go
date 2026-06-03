@@ -140,6 +140,17 @@ func (r *Roster) ActiveMembers() []string {
 	return out
 }
 
+// membership returns a member's membership and whether the member exists. The
+// supervisor's scheduler reads it to gate wakes (frozen members never run).
+func (r *Roster) membership(name string) (Membership, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if e, ok := r.entries[name]; ok {
+		return e.membership, true
+	}
+	return "", false
+}
+
 // setRun updates a member's run status (used by the scheduler/supervisor in
 // SPRD-1-6). Unknown names are ignored.
 func (r *Roster) setRun(name string, s RunStatus) {

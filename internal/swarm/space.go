@@ -3,8 +3,10 @@ package swarm
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
+	"github.com/johnny1110/evva/internal/swarm/bus"
 	"github.com/johnny1110/evva/internal/swarm/store"
 	"github.com/johnny1110/evva/pkg/agent"
 	"github.com/johnny1110/evva/pkg/config"
@@ -34,19 +36,34 @@ type noToolSet struct{}
 func (noToolSet) For(string, agentdef.Role, *SwarmSpace) []agent.Option { return nil }
 
 // SwarmSpace is one live, isolated sub-cluster: its own workdir, .vero store,
-// Roster, and constructed agent handles. Two spaces in one process share
-// nothing — separate stores, rosters, and event streams — and member names are
-// scoped per space.
+// Roster, message Bus, and constructed agent handles. Two spaces in one process
+// share nothing — separate stores, rosters, buses, and event streams — and
+// member names are scoped per space.
 type SwarmSpace struct {
 	ID      string
 	Name    string
 	Workdir string
 	Store   *store.Store
 	Roster  *Roster
+	Bus     *bus.Bus
 
 	cancel context.CancelFunc
+	ctx    context.Context
 	out    chan SpacedEvent
-	agents map[string]agent.Agent
+
+	// mu guards the live-membership maps so a dynamic AddMember (SPRD-1-6) can
+	// run concurrently with the agents' tools reading the space.
+	mu        sync.Mutex
+	agents    map[string]agent.Agent
+	schedules map[string]agentdef.Schedule
+
+	// Construction state retained so AddMember can hot-load a new member through
+	// the exact same path NewSpace used (loader.Build -> agent.New -> wire in).
+	reg      *agent.AgentRegistry
+	cfg      *config.Config
+	ts       ToolSet
+	settings agentdef.Settings
+	loader   *agentdef.Loader
 }
 
 // out channel buffer. The service/test must drain Events() continuously; the
@@ -55,10 +72,12 @@ type SwarmSpace struct {
 const eventBuffer = 1024
 
 // NewSpace assembles a live space from a manifest and its loaded agent
-// definitions: it opens the per-space store, constructs each member via
-// agent.New against per-agent config clones, wires each agent's event.Sink to
-// stamp the spaceID, and populates the Roster. After this returns, every member
-// is active + idle and addressable by name — no scheduling yet (SPRD-1-6).
+// definitions: it opens the per-space store and message bus, constructs each
+// member via agent.New against per-agent config clones, wires each agent's
+// event.Sink to stamp the spaceID, registers a mailbox per member, and
+// populates the Roster. After this returns, every member is active + idle and
+// addressable by name — no scheduling yet (the Supervisor, SPRD-1-6, starts the
+// run loops).
 //
 // ts may be nil (no swarm tools attached yet). cfg supplies the AppConfig; each
 // agent gets its own clone so per-agent provider/model mutations don't bleed.
@@ -76,63 +95,109 @@ func NewSpace(id string, m agentdef.Manifest, loaded []agentdef.Loaded, ts ToolS
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	sp := &SwarmSpace{
-		ID:      id,
-		Name:    m.Name,
-		Workdir: cfg.WorkDir,
-		Store:   st,
-		Roster:  newRoster(),
-		cancel:  cancel,
-		out:     make(chan SpacedEvent, eventBuffer),
-		agents:  make(map[string]agent.Agent),
-	}
 
 	// One persona registry per space, holding every member's definition. In
 	// Veronica all members are ROOT agents, so each is registered as
 	// main-constructible regardless of its on-disk tier (the leader/worker
 	// distinction lives in the Roster's Role, not in As).
 	reg, _ := agent.BuildAgentRegistry(cfg.AppHome)
-	for _, ld := range loaded {
-		def := ld.Def
-		def.As = ensureMain(def.As)
-		reg.Register(def)
+
+	sp := &SwarmSpace{
+		ID:        id,
+		Name:      m.Name,
+		Workdir:   cfg.WorkDir,
+		Store:     st,
+		Roster:    newRoster(),
+		cancel:    cancel,
+		ctx:       ctx,
+		out:       make(chan SpacedEvent, eventBuffer),
+		agents:    make(map[string]agent.Agent),
+		schedules: make(map[string]agentdef.Schedule),
+		reg:       reg,
+		cfg:       cfg,
+		ts:        ts,
+		settings:  m.Settings,
+		loader:    agentdef.NewLoader(),
 	}
+	sp.Bus = bus.New(st, sp.Roster)
 
+	// Two phases: register every persona first so each agent.New sees all its
+	// siblings in the subagent_type list (a leader can spawn a worker as an
+	// intra-task subagent), then construct.
 	for _, ld := range loaded {
-		name := ld.Def.Name
-
-		acfg := cfg.Clone() // own scalars (agent.New mutates DefaultProvider/Model)
-		sink := &spaceSink{spaceID: id, out: sp.out}
-
-		opts := []agent.Option{
-			agent.WithSink(sink),
-			agent.WithSkillRegistry(ld.Skills),
-			agent.WithName(name),
-			agent.WithRootContext(ctx),
-		}
-		opts = append(opts, ts.For(name, ld.Role, sp)...)
-
-		ag, err := agent.New(agent.Config{
-			AppConfig:      acfg,
-			Persona:        name,
-			Personas:       reg,
-			PermissionMode: m.Settings.PermissionMode,
-			MaxIters:       m.Settings.MaxIterations,
-		}, opts...)
-		if err != nil {
-			sp.Shutdown()
-			return nil, fmt.Errorf("swarm: construct agent %q in space %q: %w", name, id, err)
-		}
-
-		if err := sp.Roster.add(name, ld.Role, ld.Def.WhenToUse, ag.Controller()); err != nil {
-			ag.Shutdown()
+		sp.registerDef(ld)
+	}
+	for _, ld := range loaded {
+		if err := sp.constructMember(ld); err != nil {
 			sp.Shutdown()
 			return nil, fmt.Errorf("swarm: space %q: %w", id, err)
 		}
-		sp.agents[name] = ag
 	}
 
 	return sp, nil
+}
+
+// registerDef adds one member's definition to the space persona registry,
+// forcing main-tier so agent.New can resolve it as a root agent.
+func (sp *SwarmSpace) registerDef(ld agentdef.Loaded) {
+	def := ld.Def
+	def.As = ensureMain(def.As)
+	sp.mu.Lock()
+	sp.reg.Register(def)
+	sp.mu.Unlock()
+}
+
+// constructMember builds one live agent from a Loaded and wires it into the
+// space: agent handle, roster entry (active + idle), mailbox, and timer
+// schedule. Shared by NewSpace and the AddMember hot-load path. The persona must
+// already be registered (registerDef).
+func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
+	name := ld.Def.Name
+
+	acfg := sp.cfg.Clone() // own scalars (agent.New mutates DefaultProvider/Model)
+	sink := &spaceSink{spaceID: sp.ID, out: sp.out}
+
+	opts := []agent.Option{
+		agent.WithSink(sink),
+		agent.WithSkillRegistry(ld.Skills),
+		agent.WithName(name),
+		agent.WithRootContext(sp.ctx),
+	}
+	opts = append(opts, sp.ts.For(name, ld.Role, sp)...)
+
+	ag, err := agent.New(agent.Config{
+		AppConfig:      acfg,
+		Persona:        name,
+		Personas:       sp.reg,
+		PermissionMode: sp.settings.PermissionMode,
+		MaxIters:       sp.settings.MaxIterations,
+	}, opts...)
+	if err != nil {
+		return fmt.Errorf("construct agent %q: %w", name, err)
+	}
+
+	if err := sp.Roster.add(name, ld.Role, ld.Def.WhenToUse, ag.Controller()); err != nil {
+		ag.Shutdown()
+		return err
+	}
+
+	sp.mu.Lock()
+	sp.agents[name] = ag
+	if ld.Schedule != nil {
+		sp.schedules[name] = *ld.Schedule
+	}
+	sp.mu.Unlock()
+
+	sp.Bus.Register(name)
+	return nil
+}
+
+// scheduleFor returns a member's declared timer schedule, if any.
+func (sp *SwarmSpace) scheduleFor(name string) (agentdef.Schedule, bool) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	s, ok := sp.schedules[name]
+	return s, ok
 }
 
 // Events is the space's outbound event stream — every member's events, each
@@ -146,7 +211,13 @@ func (sp *SwarmSpace) Shutdown() {
 	if sp.cancel != nil {
 		sp.cancel()
 	}
+	sp.mu.Lock()
+	ags := make([]agent.Agent, 0, len(sp.agents))
 	for _, ag := range sp.agents {
+		ags = append(ags, ag)
+	}
+	sp.mu.Unlock()
+	for _, ag := range ags {
 		ag.Shutdown()
 	}
 	if sp.Store != nil {
