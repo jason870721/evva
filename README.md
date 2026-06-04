@@ -119,6 +119,15 @@ Full usage documentation covering the TUI interface, slash commands, keybindings
 - [English](docs/user-guide/en/user-guide.md)
 - [正體中文](docs/user-guide/zh-tw/user-guide.md)
 
+### Swarm & service (multi-agent workstation)
+
+Run a team of collaborating agents with `evva service` + `evva swarm`. A 0→hero
+walkthrough — concepts, building a swarm from scratch, the web workstation,
+day-2 ops, restart-resume:
+
+- [English](docs/veronica/user-guide-en.md)
+- [简体中文](docs/veronica/user-guide-zh.md)
+
 ---
 
 ## How to integrate EVVA agent in your Go project?
