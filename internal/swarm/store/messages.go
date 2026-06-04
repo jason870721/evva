@@ -68,28 +68,12 @@ func (s *Store) GetMessage(id string) (Message, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var (
-		m       Message
-		subject sql.NullString
-		refTask sql.NullInt64
-		readAt  sql.NullInt64
-	)
-	err := s.db.QueryRow(`SELECT `+msgCols+` FROM messages WHERE id = ?`, id).
-		Scan(&m.ID, &m.Sender, &m.Recipient, &subject, &m.Body, &refTask, &readAt, &m.CreatedAt)
+	m, err := scanMessage(s.db.QueryRow(`SELECT `+msgCols+` FROM messages WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrMessageNotFound
 	}
 	if err != nil {
 		return Message{}, fmt.Errorf("store: get message %s: %w", id, err)
-	}
-	m.Subject = subject.String
-	if refTask.Valid {
-		v := refTask.Int64
-		m.RefTask = &v
-	}
-	if readAt.Valid {
-		v := readAt.Int64
-		m.ReadAt = &v
 	}
 	return m, nil
 }
@@ -115,6 +99,72 @@ func (s *Store) MarkRead(id string) error {
 		}
 	}
 	return nil
+}
+
+// ListMessages returns every message in the space, oldest first (by
+// created_at, then id) — the read-only snapshot the webapi /api/messages
+// endpoint serves. A zero limit returns all rows; a positive limit caps the
+// result to the most recent N (still returned oldest-first). Returns a non-nil
+// empty slice when there are none.
+func (s *Store) ListMessages(limit int) ([]Message, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	q := `SELECT ` + msgCols + ` FROM messages ORDER BY created_at, id`
+	if limit > 0 {
+		// Take the newest `limit` rows, then re-order ascending so the caller
+		// always sees oldest-first regardless of the cap.
+		q = `SELECT ` + msgCols + ` FROM (
+			SELECT ` + msgCols + ` FROM messages ORDER BY created_at DESC, id DESC LIMIT ?
+		) ORDER BY created_at, id`
+	}
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if limit > 0 {
+		rows, err = s.db.Query(q, limit)
+	} else {
+		rows, err = s.db.Query(q)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: list messages: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Message, 0)
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: scan message: %w", err)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// scanMessage reads one message row from a *sql.Row or *sql.Rows.
+func scanMessage(sc rowScanner) (Message, error) {
+	var (
+		m       Message
+		subject sql.NullString
+		refTask sql.NullInt64
+		readAt  sql.NullInt64
+	)
+	if err := sc.Scan(&m.ID, &m.Sender, &m.Recipient, &subject, &m.Body, &refTask, &readAt, &m.CreatedAt); err != nil {
+		return Message{}, err
+	}
+	m.Subject = subject.String
+	if refTask.Valid {
+		v := refTask.Int64
+		m.RefTask = &v
+	}
+	if readAt.Valid {
+		v := readAt.Int64
+		m.ReadAt = &v
+	}
+	return m, nil
 }
 
 // UnreadFor returns the ids of unread messages for a recipient, oldest first

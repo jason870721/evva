@@ -6,10 +6,12 @@
 // RespondPermission, RespondQuestion) and the Supervisor (suspend, add,
 // freeze, halt).
 //
-// It implements pkg/event.Sink per agent and composes with event.Multi to
-// also tee events to the log. The pkg/event doc already anticipates "a
-// JSON-over-websocket bridge" — this is it.
+// The pkg/event doc already anticipates "a JSON-over-websocket bridge" — the
+// Hub here is it: internal/swarm/service pumps each space's tagged event stream
+// into Hub.Publish, which fans it out to the matching sockets.
 //
-// TODO(SPRD-1-8): implement the HTTP/WS handlers, the per-(space,agent) sink
-// fan-out, and the REST snapshots.
+// The package owns its own wire DTOs (SpaceInfo/MemberInfo/TaskInfo/…) and
+// talks to the host only through the narrow Backend interface, so it imports no
+// agent/store/llm types — the swarm domain maps into these shapes, not the
+// reverse.
 package webapi

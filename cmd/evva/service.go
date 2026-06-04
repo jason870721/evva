@@ -40,6 +40,7 @@ func serviceStart() {
 	defer stop()
 
 	fmt.Printf("evva service listening on http://%s  (Ctrl-C to stop)\n", svc.Addr())
+	fmt.Printf("session token: %s\n", svc.Token())
 	if err := svc.Serve(ctx); err != nil {
 		exitf(1, "evva service: %v", err)
 	}
