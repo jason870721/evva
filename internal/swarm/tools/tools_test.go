@@ -1,0 +1,285 @@
+package tools
+
+import (
+	"fmt"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/johnny1110/evva/internal/swarm"
+	"github.com/johnny1110/evva/internal/swarm/agentdef"
+	"github.com/johnny1110/evva/internal/swarm/store"
+	"github.com/johnny1110/evva/pkg/agent"
+	"github.com/johnny1110/evva/pkg/config"
+	"github.com/johnny1110/evva/pkg/permission"
+	"github.com/johnny1110/evva/pkg/skill"
+)
+
+// AC#1: role → tool set. Leader gets the writes; a Worker gets only the
+// read-only task views plus the common send_message/list_members.
+func TestToolNamesForRole(t *testing.T) {
+	leader := toolNamesForRole(agentdef.RoleLeader)
+	wantLeader := []string{toolSendMessage, toolListMembers, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList}
+	if !reflect.DeepEqual(leader, wantLeader) {
+		t.Fatalf("leader tools = %v\nwant %v", leader, wantLeader)
+	}
+
+	worker := toolNamesForRole(agentdef.RoleWorker)
+	wantWorker := []string{toolSendMessage, toolListMembers, toolMyTasks, toolTaskGet}
+	if !reflect.DeepEqual(worker, wantWorker) {
+		t.Fatalf("worker tools = %v\nwant %v", worker, wantWorker)
+	}
+
+	for _, n := range worker {
+		switch n {
+		case toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify:
+			t.Errorf("worker must not hold write tool %q", n)
+		}
+	}
+}
+
+func TestSetForReturnsOptionPerTool(t *testing.T) {
+	if got := len(Set{}.For("leader", agentdef.RoleLeader, nil)); got != 7 {
+		t.Errorf("leader options = %d, want 7", got)
+	}
+	if got := len(Set{}.For("w", agentdef.RoleWorker, nil)); got != 4 {
+		t.Errorf("worker options = %d, want 4", got)
+	}
+}
+
+// AC#6: write-class tools route through pkg/permission (ask); reads auto-allow.
+func TestPermissionClassification(t *testing.T) {
+	decide := func(name string) permission.Behavior {
+		return permission.Decide(permission.ToolCall{Name: name}, permission.ModeDefault, nil, permission.Hint{}, "", "").Behavior
+	}
+	for _, n := range []string{toolSendMessage, toolListMembers, toolTaskList, toolMyTasks, toolTaskGet, toolTaskCreate} {
+		if b := decide(n); b != permission.BehaviorAllow {
+			t.Errorf("%s: behavior = %s, want allow (read/self)", n, b)
+		}
+	}
+	for _, n := range []string{toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify} {
+		if b := decide(n); b != permission.BehaviorAsk {
+			t.Errorf("%s: behavior = %s, want ask (write-class)", n, b)
+		}
+	}
+}
+
+// The factory path: per-agent identity is read from Config, not a closure.
+func TestFactoryReadsMemberContextFromConfig(t *testing.T) {
+	sp := liteSpace(t)
+	cfg := &config.Config{}
+	swarm.BindMemberContext(cfg, leaderMC(sp))
+
+	tool, err := factories[toolSendMessage](stubState{cfg: cfg})
+	if err != nil || tool == nil {
+		t.Fatalf("factory with context: tool=%v err=%v", tool, err)
+	}
+	if tool.Name() != toolSendMessage {
+		t.Errorf("tool name = %q", tool.Name())
+	}
+
+	if _, err := factories[toolSendMessage](stubState{cfg: &config.Config{}}); err == nil {
+		t.Error("factory without a bound member context should error")
+	}
+}
+
+// --- send_message ----------------------------------------------------------
+
+// AC#4: send_message persists a row with the baked sender.
+func TestSendMessageBakesSender(t *testing.T) {
+	sp := liteSpace(t)
+	tool := newSendMessage(workerMC(sp, "worker-a"))
+
+	res := exec(t, tool, `{"to":"leader","subject":"status","body":"done with the migration"}`)
+	if res.IsError {
+		t.Fatalf("send_message: %s", res.Content)
+	}
+
+	unread, _ := sp.Store.UnreadFor("leader")
+	if len(unread) != 1 {
+		t.Fatalf("leader unread = %d, want 1", len(unread))
+	}
+	m, _ := sp.Store.GetMessage(unread[0])
+	if m.Sender != "worker-a" || m.Body != "done with the migration" {
+		t.Fatalf("message = %+v, want sender=worker-a baked", m)
+	}
+
+	if r := exec(t, tool, `{"to":"leader"}`); !r.IsError {
+		t.Error("send_message without body should error")
+	}
+}
+
+// AC#4: to:"all" broadcasts to active members.
+func TestSendMessageBroadcast(t *testing.T) {
+	sp := liteSpace(t, "worker-a", "worker-b")
+	tool := newSendMessage(leaderMC(sp))
+
+	if res := exec(t, tool, `{"to":"all","body":"standup at 3pm"}`); res.IsError {
+		t.Fatalf("broadcast: %s", res.Content)
+	}
+	for _, name := range []string{"worker-a", "worker-b"} {
+		unread, _ := sp.Store.UnreadFor(name)
+		if len(unread) != 1 {
+			t.Fatalf("%s broadcast unread = %d, want 1", name, len(unread))
+		}
+	}
+}
+
+// AC#5: list_members returns the live roster snapshot.
+func TestListMembers(t *testing.T) {
+	sp := realSpace(t)
+	res := exec(t, newListMembers(leaderMC(sp)), `{}`)
+	if res.IsError {
+		t.Fatalf("list_members: %s", res.Content)
+	}
+	for _, name := range []string{"leader", "worker-a", "worker-b"} {
+		if !strings.Contains(res.Content, name) {
+			t.Errorf("list_members missing %q in: %s", name, res.Content)
+		}
+	}
+}
+
+// --- task ledger -----------------------------------------------------------
+
+func TestTaskCreate(t *testing.T) {
+	sp := liteSpace(t)
+	tool := newTaskCreate(leaderMC(sp))
+
+	if r := exec(t, tool, `{"title":"no assignee"}`); !r.IsError {
+		t.Error("task_create without assignee should error")
+	}
+
+	res := exec(t, tool, `{"title":"build the API","spec":"REST + tests","assignee":"worker-a"}`)
+	if res.IsError {
+		t.Fatalf("task_create: %s", res.Content)
+	}
+	tasks, _ := sp.Store.ListTasks(store.TaskFilter{})
+	if len(tasks) != 1 || tasks[0].Assignee != "worker-a" || tasks[0].Status != store.StatusPending || tasks[0].CreatedBy != "leader" {
+		t.Fatalf("task = %+v, want pending/worker-a/created-by-leader", tasks[0])
+	}
+}
+
+// AC#2: task_assign flips to running AND delivers a wake message to the assignee.
+func TestTaskAssignRunsAndNotifies(t *testing.T) {
+	sp := liteSpace(t, "worker-a")
+	id, _ := sp.Store.CreateTask(store.Task{Title: "do x", Spec: "the spec", Assignee: "worker-a", CreatedBy: "leader"})
+
+	res := exec(t, newTaskAssign(leaderMC(sp)), fmt.Sprintf(`{"task_id":%d}`, id))
+	if res.IsError {
+		t.Fatalf("task_assign: %s", res.Content)
+	}
+
+	tk, _ := sp.Store.GetTask(id)
+	if tk.Status != store.StatusRunning {
+		t.Fatalf("status = %s, want running", tk.Status)
+	}
+	unread, _ := sp.Store.UnreadFor("worker-a")
+	if len(unread) != 1 {
+		t.Fatalf("assignee wake messages = %d, want 1", len(unread))
+	}
+	m, _ := sp.Store.GetMessage(unread[0])
+	if m.Sender != "leader" || m.RefTask == nil || *m.RefTask != id {
+		t.Fatalf("wake message = %+v, want from leader ref_task=%d", m, id)
+	}
+}
+
+// AC#3: a worker invoking a status-write tool is rejected by the store's
+// leader-only guard, surfaced as a tool error (not a panic).
+func TestWorkerStatusWriteRejected(t *testing.T) {
+	sp := liteSpace(t)
+	id, _ := sp.Store.CreateTask(store.Task{Title: "x", Assignee: "worker-a", CreatedBy: "leader"})
+
+	res := exec(t, newTaskUpdateStatus(workerMC(sp, "worker-a")), fmt.Sprintf(`{"task_id":%d,"status":"running"}`, id))
+	if !res.IsError {
+		t.Fatal("worker status write should be rejected")
+	}
+	if !strings.Contains(res.Content, "Leader") {
+		t.Errorf("rejection = %q, want a leader-only message", res.Content)
+	}
+	tk, _ := sp.Store.GetTask(id)
+	if tk.Status != store.StatusPending {
+		t.Fatalf("status moved to %s despite rejection", tk.Status)
+	}
+}
+
+func TestTaskUpdateStatusIllegalTransition(t *testing.T) {
+	sp := liteSpace(t)
+	id, _ := sp.Store.CreateTask(store.Task{Title: "x", Assignee: "worker-a", CreatedBy: "leader"})
+	// pending → verifying is illegal (must go through running).
+	res := exec(t, newTaskUpdateStatus(leaderMC(sp)), fmt.Sprintf(`{"task_id":%d,"status":"verifying"}`, id))
+	if !res.IsError || !strings.Contains(res.Content, "task_update_status") {
+		t.Fatalf("want illegal-transition error, got %+v", res)
+	}
+}
+
+func TestTaskVerifyApproveAndReject(t *testing.T) {
+	sp := liteSpace(t)
+	leaderAct := store.Actor{Name: "leader", Role: store.RoleLeader}
+
+	toVerifying := func() int64 {
+		id, _ := sp.Store.CreateTask(store.Task{Title: "x", Assignee: "worker-a", CreatedBy: "leader"})
+		_ = sp.Store.TransitionTask(id, store.StatusRunning, leaderAct, "")
+		_ = sp.Store.TransitionTask(id, store.StatusVerifying, leaderAct, "")
+		return id
+	}
+
+	approve := toVerifying()
+	if res := exec(t, newTaskVerify(leaderMC(sp)), fmt.Sprintf(`{"task_id":%d,"approve":true}`, approve)); res.IsError {
+		t.Fatalf("approve: %s", res.Content)
+	}
+	if tk, _ := sp.Store.GetTask(approve); tk.Status != store.StatusCompleted {
+		t.Fatalf("approved task status = %s, want completed", tk.Status)
+	}
+
+	reject := toVerifying()
+	if res := exec(t, newTaskVerify(leaderMC(sp)), fmt.Sprintf(`{"task_id":%d,"approve":false,"note":"fix tests"}`, reject)); res.IsError {
+		t.Fatalf("reject: %s", res.Content)
+	}
+	tk, _ := sp.Store.GetTask(reject)
+	if tk.Status != store.StatusRunning || tk.VerifyNote != "fix tests" {
+		t.Fatalf("rejected task = %+v, want running with note", tk)
+	}
+}
+
+func TestTaskListMyTasksAndGet(t *testing.T) {
+	sp := liteSpace(t)
+	a, _ := sp.Store.CreateTask(store.Task{Title: "task-a", Assignee: "worker-a", CreatedBy: "leader"})
+	_, _ = sp.Store.CreateTask(store.Task{Title: "task-b", Assignee: "worker-b", CreatedBy: "leader"})
+
+	// task_list (leader) sees both.
+	all := exec(t, newTaskList(leaderMC(sp)), `{}`)
+	if !strings.Contains(all.Content, "task-a") || !strings.Contains(all.Content, "task-b") {
+		t.Errorf("task_list missing tasks: %s", all.Content)
+	}
+
+	// my_tasks (worker-a) sees only its own.
+	mine := exec(t, newMyTasks(workerMC(sp, "worker-a")), `{}`)
+	if !strings.Contains(mine.Content, "task-a") || strings.Contains(mine.Content, "task-b") {
+		t.Errorf("my_tasks scoping wrong: %s", mine.Content)
+	}
+
+	// task_get reads one; unknown id errors.
+	if got := exec(t, newTaskGet(workerMC(sp, "worker-a")), fmt.Sprintf(`{"task_id":%d}`, a)); !strings.Contains(got.Content, "task-a") {
+		t.Errorf("task_get = %s", got.Content)
+	}
+	if miss := exec(t, newTaskGet(workerMC(sp, "worker-a")), `{"task_id":99999}`); !miss.IsError {
+		t.Error("task_get of an unknown id should error")
+	}
+}
+
+// End-to-end: building a space WITH the swarm tool set exercises the real path —
+// constructMember binds the MemberContext, agent.New's toolset.Build calls each
+// factory, and the factory reads that context off the per-agent Config. A broken
+// binding or factory (the crux of the design) would fail agent.New here.
+func TestToolsAttachThroughNewSpace(t *testing.T) {
+	loaded := []agentdef.Loaded{
+		{Def: agent.AgentDefinition{Name: "leader", SystemPrompt: "You are leader.", Model: stubModel}, Skills: skill.NewRegistry(), Role: agentdef.RoleLeader},
+		{Def: agent.AgentDefinition{Name: "worker-a", SystemPrompt: "You are worker-a.", Model: stubModel}, Skills: skill.NewRegistry(), Role: agentdef.RoleWorker},
+	}
+	m := agentdef.Manifest{Name: "team", Settings: agentdef.Settings{PermissionMode: "bypass", MaxIterations: 3}}
+	sp, err := swarm.NewSpace("attach", m, loaded, Set{}, stubCfg(t))
+	if err != nil {
+		t.Fatalf("NewSpace with Set{} (member-context binding broken?): %v", err)
+	}
+	sp.Shutdown()
+}

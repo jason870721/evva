@@ -15,5 +15,11 @@
 // (SPRD-1-4) injects, so the space has no hard dependency on this package's
 // concrete tools.
 //
-// TODO(SPRD-1-7): implement the task_* / send_message / list_members tools.
+// Per-agent identity (the sender name, the space) reaches each tool via the
+// member's Config (swarm.MemberContext), NOT a factory closure:
+// pkg/agent.WithCustomTool registers one factory per tool name process-wide, so
+// the same factory serves every agent and reads its identity from the per-agent
+// Config it is built against. Write-class ledger tools are gated by
+// pkg/permission (the read/self tools are registered into its auto-allow
+// safelist in init); the leader-only guard itself lives in the store.
 package tools

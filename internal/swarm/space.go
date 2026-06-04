@@ -155,6 +155,12 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 	name := ld.Def.Name
 
 	acfg := sp.cfg.Clone() // own scalars (agent.New mutates DefaultProvider/Model)
+
+	// Bind this member's runtime identity onto its own config so the swarm
+	// custom tools (SPRD-1-7) can read who they belong to at build time — a
+	// shared WithCustomTool factory can't carry it in a closure.
+	BindMemberContext(acfg, MemberContext{Name: name, Role: ld.Role, Space: sp})
+
 	sink := &spaceSink{spaceID: sp.ID, out: sp.out}
 
 	opts := []agent.Option{
