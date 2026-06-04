@@ -1,0 +1,11 @@
+# Regular evva tools for this member. Swarm tools (task_create, task_assign,
+# task_verify, send_message, list_members, ...) are injected automatically by the
+# leader role — do NOT list them here.
+#
+# The lead verifies rather than writes: read-only inspection + research only.
+- read
+- grep
+- glob
+- tree
+- web_search
+- web_fetch

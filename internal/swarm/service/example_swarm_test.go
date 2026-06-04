@@ -54,3 +54,47 @@ func TestExampleSwarmConstructs(t *testing.T) {
 		t.Errorf("workers misrostered: builder=%q reviewer=%q", names["builder"], names["reviewer"])
 	}
 }
+
+// TestVeroTechSwarmConstructs guards docs/veronica/vero-tech-swarm/ the same way:
+// the shipped 7-member engineering team must parse + construct through the real
+// Register path — manifest, all seven agent dirs, and every tool name in every
+// active.yml resolving — so "copy it and run" really works.
+func TestVeroTechSwarmConstructs(t *testing.T) {
+	src := filepath.Join("..", "..", "..", "docs", "veronica", "vero-tech-swarm")
+	if _, err := os.Stat(filepath.Join(src, "evva-swarm.yml")); err != nil {
+		t.Fatalf("vero-tech-swarm not found at %s: %v", src, err)
+	}
+	dst := t.TempDir()
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		t.Fatalf("copy vero-tech-swarm into temp: %v", err)
+	}
+
+	svc := New("127.0.0.1:0")
+	svc.loadConfig = scriptedLoadConfig(t.TempDir())
+	defer svc.Stop()
+
+	id, err := svc.Register(dst)
+	if err != nil {
+		t.Fatalf("register vero-tech-swarm: %v", err)
+	}
+
+	roster, ok := svc.Roster(id)
+	if !ok {
+		t.Fatal("no roster for the registered vero-tech-swarm")
+	}
+	if len(roster) != 7 {
+		t.Fatalf("vero-tech-swarm roster has %d members, want 7", len(roster))
+	}
+	role := map[string]string{} // name -> role
+	for _, m := range roster {
+		role[m.Name] = m.Role
+	}
+	if role["lead"] != "leader" {
+		t.Errorf("lead role = %q, want leader (roster: %v)", role["lead"], role)
+	}
+	for _, w := range []string{"pm", "designer", "backend-a", "backend-b", "frontend", "qa"} {
+		if role[w] != "worker" {
+			t.Errorf("member %q role = %q, want worker (roster: %v)", w, role[w], role)
+		}
+	}
+}

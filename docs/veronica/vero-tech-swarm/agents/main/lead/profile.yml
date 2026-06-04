@@ -1,0 +1,5 @@
+# No `model:` — each member runs against your configured default provider/model.
+effort: high
+when_to_use: "Engineering team lead — frames the goal, plans, delegates to the right specialist, verifies, and reports."
+inject_memory: false
+advertise_skills: false

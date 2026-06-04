@@ -1,0 +1,10 @@
+# Regular evva tools. Swarm tools are injected by the worker role — don't list them.
+# The designer writes specs + static mockups; it does not write app logic.
+- read
+- write
+- edit
+- grep
+- glob
+- tree
+- web_search
+- web_fetch

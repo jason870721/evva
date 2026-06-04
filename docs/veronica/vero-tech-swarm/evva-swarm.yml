@@ -1,0 +1,35 @@
+# vero-tech-swarm — evva's official in-house software engineering team.
+#
+# A full delivery team that takes a user's software-development request and ships
+# a working, verified result: a team lead orchestrates a product manager, a
+# product designer, two backend engineers, a frontend engineer, and a QA engineer.
+name: vero-tech-swarm
+workdir: .
+
+# The team lead owns the task ledger — plans, delegates, verifies, reports.
+leader:
+  agent: lead
+
+# Six specialists. Names are how teammates address each other (see list_members);
+# keep them stable and descriptive.
+workers:
+  - agent: pm # Product Manager — requirements + acceptance criteria
+  - agent: designer # Product Designer — UX flows + UI/visual spec
+  - agent: backend-a # Backend Engineer
+  - agent: backend-b # Backend Engineer (second track, parallel work)
+  - agent: frontend # Frontend Engineer
+  - agent: qa # QA Engineer
+
+settings:
+  # `bypass` = the team runs hands-off: engineers write files and run shell/tests
+  # with no per-action approval, so a real build->review cycle completes without
+  # you clicking Allow on every write. Run it in a project folder you trust.
+  #
+  # Safer alternatives:
+  #   default      — file writes / shell pop an approval in the web UI (Allow, or
+  #                  "Always allow" to allow a tool for the session).
+  #   accept_edits — file writes auto-allow; shell still asks.
+  # The lead's task_create/assign/verify never gate, regardless of this setting.
+  permission_mode: bypass
+  # Real engineering tasks are long; give each run room before it pauses for a nudge.
+  max_iterations: 80

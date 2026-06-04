@@ -1,0 +1,10 @@
+# Regular evva tools. Swarm tools are injected by the worker role — don't list them.
+# The PM writes specs (PRD/markdown) and researches; it does not run code.
+- read
+- write
+- edit
+- grep
+- glob
+- tree
+- web_search
+- web_fetch
