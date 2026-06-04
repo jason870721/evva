@@ -161,18 +161,18 @@ settings:
 
 ### 5.3 定义 leader
 
+> **你只需要写「人设」。** 每个成员的 `system_prompt.md` 描述的是*这个 agent 是谁、
+> 该怎么协作* —— 它的领域、风格、什么时候沟通。你**不需要**解释任务账本、工具、
+> 5 状态流程：那套**swarm 协作协议会根据角色（leader / worker）自动注入**，就跟
+> swarm 工具一样。专注在「活儿」本身，别去教底层机制。
+
 `agents/main/leader/system_prompt.md`：
 
 ```markdown
 # 团队负责人
 
-你领导一个工程团队。把用户的目标拆成具体任务，用 `task_create` + `task_assign`
-推送给最合适的 worker，并在向用户汇报前用 `task_verify` 验收。
-
-- 用 `list_members` 查看谁有空、各自擅长什么。
-- 一个任务 = 一个清晰的交付物。规格写紧凑。
-- worker 回报任务完成后，把它转到 `verifying`，检查成果，然后批准
-  （或附说明驳回让其返工）。
+你领导一个工程团队。把任务拆小、写具体，按专长分派给合适的成员，并在向用户汇报
+前验收结果。你负责规划与验收 —— 不亲自干 worker 的活。
 ```
 
 `agents/main/leader/profile.yml`：
@@ -209,8 +209,8 @@ advertise_skills: true
 ```markdown
 # 后端工程师
 
-你负责后端工作：API、数据模型、迁移、测试。你以消息的形式从 leader 处接到任务。
-在项目里完成工作，然后用 `send_message` 向 leader 回报（说明你改了什么、在哪里）。
+你负责后端工作：API、数据模型、迁移、测试。写干净、带测试的代码；任务清楚时优先
+动手而不是反复问。
 ```
 
 `agents/sub/backend-dev/profile.yml`：
@@ -295,6 +295,11 @@ Web 界面（`:8888`）针对每个 space 提供：
 
 ## 7. 协作到底是怎么运作的（底层）
 
+- **自动注入的协议 + 工具。** 每个成员都会被**自动**赋予它角色对应的协作**工具**
+  *与*协作**协议**（注入到它的系统提示词里）—— leader 拿到任务账本工具 + leader
+  协议，worker 拿到只读任务工具 + worker 协议。你**永远不用**在 `system_prompt.md`
+  或 `active.yml` 里声明这些；你只写人设。（这就是下面这些机制「开箱即用」、不用你
+  教的原因。）
 - **任务账本（5 状态）。** leader `task_create` → `task_assign`（转 `running`，
   通知 worker）→ worker 干活并回报 → leader `task_update_status` → `verifying`
   → `task_verify` 批准（转 `completed`）或驳回（退回 `running`）。状态机在 SQLite

@@ -168,19 +168,21 @@ settings:
 
 ### 5.3 Define the leader
 
+> **You only write the persona.** Each member's `system_prompt.md` describes
+> *who the agent is and how it should collaborate* — its domain, its style, when
+> to check in. You do **not** explain the task ledger, the tools, or the 5-state
+> flow: that **swarm collaboration protocol is injected automatically** based on
+> the member's role (leader vs worker), exactly like the swarm tools are. Focus
+> on the work, not the mechanics.
+
 `agents/main/leader/system_prompt.md`:
 
 ```markdown
 # Team Lead
 
-You lead an engineering team. Break the user's goal into concrete tasks, push
-each to the most suitable worker with `task_create` + `task_assign`, and verify
-results with `task_verify` before reporting back to the user.
-
-- Use `list_members` to see who is available and what they're good at.
-- One task = one clear deliverable. Keep specs tight.
-- When a worker reports a task done, move it to `verifying`, check the work, then
-  approve (or reject with notes for a fix).
+You lead an engineering team. Keep tasks small and specific, delegate each to the
+member whose specialty fits, and verify results before reporting back to the
+user. You plan and verify — you don't do the workers' work yourself.
 ```
 
 `agents/main/leader/profile.yml`:
@@ -218,9 +220,8 @@ member needs (the leader just reads files to verify the workers' output):
 ```markdown
 # Backend Engineer
 
-You implement backend work: APIs, data models, migrations, tests. You receive
-tasks from the leader as messages. Do the work in the project, then report back
-to the leader with `send_message` (say what you changed and where).
+You implement backend work: APIs, data models, migrations, and tests. Write
+clean, tested code, and prefer doing the work over asking when the task is clear.
 ```
 
 `agents/sub/backend-dev/profile.yml`:
@@ -309,6 +310,13 @@ pick up their tasks, report back, and the board march to **completed**.
 
 ## 7. How collaboration actually works (under the hood)
 
+- **Auto-injected protocol + tools.** Every member is given its role's
+  collaboration **tools** *and* a collaboration **protocol** (prepended to its
+  system prompt) automatically — the leader gets the task-ledger tools + the
+  leader protocol, a worker gets the read-only task tools + the worker protocol.
+  You never declare these in `system_prompt.md` or `active.yml`; you only write
+  the persona. (That's why the bullets below "just work" without you teaching
+  them.)
 - **Task ledger (5 states).** Leader `task_create` → `task_assign` (→ `running`,
   notifies the worker) → worker works + reports → leader `task_update_status`
   → `verifying` → `task_verify` approve (→ `completed`) or reject (→ back to

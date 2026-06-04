@@ -88,7 +88,11 @@ rm -rf ~/demo-swarm/.vero ~/demo-swarm/site   # wipe its db + generated output
 - `agents/sub/builder/`, `agents/sub/reviewer/` — workers (under `sub/`); the
   builder gets `write`/`edit`/`bash`, the reviewer is read-only.
 
-> **Tip:** the collaboration tools (`task_create`, `task_assign`, `task_verify`,
-> `send_message`, `list_members`, `my_tasks`, `task_get`) are **not** listed in
-> any `active.yml` — they're added automatically based on each member's role.
-> `active.yml` is only for the regular evva tools (`read`, `write`, `bash`, …).
+> **Notice what the prompts *don't* say.** The `system_prompt.md` files only
+> describe each member's persona — none of them explain the task ledger, when to
+> message, or how to report. That **swarm collaboration protocol is injected
+> automatically** based on role (leader vs worker), and so are the collaboration
+> **tools** (`task_create`, `task_assign`, `task_verify`, `send_message`,
+> `list_members`, `my_tasks`, `task_get`). You write *who the agent is and when to
+> collaborate*; the swarm teaches it *how*. `active.yml` is only for the regular
+> evva tools (`read`, `write`, `bash`, …).
