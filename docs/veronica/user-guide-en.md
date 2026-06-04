@@ -193,23 +193,23 @@ inject_memory: true             # load EVVA.md / memory into the prompt
 advertise_skills: true
 ```
 
-`agents/main/leader/tools/active.yml` — the leader's tools:
+`agents/main/leader/tools/active.yml` — only the **regular evva tools** this
+member needs (the leader just reads files to verify the workers' output):
 
 ```yaml
-- task_create
-- task_assign
-- task_update_status
-- task_verify
-- list_members
-- send_message
+- read
+- grep
+- glob
+- tree
 ```
 
-`agents/main/leader/tools/deferr.yml` — advertised, fetched on demand via
-`tool_search` (keeps the prompt small):
-
-```yaml
-- task_list
-```
+> **Important — don't list the swarm tools.** `task_create`, `task_assign`,
+> `task_update_status`, `task_verify`, `task_list`, `send_message`,
+> `list_members`, `my_tasks`, `task_get` are added **automatically** based on the
+> member's role (leader vs worker). Listing them in `active.yml` would register
+> them **twice** and the LLM call fails on duplicate tool names. `active.yml`
+> (and `deferr.yml`) are for the standard evva tools only (`read`, `write`,
+> `bash`, …). A member with no extra evva tools can simply omit `tools/`.
 
 ### 5.4 Define a worker
 
@@ -235,16 +235,11 @@ when_to_use: "Backend: APIs, DB schema, migrations, server tests."
 #   # every: "30s"          # or a fixed interval
 ```
 
-`agents/sub/backend-dev/tools/active.yml` — swarm tools **plus** the real work
-tools a coder needs:
+`agents/sub/backend-dev/tools/active.yml` — the real work tools a coder needs
+(the collaboration tools `my_tasks` / `task_get` / `send_message` /
+`list_members` are injected automatically by the worker role — don't list them):
 
 ```yaml
-# collaboration
-- my_tasks
-- task_get
-- send_message
-- list_members
-# doing the work
 - read
 - write
 - edit
@@ -301,10 +296,14 @@ The web UI (`:8888`) has, per space:
   unblocks it. Questions (`ask_user_question`) appear the same way.
 - **Per-agent view** — click a member to see its transcript and mailbox.
 
-Typical first run: enter the space → in Leader Chat type *"Build a TODO REST API
-with a Postgres schema and a small web UI; split the work."* → watch the leader
-`task_create`/`task_assign`, the workers pick up their tasks, report back, and
-the board march to **completed**.
+Typical first run: enter the space → in the Member Console (focused on the
+leader) type *"Build a TODO REST API with a Postgres schema and a small web UI;
+split the work."* → watch the leader `task_create`/`task_assign`, the workers
+pick up their tasks, report back, and the board march to **completed**.
+
+> **Want to skip the typing and just try it?** A ready-to-run example swarm
+> lives at [`example-swarm/`](example-swarm/) — copy it out, `evva swarm .`, and
+> follow its README.
 
 ---
 
@@ -438,12 +437,13 @@ Stopping one never affects the other.
 | `schedule.cron` | 5-field cron for a timer wake (e.g. `"*/5 * * * *"`). |
 | `schedule.every` | Fixed interval instead of cron (e.g. `"30s"`, `"5m"`). |
 
-### Swarm tool names
+### Swarm tool names (auto-injected by role)
 
-Leader: `task_create`, `task_assign`, `task_update_status`, `task_verify`,
-`task_list`. Worker: `my_tasks`, `task_get`. Both: `send_message`,
-`list_members`. (Plus any regular evva tools you list — `read`, `write`, `edit`,
-`bash`, `grep`, `glob`, `tree`, `web_fetch`, …)
+These are added **automatically** based on the member's role — **never list them
+in `active.yml`**. Leader: `task_create`, `task_assign`, `task_update_status`,
+`task_verify`, `task_list`. Worker: `my_tasks`, `task_get`. Both: `send_message`,
+`list_members`. In `active.yml` you list only the regular evva tools your member
+needs — `read`, `write`, `edit`, `bash`, `grep`, `glob`, `tree`, `web_fetch`, …
 
 ---
 
@@ -468,7 +468,8 @@ Leader: `task_create`, `task_assign`, `task_update_status`, `task_verify`,
    `agents/sub/<workers>/`, each with `system_prompt.md` (+ optional
    `profile.yml`, `tools/active.yml`).
 3. **Register:** `evva swarm .`.
-4. **Drive:** open `:8888`, paste the token, talk to the leader in Leader Chat.
+4. **Drive:** open `:8888`, paste the token, talk to the leader (or any member)
+   in the Member Console.
 5. **Watch:** the Team Board moves `pending → running → verifying → completed`;
    the roster shows who's busy.
 6. **Operate:** add/freeze/suspend members; run several swarms side by side.

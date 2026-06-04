@@ -128,6 +128,9 @@ day-2 ops, restart-resume:
 - [English](docs/veronica/user-guide-en.md)
 - [简体中文](docs/veronica/user-guide-zh.md)
 
+Or just try the ready-to-run [example swarm](docs/veronica/example-swarm/) — copy
+it out, `evva swarm .`, and watch a 3-agent team build a small site.
+
 ---
 
 ## How to integrate EVVA agent in your Go project?

@@ -1,0 +1,6 @@
+# No `model:` here on purpose — each member falls back to your configured
+# default provider/model, so this example runs as-is whatever you use.
+effort: high
+when_to_use: "Team lead — plans, assigns, and verifies the team's work."
+inject_memory: false
+advertise_skills: false

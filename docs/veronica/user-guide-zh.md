@@ -185,23 +185,22 @@ inject_memory: true             # 把 EVVA.md / 记忆载入提示词
 advertise_skills: true
 ```
 
-`agents/main/leader/tools/active.yml` —— leader 的工具：
+`agents/main/leader/tools/active.yml` —— 只放這個成員需要的**一般 evva 工具**
+（leader 只需讀檔來驗收 worker 的產出）：
 
 ```yaml
-- task_create
-- task_assign
-- task_update_status
-- task_verify
-- list_members
-- send_message
+- read
+- grep
+- glob
+- tree
 ```
 
-`agents/main/leader/tools/deferr.yml` —— 仅声明、由 `tool_search` 按需取用
-（保持提示词精简）：
-
-```yaml
-- task_list
-```
+> **重要 —— 不要列 swarm 工具。** `task_create`、`task_assign`、
+> `task_update_status`、`task_verify`、`task_list`、`send_message`、
+> `list_members`、`my_tasks`、`task_get` 會**根據角色（leader / worker）自動注入**。
+> 在 `active.yml` 裡再列一次會造成**重複註冊**，LLM 呼叫會因工具名重複而失敗。
+> `active.yml`（與 `deferr.yml`）只放一般 evva 工具（`read`、`write`、`bash`…）。
+> 一個不需要額外 evva 工具的成員，`tools/` 整個省略即可。
 
 ### 5.4 定义一个 worker
 
@@ -226,16 +225,11 @@ when_to_use: "后端：API、数据库 schema、迁移、服务端测试。"
 #   # every: "30s"          # 或固定间隔
 ```
 
-`agents/sub/backend-dev/tools/active.yml` —— swarm 工具 **加上** 一个程序员真正
-需要的干活工具：
+`agents/sub/backend-dev/tools/active.yml` —— 程序员真正需要的干活工具
+（協作工具 `my_tasks` / `task_get` / `send_message` / `list_members` 由 worker
+角色**自動注入**，不要在這裡列）：
 
 ```yaml
-# 协作
-- my_tasks
-- task_get
-- send_message
-- list_members
-# 干活
 - read
 - write
 - edit
@@ -289,7 +283,10 @@ Web 界面（`:8888`）针对每个 space 提供：
   （`ask_user_question`）以同样方式出现。
 - **单 agent 视图** —— 点一个成员，查看它的对话记录和收件箱。
 
-典型的第一次运行：进入 space → 在 Leader Chat 里输入「搭一个 TODO REST API，
+> **想直接玩、不想自己刻？** 這裡有一套現成的 example swarm：
+> [`example-swarm/`](example-swarm/) —— 複製出去、`evva swarm .`，照它的 README 走即可。
+
+典型的第一次运行：进入 space → 在 Member Console（聚焦 leader）里输入「搭一个 TODO REST API，
 带 Postgres schema 和一个小型 Web UI，把活分一下」→ 看着 leader
 `task_create`/`task_assign`，worker 接走各自的任务、回报，看板一路推进到
 **completed**。
@@ -417,10 +414,11 @@ evva swarm ls            # 两个都列出，完全隔离
 
 ### swarm 工具名
 
+這些會**根據角色自動注入** —— **永遠不要在 `active.yml` 裡列它們**。
 Leader：`task_create`、`task_assign`、`task_update_status`、`task_verify`、
 `task_list`。Worker：`my_tasks`、`task_get`。两者都有：`send_message`、
-`list_members`。（再加上你自己列出的常规 evva 工具 —— `read`、`write`、`edit`、
-`bash`、`grep`、`glob`、`tree`、`web_fetch`……）
+`list_members`。`active.yml` 裡只列成員需要的常规 evva 工具 —— `read`、`write`、
+`edit`、`bash`、`grep`、`glob`、`tree`、`web_fetch`……
 
 ---
 
@@ -445,7 +443,7 @@ Leader：`task_create`、`task_assign`、`task_update_status`、`task_verify`、
    `agents/sub/<workers>/`，每个含 `system_prompt.md`（外加选填的
    `profile.yml`、`tools/active.yml`）。
 3. **注册：** `evva swarm .`。
-4. **驱动：** 打开 `:8888`，粘贴 token，在 Leader Chat 里跟 leader 对话。
+4. **驱动：** 打开 `:8888`，粘贴 token，在 Member Console 里跟 leader（或任一成员）对话。
 5. **观察：** Team Board 走 `pending → running → verifying → completed`；
    花名册显示谁在忙。
 6. **运维：** 新增/冻结/暂停成员；多个 swarm 并排运行。

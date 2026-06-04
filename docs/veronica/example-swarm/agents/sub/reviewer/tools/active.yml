@@ -1,0 +1,6 @@
+# Read-only evva tools — the reviewer inspects, it doesn't write.
+# (Swarm tools are injected automatically by the worker role.)
+- read
+- grep
+- glob
+- tree

@@ -1,0 +1,4 @@
+# Runtime + generated output (created when you run the swarm) — not part of the
+# example itself.
+.vero/
+site/

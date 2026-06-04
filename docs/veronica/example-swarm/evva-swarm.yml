@@ -1,0 +1,15 @@
+name: demo-web-team
+workdir: .
+
+leader:
+  agent: lead
+
+workers:
+  - agent: builder
+  - agent: reviewer
+
+settings:
+  # `default` = file writes / shell ask for approval in the web UI (you stay in
+  # the loop). For a hands-off demo in a throwaway folder, switch to `bypass`.
+  permission_mode: default
+  max_iterations: 40
