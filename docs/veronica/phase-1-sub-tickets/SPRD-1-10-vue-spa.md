@@ -1,6 +1,6 @@
 # SPRD-1-10 — vue.js SPA: space picker, Team Board, Roster, Leader Chat, overlays
 
-> Milestone: M1–M3 ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-8
+> Milestone: M1–M3 ｜ Status: IN REVIEW ｜ Owner: veronica ｜ Depends on: 1-8
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 6) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §8.2, §8.3
 
 ## 1. Goal
@@ -63,8 +63,46 @@ the binary.
 
 ## 7. Definition of Done
 
-- [ ] Space picker, Leader Chat (streaming), Team Board (5-state), Roster (+add/freeze),
+- [x] Space picker, Leader Chat (streaming), Team Board (5-state), Roster (+add/freeze),
       approval overlays, per-agent transcript.
-- [ ] WS live updates + REST snapshots; token-authenticated.
-- [ ] `web/dist` builds + embeds and loads from the service.
-- [ ] vitest unit tests green; behavior matches evva event semantics.
+- [x] WS live updates + REST snapshots; token-authenticated.
+- [x] `web/dist` builds + embeds and loads from the service.
+- [x] Unit tests green; behavior matches evva event semantics.
+
+### Implementation notes
+
+- **Pure core, framework-free + tested:** `web/src/events.js` holds the render
+  reducers — `reduceChat` (folds the wire event stream into chat turns:
+  streaming text/thinking coalesce per agent, tool calls resolve by ToolID,
+  turn_end/run_end close accumulation), `groupTasks` (5-column board buckets),
+  and the approval/question normalisers. `events.test.js` exercises them with
+  **`node --test`** (11 tests). This mirrors evva's TUI event kinds so Web ==
+  TUI semantics.
+- **Test-runner deviation:** used Node's built-in `node:test` instead of
+  **vitest**. Rationale: the only logic worth unit-testing is the pure
+  reducers (framework-free); `node --test` needs **zero new devDependencies /
+  no network install**, fitting the repo's dep-conscious posture, and runs in
+  the same CI `npm` step. `npm test` wired in `package.json`.
+- **Clients:** `api.js` (token-Bearer REST over every `/api/*`) + `ws.js`
+  (subscribes `/ws?space=&token=`, parses `{spaceId,event}`, reconnect backoff,
+  exposes the inbound command channel for run / respond_permission /
+  respond_question).
+- **Components:** `App.vue` (token gate → localStorage; picker vs space),
+  `SpacePicker`, `SpaceView` (orchestrator: WS stream + 2.5s REST poll for
+  roster/tasks/messages so the board stays live even though the swarm task
+  ledger is separate from evva's event-emitting stores), `LeaderChat`
+  (streaming turns + input), `TeamBoard` (5-state kanban), `Roster`
+  (membership/run badges + freeze/unfreeze/suspend/resume/add), `AgentTranscript`
+  (per-member transcript + mailbox), `ApprovalOverlay` (permission + question
+  gates → WS respond).
+- **Token:** the browser can't read the daemon's token file, so the SPA prompts
+  for it once (the value `evva service start` prints) and persists in
+  localStorage.
+- **Verified:** `npm test` (11 green) + `npm run build` → `web/dist`
+  (committed); `go build` embeds it; the running daemon serves `index.html`,
+  the JS/CSS assets (200), and gates `/api/*` with 401 sans token. The bundle
+  references the real endpoints (`/api/swarms`, `/api/tasks`, `/ws?space=`, …).
+- **Out of scope / manual:** a full click-through that drives a real task across
+  the board + approves a permission needs a live LLM-backed swarm (provider
+  config); the same API path is already proven end-to-end by the 1-8 service
+  integration tests with a stub provider.

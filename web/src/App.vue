@@ -1,25 +1,165 @@
 <script setup>
-// Walking-skeleton shell. The space picker, Team Board, Agent Roster, and
-// Leader Chat land in SPRD-1-10; for now this just proves the vite + vue
-// build pipeline and the Go embed are wired.
+import { ref, onMounted } from 'vue'
+import { createApi } from './api.js'
+import SpacePicker from './components/SpacePicker.vue'
+import SpaceView from './components/SpaceView.vue'
+
+const TOKEN_KEY = 'evva-swarm-token'
+
+const token = ref(localStorage.getItem(TOKEN_KEY) || '')
+const tokenDraft = ref('')
+const spaces = ref([])
+const active = ref(null) // the SpaceInfo we entered, or null
+const error = ref('')
+
+const api = createApi(() => token.value)
+
+function saveToken() {
+  const t = tokenDraft.value.trim()
+  if (!t) return
+  token.value = t
+  localStorage.setItem(TOKEN_KEY, t)
+  loadSpaces()
+}
+function resetToken() {
+  token.value = ''
+  localStorage.removeItem(TOKEN_KEY)
+  spaces.value = []
+  active.value = null
+}
+
+async function loadSpaces() {
+  if (!token.value) return
+  try {
+    spaces.value = (await api.spaces()) || []
+    error.value = ''
+  } catch (e) {
+    error.value = String(e.message || e)
+  }
+}
+
+function leave() {
+  active.value = null
+  loadSpaces()
+}
+
+onMounted(loadSpaces)
 </script>
 
 <template>
-  <main class="wrap">
-    <h1>evva · swarm workstation</h1>
-    <p class="dim">Walking skeleton — the swarm UI ships in SPRD-1-10.</p>
-  </main>
+  <!-- Token gate: the service prints the session token on `evva service start`. -->
+  <div v-if="!token" class="gate">
+    <h1>evva · swarm</h1>
+    <p class="dim">Paste the session token printed by <code>evva service start</code>.</p>
+    <div class="row">
+      <input
+        v-model="tokenDraft"
+        type="password"
+        placeholder="session token"
+        @keyup.enter="saveToken"
+      />
+      <button class="primary" @click="saveToken">Connect</button>
+    </div>
+  </div>
+
+  <SpaceView
+    v-else-if="active"
+    :api="api"
+    :token="token"
+    :space="active"
+    @leave="leave"
+  />
+
+  <SpacePicker
+    v-else
+    :spaces="spaces"
+    :error="error"
+    @enter="(s) => (active = s)"
+    @refresh="loadSpaces"
+    @reset-token="resetToken"
+  />
 </template>
 
 <style>
-.wrap {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  max-width: 42rem;
-  margin: 4rem auto;
+:root {
+  --bg: #0e1116;
+  --panel: #161b22;
+  --line: #2a313c;
+  --dim: #8a929c;
+  --accent: #3b82f6;
+  --danger: #ef4444;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: #e6edf3;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+button {
+  background: var(--panel);
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+button:hover {
+  border-color: var(--accent);
+}
+button.ghost {
+  background: transparent;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+input,
+textarea {
+  background: var(--bg);
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+code {
+  font-family: var(--mono);
+  background: var(--panel);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+}
+</style>
+
+<style scoped>
+.gate {
+  max-width: 30rem;
+  margin: 6rem auto;
   padding: 0 1.25rem;
-  line-height: 1.6;
 }
 .dim {
-  color: #8a8f94;
+  color: var(--dim);
+}
+.row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.row input {
+  flex: 1;
 }
 </style>
