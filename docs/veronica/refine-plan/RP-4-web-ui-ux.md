@@ -141,6 +141,8 @@ RP-1 §3.6（inter-agent 訊息可見化）。
 | 階段 | 內容 | 主題 | 價值 |
 | --- | --- | --- | --- |
 | **UX-1 態勢感知** | Attention Bar + 審批 tray 選項 + per-phase 計時 | 4.1 | 直接回答「有什麼需要我」，承接 RP-2/RP-3 |
+| └ UX-1a ✅ | **已落地**：`AttentionBar.vue`（聚合 waiting-approval/input + error/paused、可點聚焦、live elapsed）+ roster pill 顯示 phase 計時（後端 `roster.phaseSince` → `MemberInfo.phaseSince`） | — | 已實作、測試＋smoke 驗證 |
+| └ UX-1b ✅ | **已落地**：審批改可選**非阻斷 tray**（`ApprovalTray.vue` 浮動側欄列出整個佇列）＋ modal↔tray 偏好（header toggle，localStorage 持久化，預設 modal）；抽出共用 `GateCard.vue`（modal 與 tray 共用一份 allow/deny/問答邏輯，不重複） | — | 已實作、build 驗證 |
 | **UX-2 版面重整** | 中欄 tab 化、focused/selected 釐清、detail 三分區、Timeline 檢視（收 RP-1 §3.6） | 4.2 | 監看效率與可觀測性 |
 | **UX-3 安全與互動** | 自訂 confirm、halt 二次確認、鍵盤、per-gate 錯誤 | 4.3 | 防呆、效率 |
 | **UX-4 設計系統** | design token、type scale、icon set、降噪、RWD、a11y 四態 | 4.4/4.5 | 一致性、可讀性、無障礙 |

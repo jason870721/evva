@@ -606,6 +606,7 @@ func (s *Service) Roster(id string) ([]webapi.MemberInfo, bool) {
 			Run:         string(v.Run),
 			Phase:       string(v.Phase),
 			Tool:        v.Tool,
+			PhaseSince:  v.PhaseSince,
 			CurrentTask: v.CurrentTask,
 			WhenToUse:   v.WhenToUse,
 		})

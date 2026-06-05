@@ -81,9 +81,10 @@ type MemberInfo struct {
 	AgentID     string `json:"agentId"`
 	Role        string `json:"role"`
 	Membership  string `json:"membership"`
-	Run         string `json:"run"`             // coarse lifecycle: idle | busy | suspended
-	Phase       string `json:"phase,omitempty"` // fine, event-derived sub-phase (RP-3)
-	Tool        string `json:"tool,omitempty"`  // tool name for executing / waiting-approval
+	Run         string `json:"run"`                 // coarse lifecycle: idle | busy | suspended
+	Phase       string `json:"phase,omitempty"`     // fine, event-derived sub-phase (RP-3)
+	Tool        string `json:"tool,omitempty"`      // tool name for executing / waiting-approval
+	PhaseSince  int64  `json:"phaseSince,omitempty"` // unix millis the phase was entered (RP-4 timing)
 	CurrentTask int64  `json:"currentTask"`
 	WhenToUse   string `json:"whenToUse,omitempty"`
 }

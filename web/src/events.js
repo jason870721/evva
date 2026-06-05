@@ -145,6 +145,54 @@ export function phaseClass(m) {
   return 'busy'
 }
 
+// attentionKind classifies whether a roster member needs the operator's
+// attention right now, and how urgently (RP-4 UX-1): 'act' = blocked waiting for
+// a human (approval / question); 'warn' = errored or paused (likely needs a
+// look); '' = fine. The Attention Bar aggregates these so the operator's first
+// question — "what needs me?" — is answered without scanning the whole roster.
+export function attentionKind(m) {
+  if (!m) return ''
+  const p = m.phase || ''
+  if (p === 'waiting-approval' || p === 'waiting-input') return 'act'
+  if (p === 'error' || p === 'paused') return 'warn'
+  return ''
+}
+
+// elapsed formats a duration (now − sinceMs) as a compact clock: "12s", "2:41",
+// "1:03:20". Empty for a missing/zero timestamp. Used to surface "stuck for N".
+export function elapsed(sinceMs, now = Date.now()) {
+  if (!sinceMs) return ''
+  let s = Math.floor((now - sinceMs) / 1000)
+  if (s < 0) s = 0
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const sec = String(s % 60).padStart(2, '0')
+  if (m < 60) return `${m}:${sec}`
+  const h = Math.floor(m / 60)
+  return `${h}:${String(m % 60).padStart(2, '0')}:${sec}`
+}
+
+// attentionItems distills the roster into what the operator should act on,
+// most-urgent first: 'act' before 'warn', then longest-waiting first. Each item
+// carries what the Attention Bar needs to render a chip and focus the member.
+export function attentionItems(roster, now = Date.now()) {
+  const items = []
+  for (const m of roster || []) {
+    const kind = attentionKind(m)
+    if (!kind) continue
+    items.push({
+      name: m.name,
+      kind,
+      phase: m.phase,
+      tool: m.tool || '',
+      since: m.phaseSince || 0,
+      elapsed: elapsed(m.phaseSince, now),
+    })
+  }
+  items.sort((a, b) => (a.kind === b.kind ? a.since - b.since : a.kind === 'act' ? -1 : 1))
+  return items
+}
+
 // isApproval / isQuestion classify the two interactive gate events the Leader
 // Chat surfaces as overlays.
 export function isApproval(ev) {

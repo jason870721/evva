@@ -1,11 +1,12 @@
 <script setup>
 import { ref } from 'vue'
 import { agentColor } from '../colors.js'
-import { displayPhase, phaseClass } from '../events.js'
+import { displayPhase, phaseClass, elapsed } from '../events.js'
 
 defineProps({
   members: { type: Array, default: () => [] },
   selected: { type: String, default: '' },
+  now: { type: Number, default: 0 }, // ticking clock for live elapsed times
 })
 const emit = defineEmits(['select', 'freeze', 'unfreeze', 'suspend', 'resume', 'add'])
 
@@ -38,6 +39,7 @@ function add() {
         <div class="line2">
           <span :class="['badge', m.membership]">{{ m.membership }}</span>
           <span :class="['badge', 'phase-' + phaseClass(m)]" :title="displayPhase(m)">{{ displayPhase(m) }}</span>
+          <span v-if="phaseClass(m) !== 'idle' && m.phaseSince" class="since">{{ elapsed(m.phaseSince, now) }}</span>
           <span v-if="m.currentTask" class="task">#{{ m.currentTask }}</span>
         </div>
         <div class="ctl" @click.stop>
@@ -133,6 +135,11 @@ li.sel {
 .badge.phase-waiting { color: #a855f7; border-color: #a855f7; font-weight: 600; }
 .badge.phase-error { color: #ef4444; border-color: #ef444455; }
 .badge.phase-idle { color: var(--dim); }
+.since {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--dim);
+}
 .task {
   font-family: var(--mono);
   font-size: 0.65rem;

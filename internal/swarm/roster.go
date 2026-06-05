@@ -3,6 +3,7 @@ package swarm
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
 	"github.com/johnny1110/evva/pkg/ui"
@@ -64,6 +65,7 @@ type rosterEntry struct {
 	run         RunStatus // coarse lifecycle, supervisor-set (idle/busy/suspended)
 	phase       RunPhase  // fine sub-phase, event-derived (refines busy)
 	tool        string    // tool name for executing / waiting-approval phases
+	phaseSince  int64     // unix millis the current phase was entered (for "stuck for N" timing)
 	currentTask int64
 	whenToUse   string
 	ctl         ui.Controller
@@ -78,6 +80,7 @@ type MemberView struct {
 	Run         RunStatus
 	Phase       RunPhase
 	Tool        string
+	PhaseSince  int64 // unix millis the current phase was entered
 	CurrentTask int64
 	WhenToUse   string
 }
@@ -127,6 +130,7 @@ func (r *Roster) add(name string, role agentdef.Role, whenToUse string, ctl ui.C
 		membership: MembershipActive,
 		run:        RunIdle,
 		phase:      PhaseReady,
+		phaseSince: time.Now().UnixMilli(),
 		whenToUse:  whenToUse,
 		ctl:        ctl,
 	}
@@ -196,6 +200,7 @@ func (r *Roster) Snapshot() []MemberView {
 			Run:         e.run,
 			Phase:       e.phase,
 			Tool:        e.tool,
+			PhaseSince:  e.phaseSince,
 			CurrentTask: e.currentTask,
 			WhenToUse:   e.whenToUse,
 		})
@@ -275,9 +280,9 @@ func (r *Roster) setRun(name string, s RunStatus) {
 	e.run = s
 	switch s {
 	case RunBusy:
-		e.phase, e.tool = PhaseRunning, ""
+		e.setPhase(PhaseRunning, "")
 	case RunIdle:
-		e.phase, e.tool = PhaseReady, ""
+		e.setPhase(PhaseReady, "")
 	}
 }
 
@@ -289,8 +294,18 @@ func (r *Roster) setPhase(name string, p RunPhase, tool string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if e, ok := r.entries[name]; ok {
-		e.phase, e.tool = p, tool
+		e.setPhase(p, tool)
 	}
+}
+
+// setPhase assigns the entry's phase + tool and stamps phaseSince when the phase
+// actually changes, so "how long in this phase" stays meaningful (a repeated
+// same-phase write — e.g. tool name unchanged — doesn't reset the clock).
+func (e *rosterEntry) setPhase(p RunPhase, tool string) {
+	if e.phase != p {
+		e.phaseSince = time.Now().UnixMilli()
+	}
+	e.phase, e.tool = p, tool
 }
 
 // setMembership updates a member's membership (freeze/unfreeze; SPRD-1-6).

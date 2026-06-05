@@ -1,12 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { openSocket } from '../ws.js'
-import { reduceChat, consoleTurns, isApproval, isQuestion, approvalOf, questionOf, touchesLedger } from '../events.js'
+import { reduceChat, consoleTurns, isApproval, isQuestion, approvalOf, questionOf, touchesLedger, attentionItems } from '../events.js'
 import MemberConsole from './MemberConsole.vue'
 import TeamBoard from './TeamBoard.vue'
 import Roster from './Roster.vue'
 import AgentTranscript from './AgentTranscript.vue'
 import ApprovalOverlay from './ApprovalOverlay.vue'
+import ApprovalTray from './ApprovalTray.vue'
+import AttentionBar from './AttentionBar.vue'
 
 const props = defineProps({
   api: { type: Object, required: true },
@@ -28,13 +30,28 @@ const approvals = ref([])
 const questions = ref([])
 const approval = computed(() => approvals.value[0] || null)
 const question = computed(() => questions.value[0] || null)
+// Gate surface preference (RP-4 UX-1b): "modal" (blocking, default — forces the
+// operator to deal with it) vs "tray" (non-blocking rail — keep watching the team
+// while deciding). Persisted per browser.
+const GATE_MODE_KEY = 'evva-swarm-gate-mode'
+const gateMode = ref(localStorage.getItem(GATE_MODE_KEY) === 'tray' ? 'tray' : 'modal')
+function toggleGateMode() {
+  gateMode.value = gateMode.value === 'modal' ? 'tray' : 'modal'
+  localStorage.setItem(GATE_MODE_KEY, gateMode.value)
+}
 const focused = ref('') // the member whose console is in the center pane
 const selected = ref('') // the member whose transcript+mailbox is in the right pane
 const transcript = ref([])
 const err = ref('')
+const now = ref(Date.now()) // ticks every 1s so elapsed clocks stay live
 
 let sock = null
 let poll = null
+let clock = null
+
+// What needs the operator: blocked-on-approval/question or errored/paused
+// members, most-urgent first, with live elapsed times (RP-4 UX-1).
+const attention = computed(() => attentionItems(roster.value, now.value))
 
 const leader = computed(() => {
   const m = roster.value.find((x) => x.role === 'leader')
@@ -199,11 +216,13 @@ onMounted(async () => {
     },
   })
   poll = setInterval(refreshSnapshots, 2500)
+  clock = setInterval(() => (now.value = Date.now()), 1000)
 })
 
 onBeforeUnmount(() => {
   if (sock) sock.close()
   if (poll) clearInterval(poll)
+  if (clock) clearInterval(clock)
 })
 </script>
 
@@ -213,17 +232,27 @@ onBeforeUnmount(() => {
       <button class="ghost" @click="emit('leave')">← spaces</button>
       <span class="title">{{ space.name || space.id }}</span>
       <span class="sid">{{ space.id }}</span>
-      <button class="danger ghost halt" @click="memberCmd('halt', undefined)">halt all</button>
+      <button
+        class="ghost mode"
+        @click="toggleGateMode"
+        :title="gateMode === 'modal' ? 'Approvals block the screen — click for a non-blocking tray' : 'Approvals show in a side tray — click for a blocking modal'"
+      >
+        approvals: {{ gateMode }}
+      </button>
+      <button class="danger ghost" @click="memberCmd('halt', undefined)">halt all</button>
       <button class="danger ghost" @click="resetSpace" title="Wipe ledger + all agent context and restart the team (same id)">reset</button>
     </header>
 
     <p v-if="err" class="err">{{ err }}</p>
+
+    <AttentionBar :items="attention" @focus="selectMember" />
 
     <div class="grid">
       <aside class="left">
         <Roster
           :members="roster"
           :selected="selected"
+          :now="now"
           @select="selectMember"
           @freeze="(n) => memberCmd('freeze', n)"
           @unfreeze="(n) => memberCmd('unfreeze', n)"
@@ -260,9 +289,17 @@ onBeforeUnmount(() => {
     </div>
 
     <ApprovalOverlay
+      v-if="gateMode === 'modal'"
       :approval="approval"
       :question="question"
       :pending-count="approvals.length + questions.length"
+      @permission="onPermission"
+      @question="onQuestion"
+    />
+    <ApprovalTray
+      v-else
+      :approvals="approvals"
+      :questions="questions"
       @permission="onPermission"
       @question="onQuestion"
     />
@@ -291,8 +328,10 @@ onBeforeUnmount(() => {
   font-size: 0.7rem;
   color: var(--dim);
 }
-.halt {
+.mode {
   margin-left: auto;
+  font-size: 0.72rem;
+  font-family: var(--mono);
 }
 .err {
   color: var(--danger);

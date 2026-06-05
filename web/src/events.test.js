@@ -10,6 +10,9 @@ import {
   consoleTurns,
   displayPhase,
   phaseClass,
+  attentionKind,
+  elapsed,
+  attentionItems,
   TASK_STATES,
 } from './events.js'
 
@@ -175,4 +178,37 @@ test('phaseClass flags waiting-approval distinctly', () => {
   assert.equal(phaseClass({ run: 'busy', phase: 'executing' }), 'busy')
   assert.equal(phaseClass({ run: 'suspended', phase: 'ready' }), 'suspended')
   assert.equal(phaseClass({ run: 'idle', phase: 'ready' }), 'idle')
+})
+
+test('attentionKind: blocked = act, errored/paused = warn (RP-4)', () => {
+  assert.equal(attentionKind({ phase: 'waiting-approval' }), 'act')
+  assert.equal(attentionKind({ phase: 'waiting-input' }), 'act')
+  assert.equal(attentionKind({ phase: 'error' }), 'warn')
+  assert.equal(attentionKind({ phase: 'paused' }), 'warn')
+  assert.equal(attentionKind({ phase: 'executing' }), '')
+  assert.equal(attentionKind({ phase: 'ready' }), '')
+})
+
+test('elapsed formats a compact clock', () => {
+  const now = 1_000_000
+  assert.equal(elapsed(0, now), '')
+  assert.equal(elapsed(now - 12_000, now), '12s')
+  assert.equal(elapsed(now - 161_000, now), '2:41')
+  assert.equal(elapsed(now - 3_800_000, now), '1:03:20')
+  assert.equal(elapsed(now + 5000, now), '0s') // future clamps to 0
+})
+
+test('attentionItems sorts act before warn, then longest-waiting first', () => {
+  const now = 100_000
+  const roster = [
+    { name: 'fe', phase: 'executing', phaseSince: now - 1000 }, // not attention
+    { name: 'qa', phase: 'waiting-approval', tool: 'bash', phaseSince: now - 5000 },
+    { name: 'be', phase: 'error', phaseSince: now - 9000 },
+    { name: 'pm', phase: 'waiting-input', phaseSince: now - 20000 }, // oldest act
+  ]
+  const items = attentionItems(roster, now)
+  assert.deepEqual(items.map((i) => i.name), ['pm', 'qa', 'be'])
+  assert.equal(items[0].kind, 'act')
+  assert.equal(items[2].kind, 'warn')
+  assert.equal(items[1].elapsed, '5s')
 })
