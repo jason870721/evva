@@ -10,6 +10,7 @@ import AgentTranscript from './AgentTranscript.vue'
 import ApprovalOverlay from './ApprovalOverlay.vue'
 import ApprovalTray from './ApprovalTray.vue'
 import AttentionBar from './AttentionBar.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const props = defineProps({
   api: { type: Object, required: true },
@@ -46,6 +47,17 @@ const centerTab = ref('board') // 'board' | 'timeline' | 'console' (RP-4 UX-2)
 const transcript = ref([])
 const err = ref('')
 const now = ref(Date.now()) // ticks every 1s so elapsed clocks stay live
+// Custom confirmation (RP-4 UX-3): { title, message, confirmLabel, danger, action }
+// or null. Replaces native window.confirm for destructive ops.
+const confirmDialog = ref(null)
+function askConfirm(opts) {
+  confirmDialog.value = opts
+}
+function onConfirmYes() {
+  const action = confirmDialog.value && confirmDialog.value.action
+  confirmDialog.value = null
+  if (action) action()
+}
 
 let sock = null
 let poll = null
@@ -90,6 +102,9 @@ function onEvent(ev) {
   // approval reply) failed to route, instead of silently dropping it. Surface it.
   if (ev && ev.type === 'command_error') {
     err.value = ev.message || 'command failed'
+    // A reply that failed to route left the member still blocked — re-sync the
+    // pending gates so it reappears and can be retried (RP-2 §3.3 / RP-4 UX-3).
+    hydratePending()
     return
   }
   if (isApproval(ev)) {
@@ -156,16 +171,34 @@ async function memberCmd(verb, name) {
   }
 }
 
+// Halt the whole team — a destructive control, so it goes through the confirm
+// dialog (the old one-click no-confirm was a misclick waiting to happen).
+function haltAll() {
+  askConfirm({
+    title: 'Halt the entire team?',
+    message:
+      'This suspends every member and cancels all in-flight runs. Members come back individually via resume.',
+    confirmLabel: 'Halt all',
+    danger: true,
+    action: () => memberCmd('halt', undefined),
+  })
+}
+
 // Reset wipes the whole space — task ledger, all messages, and every agent's
-// context — and rebuilds it under the SAME id. Destructive, so confirm first;
-// then drop the now-stale local view (the live event-stream accumulation, the
-// open transcript, any pending overlay) and re-pull the fresh (empty) snapshots.
-async function resetSpace() {
-  const ok = window.confirm(
-    'Reset this swarm?\n\nThis wipes the task ledger, all messages, and every ' +
-      "agent's context, then restarts the team from scratch. This cannot be undone.",
-  )
-  if (!ok) return
+// context — and rebuilds it under the SAME id. Destructive, so confirm first.
+function resetSpace() {
+  askConfirm({
+    title: 'Reset this swarm?',
+    message:
+      "This wipes the task ledger, all messages, and every agent's context, then restarts the team from scratch. This cannot be undone.",
+    confirmLabel: 'Reset',
+    danger: true,
+    action: doReset,
+  })
+}
+// doReset runs after confirmation: drop the now-stale local view (live stream,
+// open transcript, pending gates) and re-pull the fresh (empty) snapshots.
+async function doReset() {
   try {
     await props.api.reset(props.space.id)
     chat.value = []
@@ -241,7 +274,7 @@ onBeforeUnmount(() => {
       >
         approvals: {{ gateMode }}
       </button>
-      <button class="danger ghost" @click="memberCmd('halt', undefined)">halt all</button>
+      <button class="danger ghost" @click="haltAll">halt all</button>
       <button class="danger ghost" @click="resetSpace" title="Wipe ledger + all agent context and restart the team (same id)">reset</button>
     </header>
 
@@ -312,6 +345,16 @@ onBeforeUnmount(() => {
       :questions="questions"
       @permission="onPermission"
       @question="onQuestion"
+    />
+
+    <ConfirmDialog
+      v-if="confirmDialog"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-label="confirmDialog.confirmLabel"
+      :danger="confirmDialog.danger"
+      @confirm="onConfirmYes"
+      @cancel="confirmDialog = null"
     />
   </div>
 </template>

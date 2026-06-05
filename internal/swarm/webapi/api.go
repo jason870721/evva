@@ -308,12 +308,12 @@ func serveSocket(b Backend, hub *Hub, ws *websocket.Conn) {
 		if err := websocket.Message.Receive(ws, &raw); err != nil {
 			return // EOF / closed
 		}
-		if err := dispatchInbound(b, spaceID, []byte(raw)); err != nil {
+		if reqID, err := dispatchInbound(b, spaceID, []byte(raw)); err != nil {
 			// A command that failed to route (e.g. an approval reply that hit no
 			// controller) must NOT be swallowed — that is exactly how a blocked
-			// agent hangs invisibly. Echo it back so the browser can surface it.
-			// Use c.send so it serialises against the hub's concurrent writes.
-			_ = c.send(commandErrorFrame(err))
+			// agent hangs invisibly. Echo it back (with the reqId) so the browser
+			// can recover the specific gate. c.send serialises against the hub.
+			_ = c.send(commandErrorFrame(reqID, err))
 		}
 	}
 }
@@ -332,31 +332,32 @@ type wsCommand struct {
 	Answers  map[string]string `json:"answers"`
 }
 
-// dispatchInbound routes one inbound WS command. A malformed frame is ignored
-// (nil); a command that ran but failed returns its error so serveSocket can echo
-// it back to the browser instead of silently dropping it.
-func dispatchInbound(b Backend, spaceID string, raw []byte) error {
+// dispatchInbound routes one inbound WS command, returning the command's reqId
+// (for gate replies) and its error. A malformed frame is ignored (nil error); a
+// command that ran but failed returns its error so serveSocket can echo it back
+// instead of silently dropping it.
+func dispatchInbound(b Backend, spaceID string, raw []byte) (string, error) {
 	var cmd wsCommand
 	if err := json.Unmarshal(raw, &cmd); err != nil {
-		return nil // not a command we can act on; ignore the frame
+		return "", nil // not a command we can act on; ignore the frame
 	}
 	switch cmd.Type {
 	case "run":
-		return b.Run(spaceID, cmd.Agent, cmd.Prompt)
+		return "", b.Run(spaceID, cmd.Agent, cmd.Prompt)
 	case "respond_permission":
-		return b.RespondPermission(spaceID, cmd.Agent, cmd.ReqID, cmd.Behavior, cmd.Reason, cmd.RuleTool)
+		return cmd.ReqID, b.RespondPermission(spaceID, cmd.Agent, cmd.ReqID, cmd.Behavior, cmd.Reason, cmd.RuleTool)
 	case "respond_question":
-		return b.RespondQuestion(spaceID, cmd.Agent, cmd.ReqID, cmd.Answers)
+		return cmd.ReqID, b.RespondQuestion(spaceID, cmd.Agent, cmd.ReqID, cmd.Answers)
 	}
-	return nil
+	return "", nil
 }
 
 // commandErrorFrame is the JSON pushed back to the browser when an inbound WS
 // command fails to apply. type:"command_error" is distinct from the event
-// envelope, so the existing event reducers ignore it; a future UI can surface it
-// (e.g. "approval failed to route — retry").
-func commandErrorFrame(err error) []byte {
-	b, _ := json.Marshal(map[string]string{"type": "command_error", "message": err.Error()})
+// envelope, so the event reducers ignore it; the UI surfaces it and re-hydrates
+// the pending gates so a reply that failed to route doesn't strand the member.
+func commandErrorFrame(reqID string, err error) []byte {
+	b, _ := json.Marshal(map[string]string{"type": "command_error", "reqId": reqID, "message": err.Error()})
 	return b
 }
 
