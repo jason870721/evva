@@ -26,6 +26,11 @@ function send() {
   }
 }
 
+function onEnterKey(e) {
+  if (e.isComposing) return
+  send()
+}
+
 watch(
   () => [props.turns.length, props.member],
   async () => {
@@ -72,7 +77,7 @@ watch(
         v-model="draft"
         rows="2"
         :placeholder="`Message ${member || 'member'}…  (Enter to send, Shift+Enter for newline)`"
-        @keydown.enter.exact.prevent="send"
+        @keydown.enter.exact.prevent="onEnterKey"
       ></textarea>
       <button class="primary" @click="send">Send</button>
     </div>
