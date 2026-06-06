@@ -33,6 +33,10 @@ type memberRun struct {
 	mu        sync.Mutex
 	suspended bool
 	cancelRun context.CancelFunc
+	// loopCancel stops just THIS member's run loop (a child of the supervisor
+	// ctx), so RemoveMember (RP-8) can retire one member without tearing down the
+	// space. Suspend cancels the current run; this cancels the loop itself.
+	loopCancel context.CancelFunc
 
 	schedule *agentdef.Schedule // nil when the member declared no schedule
 	nextDue  time.Time
@@ -55,11 +59,15 @@ func (s *Supervisor) startMemberLoop(ctx context.Context, name string) {
 			s.log.Warn("swarm: invalid schedule, timer disabled", "agent", name, "err", err)
 		}
 	}
+	// Each loop gets its own cancel (child of the supervisor ctx) so RemoveMember
+	// can stop one member without affecting the rest.
+	loopCtx, loopCancel := context.WithCancel(ctx)
+	m.loopCancel = loopCancel
 	s.members[name] = m
 	s.mu.Unlock()
 
 	s.wg.Add(1)
-	go func() { defer s.wg.Done(); s.runLoop(ctx, name, m) }()
+	go func() { defer s.wg.Done(); s.runLoop(loopCtx, name, m) }()
 }
 
 // runLoop is one member's event loop: it blocks (idle, zero tokens) until a wake

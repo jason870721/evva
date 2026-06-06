@@ -37,27 +37,27 @@ type Settings struct {
 // scheduleYml is the on-disk schedule block shared by the manifest's leader and
 // workers (and mirrored by profile.yml). Exactly one of cron/every is set.
 type scheduleYml struct {
-	Cron   string `yaml:"cron"`
-	Every  string `yaml:"every"`
-	Prompt string `yaml:"prompt"`
+	Cron   string `yaml:"cron,omitempty"`
+	Every  string `yaml:"every,omitempty"`
+	Prompt string `yaml:"prompt,omitempty"`
+}
+
+// memberYml is one leader/worker entry in evva-swarm.yml.
+type memberYml struct {
+	Agent    string       `yaml:"agent"`
+	Schedule *scheduleYml `yaml:"schedule,omitempty"`
 }
 
 // manifestYml is the on-disk schema for evva-swarm.yml (design §4.4).
 type manifestYml struct {
-	Name    string `yaml:"name"`
-	Workdir string `yaml:"workdir"`
-	Leader  struct {
-		Agent    string       `yaml:"agent"`
-		Schedule *scheduleYml `yaml:"schedule"`
-	} `yaml:"leader"`
-	Workers []struct {
-		Agent    string       `yaml:"agent"`
-		Schedule *scheduleYml `yaml:"schedule"`
-	} `yaml:"workers"`
+	Name     string      `yaml:"name,omitempty"`
+	Workdir  string      `yaml:"workdir,omitempty"`
+	Leader   memberYml   `yaml:"leader"`
+	Workers  []memberYml `yaml:"workers,omitempty"`
 	Settings struct {
-		PermissionMode string `yaml:"permission_mode"`
-		MaxIterations  int    `yaml:"max_iterations"`
-	} `yaml:"settings"`
+		PermissionMode string `yaml:"permission_mode,omitempty"`
+		MaxIterations  int    `yaml:"max_iterations,omitempty"`
+	} `yaml:"settings,omitempty"`
 }
 
 // parseScheduleYml turns an optional on-disk schedule block into a *Schedule,
@@ -107,6 +107,69 @@ func LoadManifest(path string) (Manifest, error) {
 		return Manifest{}, err
 	}
 	return m, nil
+}
+
+// toScheduleYml converts a parsed Schedule back to its on-disk shape (WriteManifest).
+func toScheduleYml(s *Schedule) *scheduleYml {
+	if s == nil {
+		return nil
+	}
+	sy := &scheduleYml{Cron: s.Cron, Prompt: s.Prompt}
+	if s.Every > 0 {
+		sy.Every = s.Every.String()
+	}
+	return sy
+}
+
+// WriteManifest re-serialises a Manifest back to evva-swarm.yml. RP-8's web
+// add/remove keeps the manifest authoritative (the space rebuild reads this file,
+// so dynamic membership survives a restart); the trade-off the operator accepted
+// is that re-emitting drops any hand-written comments/formatting. Schedules are
+// emitted too, though runtime.json stays the live authority (RP-7).
+func WriteManifest(path string, m Manifest) error {
+	y := manifestYml{Name: m.Name, Workdir: m.Workdir}
+	y.Leader = memberYml{Agent: m.Leader.Agent, Schedule: toScheduleYml(m.Leader.Schedule)}
+	for _, w := range m.Workers {
+		y.Workers = append(y.Workers, memberYml{Agent: w.Agent, Schedule: toScheduleYml(w.Schedule)})
+	}
+	y.Settings.PermissionMode = m.Settings.PermissionMode
+	y.Settings.MaxIterations = m.Settings.MaxIterations
+	b, err := yaml.Marshal(y)
+	if err != nil {
+		return fmt.Errorf("agentdef: marshal manifest: %w", err)
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		return fmt.Errorf("agentdef: write manifest %s: %w", path, err)
+	}
+	return nil
+}
+
+// AddWorker appends a worker so the manifest stays authoritative for membership
+// (RP-8). The schedule is omitted here — the member's profile.yml + runtime.json
+// carry it. Errors on a duplicate or leader-name collision (invariants #2/#7).
+func (m *Manifest) AddWorker(name string) error {
+	if name == m.Leader.Agent {
+		return fmt.Errorf("agentdef: %q is the leader, not a worker", name)
+	}
+	for _, w := range m.Workers {
+		if w.Agent == name {
+			return fmt.Errorf("agentdef: worker %q already in manifest", name)
+		}
+	}
+	m.Workers = append(m.Workers, Member{Agent: name})
+	return nil
+}
+
+// RemoveWorker drops a worker from the manifest. A missing name is a no-op (the
+// live remove already happened; the manifest just catches up).
+func (m *Manifest) RemoveWorker(name string) {
+	out := m.Workers[:0]
+	for _, w := range m.Workers {
+		if w.Agent != name {
+			out = append(out, w)
+		}
+	}
+	m.Workers = out
 }
 
 // validate enforces a leader and unique non-empty member names (leader +

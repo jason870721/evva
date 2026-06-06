@@ -12,6 +12,7 @@ import ApprovalOverlay from './ApprovalOverlay.vue'
 import ApprovalTray from './ApprovalTray.vue'
 import AttentionBar from './AttentionBar.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import NewAgentForm from './NewAgentForm.vue'
 
 const props = defineProps({
   api: { type: Object, required: true },
@@ -60,10 +61,65 @@ const confirmDialog = ref(null)
 function askConfirm(opts) {
   confirmDialog.value = opts
 }
-function onConfirmYes() {
+function onConfirmYes(checked) {
   const action = confirmDialog.value && confirmDialog.value.action
   confirmDialog.value = null
-  if (action) action()
+  if (action) action(checked)
+}
+
+// Add-agent form state (RP-8): the dialog + the tool catalog it offers.
+const showForm = ref(false)
+const toolCatalog = ref([])
+async function openForm() {
+  try {
+    toolCatalog.value = (await props.api.tools(props.space.id)) || []
+  } catch (e) {
+    toolCatalog.value = []
+    err.value = String(e.message || e)
+  }
+  showForm.value = true
+}
+async function createMember(spec) {
+  showForm.value = false
+  try {
+    await props.api.createMember(props.space.id, spec)
+    await refreshSnapshots()
+  } catch (e) {
+    err.value = String(e.message || e)
+  }
+}
+function removeMember(name) {
+  askConfirm({
+    title: `Remove ${name}?`,
+    message: `${name} leaves the team: it stops running and the leader is asked to reassign its tasks. History is kept.`,
+    confirmLabel: 'Remove',
+    danger: true,
+    checkboxLabel: 'Also delete its on-disk definition (cannot be re-added without recreating)',
+    action: async (deleteDir) => {
+      try {
+        await props.api.removeMember(props.space.id, name, !!deleteDir)
+        await refreshSnapshots()
+      } catch (e) {
+        err.value = String(e.message || e)
+      }
+    },
+  })
+}
+async function setSchedule({ name, cron, prompt }) {
+  try {
+    await props.api.setSchedule(props.space.id, name, { cron, prompt })
+    await refreshSnapshots()
+  } catch (e) {
+    err.value = String(e.message || e)
+  }
+}
+async function clearSchedule(name) {
+  try {
+    await props.api.clearSchedule(props.space.id, name)
+    await refreshSnapshots()
+  } catch (e) {
+    err.value = String(e.message || e)
+  }
 }
 
 let sock = null
@@ -349,7 +405,10 @@ onBeforeUnmount(() => {
           @unfreeze="(n) => memberCmd('unfreeze', n)"
           @suspend="(n) => memberCmd('suspend', n)"
           @resume="(n) => memberCmd('resume', n)"
-          @add="(n) => memberCmd('addMember', n)"
+          @open-form="openForm"
+          @remove="removeMember"
+          @set-schedule="setSchedule"
+          @clear-schedule="clearSchedule"
         />
       </aside>
 
@@ -425,8 +484,16 @@ onBeforeUnmount(() => {
       :message="confirmDialog.message"
       :confirm-label="confirmDialog.confirmLabel"
       :danger="confirmDialog.danger"
+      :checkbox-label="confirmDialog.checkboxLabel || ''"
       @confirm="onConfirmYes"
       @cancel="confirmDialog = null"
+    />
+
+    <NewAgentForm
+      v-if="showForm"
+      :tools="toolCatalog"
+      @create="createMember"
+      @cancel="showForm = false"
     />
   </div>
 </template>

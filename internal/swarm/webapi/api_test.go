@@ -15,6 +15,9 @@ import (
 )
 
 var errUnknownSpace = errors.New("unknown space")
+var errBadCron = errors.New("bad cron expression")
+var errBadName = errors.New("illegal member name")
+var errLeaderProtected = errors.New("the leader cannot be removed")
 
 // fakeBackend is a Backend stub that records inbound commands and returns canned
 // snapshots, so the HTTP/WS layer can be exercised without a live swarm.
@@ -22,11 +25,14 @@ type fakeBackend struct {
 	token  string
 	spaces map[string][]MemberInfo // id -> roster
 
-	mu       sync.Mutex
-	runs     [][3]string // {space, agent, prompt}
-	msgs     [][3]string // {space, to, body}
-	perms    [][6]string // {space, agent, reqId, behavior, reason, ruleTool}
-	suspends [][2]string
+	mu        sync.Mutex
+	runs      [][3]string // {space, agent, prompt}
+	msgs      [][3]string // {space, to, body}
+	perms     [][6]string // {space, agent, reqId, behavior, reason, ruleTool}
+	suspends  [][2]string
+	schedules [][4]string  // {space, agent, cron, prompt}  (cron="" => clear)
+	creates   []MemberSpec // CreateMember calls
+	removes   [][3]string  // {space, agent, deleteDir}
 }
 
 func (f *fakeBackend) Token() string                           { return f.token }
@@ -121,11 +127,64 @@ func (f *fakeBackend) Suspend(space, agent string) error {
 	f.suspends = append(f.suspends, [2]string{space, agent})
 	return nil
 }
-func (f *fakeBackend) Resume(string, string) error    { return nil }
-func (f *fakeBackend) Freeze(string, string) error    { return nil }
-func (f *fakeBackend) Unfreeze(string, string) error  { return nil }
-func (f *fakeBackend) AddMember(string, string) error { return nil }
-func (f *fakeBackend) HaltAll(string) error           { return nil }
+func (f *fakeBackend) Resume(string, string) error   { return nil }
+func (f *fakeBackend) Freeze(string, string) error   { return nil }
+func (f *fakeBackend) Unfreeze(string, string) error { return nil }
+func (f *fakeBackend) HaltAll(string) error          { return nil }
+
+func (f *fakeBackend) SetSchedule(space, agent, cron, prompt string) error {
+	if !f.HasSpace(space) {
+		return errUnknownSpace
+	}
+	if cron == "bad" {
+		return errBadCron
+	}
+	f.mu.Lock()
+	f.schedules = append(f.schedules, [4]string{space, agent, cron, prompt})
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeBackend) ClearSchedule(space, agent string) error {
+	if !f.HasSpace(space) {
+		return errUnknownSpace
+	}
+	f.mu.Lock()
+	f.schedules = append(f.schedules, [4]string{space, agent, "", ""})
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeBackend) CreateMember(space string, spec MemberSpec) error {
+	if !f.HasSpace(space) {
+		return errUnknownSpace
+	}
+	if spec.Name == "" {
+		return errBadName
+	}
+	f.mu.Lock()
+	f.creates = append(f.creates, spec)
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeBackend) RemoveMember(space, agent string, deleteDir bool) error {
+	if !f.HasSpace(space) {
+		return errUnknownSpace
+	}
+	if agent == "leader" {
+		return errLeaderProtected
+	}
+	f.mu.Lock()
+	f.removes = append(f.removes, [3]string{space, agent, boolStr(deleteDir)})
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeBackend) SelectableTools() []string { return []string{"read", "write", "bash"} }
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
 
 func newFake() *fakeBackend {
 	return &fakeBackend{
@@ -357,6 +416,69 @@ func getJSON(t *testing.T, url string, v any) {
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatalf("decode %s: %v", url, err)
 	}
+}
+
+// RP-8 routes: schedule CRUD, the tool catalog, and member create/remove — incl.
+// the 400 mapping for operator-input errors (bad cron, bad name, leader-protected).
+func TestRESTMemberAndScheduleRoutes(t *testing.T) {
+	fake := newFake()
+	srv := httptest.NewServer(NewRouter(fake, NewHub(), nil))
+	defer srv.Close()
+	q := "?space=sp-a&token=secret"
+
+	// schedule set → recorded; bad cron → 400; clear → recorded.
+	if s := post(t, srv.URL+"/api/agents/leader/schedule"+q, bytes.NewBufferString(`{"cron":"*/5 * * * *","prompt":"p"}`)); s != http.StatusNoContent {
+		t.Fatalf("set schedule = %d, want 204", s)
+	}
+	if len(fake.schedules) != 1 || fake.schedules[0] != [4]string{"sp-a", "leader", "*/5 * * * *", "p"} {
+		t.Fatalf("schedule not recorded: %+v", fake.schedules)
+	}
+	if s := post(t, srv.URL+"/api/agents/worker-a/schedule"+q, bytes.NewBufferString(`{"cron":"bad"}`)); s != http.StatusBadRequest {
+		t.Fatalf("bad cron = %d, want 400", s)
+	}
+	if s := del(t, srv.URL+"/api/agents/leader/schedule"+q); s != http.StatusNoContent {
+		t.Fatalf("clear schedule = %d, want 204", s)
+	}
+
+	// tool catalog.
+	var catalog []string
+	getJSON(t, srv.URL+"/api/tools"+q, &catalog)
+	if len(catalog) != 3 || catalog[0] != "read" {
+		t.Fatalf("tools = %v", catalog)
+	}
+
+	// create member (full spec) → recorded; empty name → 400.
+	if s := post(t, srv.URL+"/api/members"+q, bytes.NewBufferString(`{"name":"qa","systemPrompt":"You are QA.","active":["read"]}`)); s != http.StatusNoContent {
+		t.Fatalf("create = %d, want 204", s)
+	}
+	if len(fake.creates) != 1 || fake.creates[0].Name != "qa" || len(fake.creates[0].Active) != 1 {
+		t.Fatalf("create not recorded: %+v", fake.creates)
+	}
+	if s := post(t, srv.URL+"/api/members"+q, bytes.NewBufferString(`{"name":"","systemPrompt":"x"}`)); s != http.StatusBadRequest {
+		t.Fatalf("empty name = %d, want 400", s)
+	}
+
+	// remove worker (deleteDir=true) → recorded; leader → 400.
+	if s := del(t, srv.URL+"/api/agents/worker-a"+q+"&deleteDir=true"); s != http.StatusNoContent {
+		t.Fatalf("remove = %d, want 204", s)
+	}
+	if len(fake.removes) != 1 || fake.removes[0] != [3]string{"sp-a", "worker-a", "true"} {
+		t.Fatalf("remove not recorded: %+v", fake.removes)
+	}
+	if s := del(t, srv.URL+"/api/agents/leader"+q); s != http.StatusBadRequest {
+		t.Fatalf("remove leader = %d, want 400", s)
+	}
+}
+
+func del(t *testing.T, url string) int {
+	t.Helper()
+	req, _ := http.NewRequest("DELETE", url, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
 }
 
 func post(t *testing.T, url string, body *bytes.Buffer) int {

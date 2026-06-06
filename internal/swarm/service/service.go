@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,8 @@ import (
 	"github.com/johnny1110/evva/pkg/common"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/tools"
+	"github.com/johnny1110/evva/pkg/toolset"
 	"github.com/johnny1110/evva/pkg/ui"
 	"github.com/johnny1110/evva/web"
 )
@@ -835,7 +838,7 @@ func (s *Service) Roster(id string) ([]webapi.MemberInfo, bool) {
 		if ctl, ok := ent.space.Roster.Controller(v.Name); ok {
 			agentID = ctl.AgentID()
 		}
-		out = append(out, webapi.MemberInfo{
+		mi := webapi.MemberInfo{
 			Name:        v.Name,
 			AgentID:     agentID,
 			Role:        string(v.Role),
@@ -846,7 +849,13 @@ func (s *Service) Roster(id string) ([]webapi.MemberInfo, bool) {
 			PhaseSince:  v.PhaseSince,
 			CurrentTask: v.CurrentTask,
 			WhenToUse:   v.WhenToUse,
-		})
+		}
+		// Schedule lives in the space's map (RP-7 didn't put it on MemberView);
+		// surface it on the wire so the roster card can show/edit the crontab (RP-8).
+		if sch, ok := ent.space.ScheduleFor(v.Name); ok {
+			mi.Cron, mi.SchedulePrompt = sch.Cron, sch.Prompt
+		}
+		out = append(out, mi)
 	}
 	return out, true
 }
@@ -1065,8 +1074,161 @@ func (s *Service) Unfreeze(id, agent string) error {
 	return s.superCmd(id, agent, (*swarm.Supervisor).Unfreeze)
 }
 
-func (s *Service) AddMember(id, agent string) error {
-	return s.superCmd(id, agent, (*swarm.Supervisor).AddMember)
+// SetSchedule / ClearSchedule are the operator's schedule controls (RP-8). Unlike
+// the leader tool (RP-7), there is NO self-guard: the operator may set or clear
+// ANY member's schedule, including the leader's — the web is the one place a
+// leader's cadence can be changed. Reuses RP-7's live-apply+persist seam.
+func (s *Service) SetSchedule(id, agent, cron, prompt string) error {
+	ent, ok := s.entry(id)
+	if !ok {
+		return fmt.Errorf("swarm: unknown space %q", id)
+	}
+	if _, known := ent.space.Roster.Controller(agent); !known {
+		return fmt.Errorf("swarm: unknown member %q", agent)
+	}
+	return ent.super.SetSchedule(agent, agentdef.Schedule{Cron: cron, Prompt: prompt})
+}
+
+func (s *Service) ClearSchedule(id, agent string) error {
+	ent, ok := s.entry(id)
+	if !ok {
+		return fmt.Errorf("swarm: unknown space %q", id)
+	}
+	if _, known := ent.space.Roster.Controller(agent); !known {
+		return fmt.Errorf("swarm: unknown member %q", agent)
+	}
+	return ent.super.ClearSchedule(agent)
+}
+
+// CreateMember authors a new worker from the web form (RP-8): hot-load it live,
+// record it in the manifest so it survives a restart, then tell the leader (only
+// the when_to_use) so its team model updates immediately.
+func (s *Service) CreateMember(id string, spec webapi.MemberSpec) error {
+	ent, ok := s.entry(id)
+	if !ok {
+		return fmt.Errorf("swarm: unknown space %q", id)
+	}
+	domain := agentdef.MemberSpec{
+		Name:         spec.Name,
+		SystemPrompt: spec.SystemPrompt,
+		WhenToUse:    spec.WhenToUse,
+		Active:       toToolNames(spec.Active),
+		Deferred:     toToolNames(spec.Deferred),
+	}
+	if strings.TrimSpace(spec.Cron) != "" {
+		domain.Schedule = &agentdef.Schedule{Cron: spec.Cron, Prompt: spec.Prompt}
+	}
+	if err := ent.super.CreateMember(domain); err != nil {
+		return err
+	}
+	// Keep the manifest authoritative so the member survives a restart (the user
+	// chose manifest-rewrite). Best-effort: the member is already live either way.
+	if err := s.addManifestWorker(ent, spec.Name); err != nil {
+		s.log.Warn("swarm: member created but manifest update failed", "member", spec.Name, "err", err)
+	}
+	s.notifyLeader(ent, "New teammate joined",
+		fmt.Sprintf("A new teammate %q has joined the team. When to use: %s. Assign it tasks when it fits.", spec.Name, spec.WhenToUse))
+	return nil
+}
+
+// RemoveMember retires a worker (RP-8). The manifest is updated BEFORE an optional
+// dir delete so a restart can never rebuild a member whose dir is gone. The leader
+// is told to reassign the departed member's unfinished work.
+func (s *Service) RemoveMember(id, agent string, deleteDir bool) error {
+	ent, ok := s.entry(id)
+	if !ok {
+		return fmt.Errorf("swarm: unknown space %q", id)
+	}
+	if err := ent.super.RemoveMember(agent); err != nil {
+		return err
+	}
+	if err := s.removeManifestWorker(ent, agent); err != nil {
+		s.log.Warn("swarm: member removed but manifest update failed", "member", agent, "err", err)
+	}
+	if deleteDir {
+		if err := agentdef.RemoveMemberDir(ent.workdir, agent); err != nil {
+			s.log.Warn("swarm: delete member dir", "member", agent, "err", err)
+		}
+	}
+	s.notifyLeader(ent, "Teammate left the team",
+		fmt.Sprintf("Teammate %q has left the team. Reassign any of its unfinished tasks.", agent))
+	return nil
+}
+
+// SelectableTools is the catalog the add-agent form offers: every globally
+// registered tool minus operator/runtime-only ones. The swarm collaboration
+// tools are already absent (registered per-agent via WithCustomTool, never in the
+// global registry); they are listed in the deny set anyway as belt-and-braces.
+func (s *Service) SelectableTools() []string {
+	deny := map[string]bool{
+		"tool_search": true, "skill": true, "schedule_wakeup": true,
+		"enter_plan_mode": true, "exit_plan_mode": true,
+		"enter_worktree": true, "exit_worktree": true,
+		"ask_user_question": true, "push_notification": true,
+		"feedback": true, "config": true,
+		"cron_create": true, "cron_list": true, "cron_delete": true, "remote_trigger": true,
+		// collaboration tools — role-injected, not in the global registry:
+		"send_message": true, "list_members": true,
+		"task_create": true, "task_assign": true, "task_update_status": true,
+		"task_verify": true, "task_list": true, "my_tasks": true, "task_get": true,
+		"schedule_set": true, "schedule_clear": true,
+	}
+	var out []string
+	for _, n := range toolset.DefaultRegistry().Names() {
+		if !deny[string(n)] {
+			out = append(out, string(n))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// toToolNames converts wire tool-name strings to the typed list, dropping blanks.
+func toToolNames(ss []string) []tools.ToolName {
+	out := make([]tools.ToolName, 0, len(ss))
+	for _, s := range ss {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, tools.ToolName(s))
+		}
+	}
+	return out
+}
+
+// addManifestWorker / removeManifestWorker keep evva-swarm.yml in step with the
+// live roster so dynamic membership survives a restart (the rebuild reads it).
+func (s *Service) addManifestWorker(ent *spaceEntry, name string) error {
+	path := filepath.Join(ent.workdir, manifestFile)
+	m, err := agentdef.LoadManifest(path)
+	if err != nil {
+		return err
+	}
+	if err := m.AddWorker(name); err != nil {
+		return err
+	}
+	return agentdef.WriteManifest(path, m)
+}
+
+func (s *Service) removeManifestWorker(ent *spaceEntry, name string) error {
+	path := filepath.Join(ent.workdir, manifestFile)
+	m, err := agentdef.LoadManifest(path)
+	if err != nil {
+		return err
+	}
+	m.RemoveWorker(name)
+	return agentdef.WriteManifest(path, m)
+}
+
+// notifyLeader drops a system-authored message onto the leader's mailbox (RP-8).
+// Sender "system" distinguishes it from operator ("user") and teammate mail; it
+// rides the same bus+drain, so a busy leader folds it mid-run (drain B).
+func (s *Service) notifyLeader(ent *spaceEntry, subject, body string) {
+	leader := ent.space.Roster.ResolveRecipient("leader")
+	if _, ok := ent.space.Roster.Controller(leader); !ok {
+		return
+	}
+	if _, err := ent.space.Bus.Send(store.Message{Sender: "system", Recipient: leader, Subject: subject, Body: body}); err != nil {
+		s.log.Warn("swarm: notify leader", "err", err)
+	}
 }
 
 func (s *Service) HaltAll(id string) error {

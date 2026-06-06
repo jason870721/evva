@@ -238,9 +238,11 @@ func swarmReset(out io.Writer, ref string) error {
 	return nil
 }
 
-// swarmAdd hot-loads a member into a space (M3), addressed by id or name.
+// swarmAdd mounts an existing on-disk member (agents/sub/<name>/) into a space,
+// addressed by id or name. The web form authors NEW members through the same
+// endpoint with a full spec; a bare name mounts a dir that already exists (RP-8).
 func swarmAdd(out io.Writer, ref, member string) error {
-	if err := serviceClient("POST", "/api/members?space="+ref, map[string]string{"agent": member}, nil); err != nil {
+	if err := serviceClient("POST", "/api/members?space="+ref, map[string]string{"name": member}, nil); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "added member %s to space %s\n", member, ref)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -139,6 +140,78 @@ func (s *Supervisor) AddMember(name string) error {
 		return fmt.Errorf("swarm: add member %q: %w", name, err)
 	}
 	s.startMemberLoop(ctx, name)
+	s.sp.persistRuntime()
+	return nil
+}
+
+// CreateMember authors a brand-new worker from an operator spec (RP-8): it writes
+// the agent dir, then hot-loads it through the exact AddMember path
+// (register→construct→startLoop→persist). A roster pre-check rejects a duplicate
+// before touching disk; if the hot-load fails after the dir is written, the dir
+// is rolled back so a failed create leaves no half state. The manifest rewrite
+// (so the member survives restart) is the service's job, layered on top.
+func (s *Supervisor) CreateMember(spec agentdef.MemberSpec) error {
+	name := spec.Name
+	if _, ok := s.sp.Roster.membership(name); ok {
+		return fmt.Errorf("swarm: member %q already exists", name)
+	}
+	// Two callers converge here: the web form authors a NEW definition (full spec,
+	// no dir yet → write it); `evva swarm add-member <name>` MOUNTS an existing
+	// on-disk dir (name only, no system prompt → skip the write). A fresh spec
+	// whose name collides with a leftover dir is an ambiguous overwrite — reject
+	// it rather than silently mount or clobber.
+	dirExists := agentdef.MemberDirExists(s.sp.Workdir, name)
+	wroteDir := false
+	switch {
+	case dirExists && strings.TrimSpace(spec.SystemPrompt) != "":
+		return fmt.Errorf("swarm: a definition for %q already exists on disk — remove it first or pick another name", name)
+	case !dirExists:
+		if err := agentdef.WriteMemberDir(s.sp.Workdir, spec); err != nil {
+			return err
+		}
+		wroteDir = true
+	}
+	if err := s.AddMember(name); err != nil {
+		if wroteDir {
+			_ = agentdef.RemoveMemberDir(s.sp.Workdir, name) // roll back the just-written dir
+		}
+		return err
+	}
+	return nil
+}
+
+// RemoveMember retires a worker from the live space (RP-8): it stops the member's
+// run loop and any in-flight run, drops it from the roster, stops mail delivery,
+// and tears down its agent — then persists the new membership. The LEADER can
+// never be removed (it is unique). On-disk concerns — dropping it from the
+// manifest and optionally deleting its dir — are the service's job (ordered so a
+// restart never references a missing dir). The .vero ledger is untouched (v1
+// never deletes history).
+func (s *Supervisor) RemoveMember(name string) error {
+	role, ok := s.sp.Roster.roleOf(name)
+	if !ok {
+		return fmt.Errorf("swarm: remove: unknown member %q", name)
+	}
+	if role == agentdef.RoleLeader {
+		return fmt.Errorf("swarm: the leader cannot be removed")
+	}
+	s.mu.Lock()
+	m := s.members[name]
+	delete(s.members, name)
+	s.mu.Unlock()
+	if m != nil {
+		m.mu.Lock()
+		if m.loopCancel != nil {
+			m.loopCancel()
+		}
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
+		m.mu.Unlock()
+	}
+	s.sp.Roster.remove(name)
+	s.sp.Bus.Deregister(name)
+	s.sp.removeAgent(name)
 	s.sp.persistRuntime()
 	return nil
 }

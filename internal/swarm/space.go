@@ -267,6 +267,22 @@ func (sp *SwarmSpace) ClearMemberSchedule(name string) error {
 	return s.ClearSchedule(name)
 }
 
+// removeAgent tears down one member's live agent and drops it from the space's
+// maps (RP-8 remove): shut the agent's background workers, forget its handle and
+// any schedule. The roster entry, mailbox, and run loop are handled by the
+// supervisor's RemoveMember; this is the space-owned half. The .vero ledger is
+// left untouched (v1 never deletes history).
+func (sp *SwarmSpace) removeAgent(name string) {
+	sp.mu.Lock()
+	ag := sp.agents[name]
+	delete(sp.agents, name)
+	delete(sp.schedules, name)
+	sp.mu.Unlock()
+	if ag != nil {
+		ag.Shutdown()
+	}
+}
+
 // Events is the space's outbound event stream — every member's events, each
 // stamped with this space's ID. The service fans these out per (spaceID,
 // AgentID); a consumer must drain it continuously.

@@ -74,8 +74,23 @@ type Backend interface {
 	Resume(spaceID, agent string) error
 	Freeze(spaceID, agent string) error
 	Unfreeze(spaceID, agent string) error
-	AddMember(spaceID, agent string) error
 	HaltAll(spaceID string) error
+
+	// Schedule CRUD (RP-8). The web path has NO self-guard — the operator may
+	// set/clear ANY member's schedule, including the leader's (the symmetric
+	// complement to the leader tool, which refuses to reschedule itself, RP-7).
+	// A bad cron is a validation error the handler maps to 400.
+	SetSchedule(spaceID, agent, cron, prompt string) error
+	ClearSchedule(spaceID, agent string) error
+
+	// Membership editing (RP-8). CreateMember authors a new worker from a spec
+	// (writes its dir, hot-loads it, records it in the manifest); RemoveMember
+	// retires one (deleteDir also erases its on-disk definition). The leader is
+	// unique — neither can target it. SelectableTools is the catalog the add-agent
+	// form offers (collaboration tools excluded — they are role-injected).
+	CreateMember(spaceID string, spec MemberSpec) error
+	RemoveMember(spaceID, agent string, deleteDir bool) error
+	SelectableTools() []string
 }
 
 // SpaceInfo is one row of GET /api/swarms. Status is "running" | "stopped"
@@ -102,6 +117,24 @@ type MemberInfo struct {
 	PhaseSince  int64  `json:"phaseSince,omitempty"` // unix millis the phase was entered (RP-4 timing)
 	CurrentTask int64  `json:"currentTask"`
 	WhenToUse   string `json:"whenToUse,omitempty"`
+	// Cron / SchedulePrompt expose the member's recurring timer (RP-7/RP-8), read
+	// live from the space's schedule map (the schedule's owner — it is NOT on
+	// MemberView). Empty when the member has no schedule.
+	Cron           string `json:"cron,omitempty"`
+	SchedulePrompt string `json:"schedulePrompt,omitempty"`
+}
+
+// MemberSpec is the wire shape of the web "add agent" form (RP-8): the operator
+// authors a new worker. Collaboration tools are role-injected at construction, so
+// they never appear here. Cron/Prompt are an optional recurring schedule.
+type MemberSpec struct {
+	Name         string   `json:"name"`
+	SystemPrompt string   `json:"systemPrompt"`
+	WhenToUse    string   `json:"whenToUse"`
+	Active       []string `json:"active"`
+	Deferred     []string `json:"deferred"`
+	Cron         string   `json:"cron"`
+	Prompt       string   `json:"prompt"`
 }
 
 // TaskInfo mirrors store.Task on the wire (GET /api/tasks).
@@ -296,14 +329,38 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 			respondErr(w, fn(r.URL.Query().Get("space"), r.PathValue("name")))
 		}))
 	}
+	// Author a new worker from the add-agent form (RP-8). Validation errors
+	// (bad/duplicate name, etc.) are operator input → 400.
 	mux.Handle("POST /api/members", guard(func(w http.ResponseWriter, r *http.Request) {
+		var spec MemberSpec
+		if !decode(w, r, &spec) {
+			return
+		}
+		respondInputErr(w, b.CreateMember(r.URL.Query().Get("space"), spec))
+	}))
+	// Retire a worker (RP-8). ?deleteDir=true also erases its on-disk definition.
+	// Leader-protected / unknown → operator error.
+	mux.Handle("DELETE /api/agents/{name}", guard(func(w http.ResponseWriter, r *http.Request) {
+		deleteDir := r.URL.Query().Get("deleteDir") == "true"
+		respondInputErr(w, b.RemoveMember(r.URL.Query().Get("space"), r.PathValue("name"), deleteDir))
+	}))
+	// Schedule CRUD (RP-8). Operator may target ANY member, including the leader.
+	mux.Handle("POST /api/agents/{name}/schedule", guard(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Agent string `json:"agent"`
+			Cron   string `json:"cron"`
+			Prompt string `json:"prompt"`
 		}
 		if !decode(w, r, &body) {
 			return
 		}
-		respondErr(w, b.AddMember(r.URL.Query().Get("space"), body.Agent))
+		respondInputErr(w, b.SetSchedule(r.URL.Query().Get("space"), r.PathValue("name"), body.Cron, body.Prompt))
+	}))
+	mux.Handle("DELETE /api/agents/{name}/schedule", guard(func(w http.ResponseWriter, r *http.Request) {
+		respondInputErr(w, b.ClearSchedule(r.URL.Query().Get("space"), r.PathValue("name")))
+	}))
+	// The tool catalog the add-agent form offers (collaboration tools excluded).
+	mux.Handle("GET /api/tools", guard(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, b.SelectableTools())
 	}))
 	mux.Handle("POST /api/halt", guard(func(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, b.HaltAll(r.URL.Query().Get("space")))
@@ -457,5 +514,20 @@ func respondErr(w http.ResponseWriter, err error) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 	default:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// respondInputErr is respondErr for operator-input endpoints (schedule CRUD,
+// member create/remove): an unknown space/member is still 404, but every other
+// failure is the operator's bad input (bad cron, duplicate/illegal name,
+// leader-protected) → 400, not a 500.
+func respondInputErr(w http.ResponseWriter, err error) {
+	switch {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case strings.Contains(err.Error(), "unknown") || strings.Contains(err.Error(), "no controller"):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	default:
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 }

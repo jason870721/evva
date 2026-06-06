@@ -53,7 +53,19 @@ export function createApi(getToken) {
     resume: (id, agent) => req('POST', `/api/agents/${enc(agent)}/resume?space=${enc(id)}`),
     freeze: (id, agent) => req('POST', `/api/agents/${enc(agent)}/freeze?space=${enc(id)}`),
     unfreeze: (id, agent) => req('POST', `/api/agents/${enc(agent)}/unfreeze?space=${enc(id)}`),
-    addMember: (id, agent) => req('POST', `/api/members?space=${enc(id)}`, { agent }),
+    // Membership editing (RP-8). createMember authors a NEW worker from the form
+    // spec (or, with just a name, mounts an existing on-disk dir); removeMember
+    // retires one (deleteDir also erases its definition). The leader is unique —
+    // neither targets it.
+    createMember: (id, spec) => req('POST', `/api/members?space=${enc(id)}`, spec),
+    removeMember: (id, agent, deleteDir) =>
+      req('DELETE', `/api/agents/${enc(agent)}?space=${enc(id)}&deleteDir=${deleteDir ? 'true' : 'false'}`),
+    // The catalog of tools the add-agent form offers (collaboration tools excluded).
+    tools: (id) => req('GET', `/api/tools?space=${enc(id)}`),
+    // Schedule CRUD (RP-8). The operator may target ANY member, incl. the leader.
+    setSchedule: (id, agent, { cron, prompt }) =>
+      req('POST', `/api/agents/${enc(agent)}/schedule?space=${enc(id)}`, { cron, prompt }),
+    clearSchedule: (id, agent) => req('DELETE', `/api/agents/${enc(agent)}/schedule?space=${enc(id)}`),
     halt: (id) => req('POST', `/api/halt?space=${enc(id)}`),
     // Lifecycle (ref = id or name): stop KEEPS the space (run restarts it);
     // removeSpace forgets it entirely.

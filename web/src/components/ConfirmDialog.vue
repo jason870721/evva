@@ -10,17 +10,24 @@ defineProps({
   message: { type: String, default: '' },
   confirmLabel: { type: String, default: 'Confirm' },
   danger: { type: Boolean, default: false },
+  // When set, an extra opt-in checkbox is shown; its state rides the confirm
+  // event (e.g. RP-8 remove → "also delete the directory").
+  checkboxLabel: { type: String, default: '' },
 })
 const emit = defineEmits(['confirm', 'cancel'])
 const confirmBtn = ref(null)
+const checked = ref(false)
 
+function confirm() {
+  emit('confirm', checked.value)
+}
 function onKey(e) {
   if (e.key === 'Escape') {
     e.preventDefault()
     emit('cancel')
   } else if (e.key === 'Enter') {
     e.preventDefault()
-    emit('confirm')
+    confirm()
   }
 }
 onMounted(() => {
@@ -35,9 +42,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <div class="dialog">
       <h3>{{ title }}</h3>
       <p class="msg">{{ message }}</p>
+      <label v-if="checkboxLabel" class="opt">
+        <input type="checkbox" v-model="checked" />
+        {{ checkboxLabel }}
+      </label>
       <div class="row">
         <button class="ghost" @click="emit('cancel')">Cancel</button>
-        <button ref="confirmBtn" :class="danger ? 'danger' : 'primary'" @click="emit('confirm')">
+        <button ref="confirmBtn" :class="danger ? 'danger' : 'primary'" @click="confirm">
           {{ confirmLabel }}
         </button>
       </div>
@@ -71,6 +82,15 @@ h3 {
   font-size: 0.85rem;
   line-height: 1.45;
   margin: 0 0 1rem;
+}
+.opt {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--dim);
+  margin: 0 0 1rem;
+  cursor: pointer;
 }
 .row {
   display: flex;

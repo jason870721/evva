@@ -8,21 +8,49 @@ defineProps({
   selected: { type: String, default: '' },
   now: { type: Number, default: 0 }, // ticking clock for live elapsed times
 })
-const emit = defineEmits(['select', 'freeze', 'unfreeze', 'suspend', 'resume', 'add'])
+const emit = defineEmits([
+  'select',
+  'freeze',
+  'unfreeze',
+  'suspend',
+  'resume',
+  'open-form', // open the add-agent form (RP-8)
+  'remove', // retire a worker (RP-8)
+  'set-schedule', // { name, cron, prompt } (RP-8)
+  'clear-schedule', // name (RP-8)
+])
 
-const newMember = ref('')
-function add() {
-  const name = newMember.value.trim()
-  if (name) {
-    emit('add', name)
-    newMember.value = ''
+// Per-member inline schedule editor: which member's editor is open + its fields.
+const editing = ref('')
+const cron = ref('')
+const prompt = ref('')
+function openSchedule(m) {
+  if (editing.value === m.name) {
+    editing.value = ''
+    return
   }
+  editing.value = m.name
+  cron.value = m.cron || ''
+  prompt.value = m.schedulePrompt || ''
+}
+function saveSchedule(name) {
+  const c = cron.value.trim()
+  if (!c) return
+  emit('set-schedule', { name, cron: c, prompt: prompt.value.trim() })
+  editing.value = ''
+}
+function clearSchedule(name) {
+  emit('clear-schedule', name)
+  editing.value = ''
 }
 </script>
 
 <template>
   <div class="roster">
-    <div class="rhead">Roster</div>
+    <div class="rhead">
+      <span>Roster</span>
+      <button class="addbtn" @click="emit('open-form')" title="Add a new agent">+ add agent</button>
+    </div>
     <ul>
       <li
         v-for="m in members"
@@ -43,19 +71,30 @@ function add() {
           <span v-if="phaseClass(m) !== 'idle' && m.phaseSince" class="since">{{ elapsed(m.phaseSince, now) }}</span>
           <span v-if="m.currentTask" class="task">#{{ m.currentTask }}</span>
         </div>
+        <!-- The crontab, pinned to the card so it's always visible (RP-7/RP-8). -->
+        <div v-if="m.cron" class="sched" :title="m.schedulePrompt">
+          ⏰ {{ m.cron }}<span v-if="m.schedulePrompt"> · {{ m.schedulePrompt }}</span>
+        </div>
         <div class="ctl" @click.stop>
           <button v-if="m.membership === 'active'" @click="emit('freeze', m.name)">freeze</button>
           <button v-else @click="emit('unfreeze', m.name)">unfreeze</button>
           <button v-if="m.run === 'busy'" @click="emit('suspend', m.name)">suspend</button>
           <button v-else-if="m.run === 'suspended'" @click="emit('resume', m.name)">resume</button>
+          <button @click="openSchedule(m)">schedule</button>
+          <!-- The leader is unique — never removable (RP-8 §3.E). -->
+          <button v-if="m.role !== 'leader'" class="rm" @click="emit('remove', m.name)">remove</button>
+        </div>
+        <!-- Inline schedule editor: the operator may schedule ANY member, incl. the leader. -->
+        <div v-if="editing === m.name" class="schededit" @click.stop>
+          <input v-model="cron" placeholder='cron e.g. "*/30 * * * *"' @keyup.enter="saveSchedule(m.name)" />
+          <input v-model="prompt" placeholder="wake prompt (optional)" @keyup.enter="saveSchedule(m.name)" />
+          <div class="srow">
+            <button @click="saveSchedule(m.name)">set</button>
+            <button v-if="m.cron" class="rm" @click="clearSchedule(m.name)">clear</button>
+          </div>
         </div>
       </li>
     </ul>
-
-    <div class="add">
-      <input v-model="newMember" placeholder="agents/sub/<name>" @keyup.enter="add" />
-      <button @click="add">add</button>
-    </div>
   </div>
 </template>
 
@@ -66,9 +105,25 @@ function add() {
   height: 100%;
 }
 .rhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-weight: 600;
   font-size: 0.85rem;
   padding: 0 0.2rem 0.5rem;
+}
+.addbtn {
+  font-size: var(--fs-xs);
+  padding: 0.15rem 0.5rem;
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--dim);
+  cursor: pointer;
+}
+.addbtn:hover {
+  border-color: var(--accent);
+  color: #e6edf3;
 }
 ul {
   list-style: none;
@@ -150,11 +205,21 @@ li.sel {
   font-size: var(--fs-xs);
   color: var(--dim);
 }
+.sched {
+  margin-top: 0.35rem;
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* Controls are revealed on hover / when selected, so the resting roster is calm. */
 .ctl {
   display: none;
   gap: 0.3rem;
   margin-top: 0.45rem;
+  flex-wrap: wrap;
 }
 li:hover .ctl,
 li.sel .ctl {
@@ -164,13 +229,32 @@ li.sel .ctl {
   font-size: var(--fs-xs);
   padding: 0.1rem 0.4rem;
 }
-.add {
+.ctl .rm {
+  margin-left: auto;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.schededit {
+  margin-top: 0.45rem;
+  display: grid;
+  gap: 0.3rem;
+}
+.schededit input {
+  width: 100%;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  font-family: var(--mono);
+}
+.srow {
   display: flex;
   gap: 0.3rem;
-  margin-top: 0.5rem;
 }
-.add input {
-  flex: 1;
-  min-width: 0;
+.srow button {
+  font-size: var(--fs-xs);
+  padding: 0.1rem 0.5rem;
+}
+.srow .rm {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 </style>

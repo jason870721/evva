@@ -139,6 +139,35 @@ func (r *Roster) add(name string, role agentdef.Role, whenToUse string, ctl ui.C
 	return nil
 }
 
+// remove drops a member from the roster entirely (RP-8 web remove). Unlike
+// freeze (which keeps the seat), this forgets the member — both the entry and
+// its slot in the insertion order. Unknown names are a no-op.
+func (r *Roster) remove(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.entries[name]; !ok {
+		return
+	}
+	delete(r.entries, name)
+	for i, n := range r.order {
+		if n == name {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+}
+
+// roleOf returns a member's role and whether it exists. RemoveMember reads it to
+// enforce leader-uniqueness (the leader can never be removed — RP-8 §3.E).
+func (r *Roster) roleOf(name string) (agentdef.Role, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if e, ok := r.entries[name]; ok {
+		return e.role, true
+	}
+	return "", false
+}
+
 // Controller returns a member's handle by member name, for the
 // supervisor/webapi to drive.
 func (r *Roster) Controller(name string) (ui.Controller, bool) {
