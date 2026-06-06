@@ -277,6 +277,9 @@ func ResolveMainProfileAutoMem(cfg *config.Config, reg *AgentRegistry, name stri
 // built-in evva does.
 func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName) Profile {
 	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
+	// A long-running persona (swarm member) keeps a date-free, bit-stable prompt
+	// prefix so a weeks-long run reuses one cached prefix (RP-5).
+	ctx.OmitDate = def.LongRunning
 	if def.AdvertiseSkills {
 		ctx.Skills = skills
 	}

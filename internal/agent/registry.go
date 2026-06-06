@@ -24,6 +24,7 @@ type AgentSpec struct {
 	DeferredTools   []tools.ToolName
 	Model           string
 	SystemPrompt    string
+	LongRunning     bool
 }
 
 // DefinitionFromSpec builds a sysprompt.AgentDefinition from a closure-free
@@ -43,6 +44,7 @@ func DefinitionFromSpec(spec AgentSpec) sysprompt.AgentDefinition {
 		DeferredTools:     spec.DeferredTools,
 		Model:             spec.Model,
 		PromptBody:        body,
+		LongRunning:       spec.LongRunning,
 	}
 }
 
@@ -61,6 +63,7 @@ func SpecFromDefinition(def sysprompt.AgentDefinition) AgentSpec {
 		DeferredTools:   def.DeferredTools,
 		Model:           def.Model,
 		SystemPrompt:    def.PromptBody,
+		LongRunning:     def.LongRunning,
 	}
 }
 

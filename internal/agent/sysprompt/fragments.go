@@ -147,18 +147,25 @@ func environmentSection(ctx PromptContext) string {
 	workdir := defaultIfBlank(ctx.WorkDir, "(unknown)")
 	evvaHome := defaultIfBlank(ctx.EvvaHome, "(unset)")
 
-	today := ctx.Today
-	if today.IsZero() {
-		today = time.Now()
-	}
-
 	parts := []string{
 		"# Environment",
 		fmt.Sprintf("- OS / shell: %s / %s", osLabel, shellLabel),
-		fmt.Sprintf("- Today: %s", today.Format("Monday January 2 2006")),
+	}
+	// A long-running persona (swarm member) omits the date: it drifts on every
+	// rebuild and would bust the prompt-cache prefix for a swarm that runs for
+	// weeks. Such personas get their time from wake/run prompts, not the static
+	// system prompt (RP-5). Ordinary agents (OmitDate false) keep "- Today:".
+	if !ctx.OmitDate {
+		today := ctx.Today
+		if today.IsZero() {
+			today = time.Now()
+		}
+		parts = append(parts, fmt.Sprintf("- Today: %s", today.Format("Monday January 2 2006")))
+	}
+	parts = append(parts,
 		fmt.Sprintf("- Working directory: %s", workdir),
 		fmt.Sprintf("- AAP_HOME (global: config, skills, memory): %s", evvaHome),
-	}
+	)
 
 	return strings.Join(parts, "\n")
 }

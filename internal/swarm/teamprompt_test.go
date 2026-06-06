@@ -10,12 +10,23 @@ import (
 func TestInjectTeamProtocol_RoleSpecific(t *testing.T) {
 	persona := "# Backend Engineer\nYou build APIs."
 
-	leader := injectTeamProtocol(persona, agentdef.RoleLeader)
-	worker := injectTeamProtocol(persona, agentdef.RoleWorker)
+	leader := injectTeamProtocol(persona, "lead", "vero-tech-swarm", agentdef.RoleLeader)
+	worker := injectTeamProtocol(persona, "backend-a", "vero-tech-swarm", agentdef.RoleWorker)
 
-	// Persona leads in both.
+	// Persona leads in both (grounding + protocol are appended after it).
 	if !strings.HasPrefix(leader, persona) || !strings.HasPrefix(worker, persona) {
 		t.Fatal("persona should lead the composed prompt")
+	}
+
+	// RP-5: each member is grounded in its space/name/role, with no date/time.
+	if !strings.Contains(worker, "# Your place in the swarm") ||
+		!strings.Contains(worker, "vero-tech-swarm") ||
+		!strings.Contains(worker, "backend-a") ||
+		!strings.Contains(worker, "role: worker") {
+		t.Errorf("worker prompt missing swarm grounding:\n%s", worker)
+	}
+	if !strings.Contains(leader, "lead") || !strings.Contains(leader, "role: leader") {
+		t.Errorf("leader prompt missing swarm grounding:\n%s", leader)
 	}
 
 	// Common protocol present in both.
@@ -70,6 +81,12 @@ func TestNewSpaceInjectsProtocol(t *testing.T) {
 	if !strings.Contains(ld.SystemPrompt, "Your role: the leader") {
 		t.Error("leader protocol not injected into the registered persona")
 	}
+	// RP-5: each member is grounded in its space/name/role (space name is "team").
+	if !strings.Contains(ld.SystemPrompt, "# Your place in the swarm") ||
+		!strings.Contains(ld.SystemPrompt, "**Swarm space:** team") ||
+		!strings.Contains(ld.SystemPrompt, "leader (role: leader)") {
+		t.Errorf("leader prompt missing swarm grounding:\n%s", ld.SystemPrompt)
+	}
 
 	wd, _ := sp.reg.Get("worker-a")
 	if !strings.Contains(wd.SystemPrompt, "Your role: a worker") {
@@ -78,11 +95,14 @@ func TestNewSpaceInjectsProtocol(t *testing.T) {
 	if strings.Contains(wd.SystemPrompt, "Your role: the leader") {
 		t.Error("worker wrongly got the leader protocol")
 	}
+	if !strings.Contains(wd.SystemPrompt, "worker-a (role: worker)") {
+		t.Errorf("worker prompt missing swarm grounding:\n%s", wd.SystemPrompt)
+	}
 }
 
 // A member that authored no persona still gets a usable, protocol-only prompt.
 func TestInjectTeamProtocol_BlankPersona(t *testing.T) {
-	out := injectTeamProtocol("", agentdef.RoleWorker)
+	out := injectTeamProtocol("", "backend-a", "vero-tech-swarm", agentdef.RoleWorker)
 	if strings.HasPrefix(out, "\n") {
 		t.Error("blank persona should not leave leading blank lines")
 	}

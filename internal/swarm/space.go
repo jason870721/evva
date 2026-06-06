@@ -142,10 +142,16 @@ func NewSpace(id string, m agentdef.Manifest, loaded []agentdef.Loaded, ts ToolS
 func (sp *SwarmSpace) registerDef(ld agentdef.Loaded) {
 	def := ld.Def
 	def.As = ensureMain(def.As)
+	// Every swarm member is long-running: its system-prompt prefix must stay
+	// bit-stable across rebuilds (no drifting "- Today:" date) so a weeks-long
+	// swarm reuses one cached prompt prefix. Consumed via PromptContext.OmitDate
+	// in mainProfileFromDiskAgent (RP-5).
+	def.LongRunning = true
 	// Auto-inject the swarm collaboration protocol for this member's role so the
 	// operator never has to hand-write the mechanics (see teamprompt.go). Pairs
-	// with the role-based tool injection (ToolSet) — both keyed off ld.Role.
-	def.SystemPrompt = injectTeamProtocol(def.SystemPrompt, ld.Role)
+	// with the role-based tool injection (ToolSet) — both keyed off ld.Role. The
+	// member's space/name/role grounding is prepended to the protocol here too.
+	def.SystemPrompt = injectTeamProtocol(def.SystemPrompt, def.Name, sp.Name, ld.Role)
 	sp.mu.Lock()
 	sp.reg.Register(def)
 	sp.mu.Unlock()

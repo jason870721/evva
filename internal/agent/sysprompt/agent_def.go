@@ -56,6 +56,14 @@ type AgentDefinition struct {
 	// their prompt isn't recoverable as a single string. Lets a definition
 	// round-trip back to a public AgentDefinition for inspection.
 	PromptBody string
+
+	// LongRunning marks a persona that stays live for a very long time — a swarm
+	// member runs for weeks. The prompt builder then drops fragments that would
+	// drift across rebuilds and bust the prompt-cache prefix: currently the
+	// "- Today:" date in the environment section (gated via PromptContext.OmitDate
+	// in mainProfileFromDiskAgent). Built-in evva leaves it false; internal/swarm
+	// sets it at member registration (RP-5).
+	LongRunning bool
 }
 
 // IsMain reports whether this agent appears in the /profile picker (Phase 6).

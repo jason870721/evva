@@ -1,6 +1,7 @@
 package swarm
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
@@ -21,15 +22,18 @@ import (
 // rebuild alike.
 
 // injectTeamProtocol returns the member's effective system prompt: its authored
-// persona, followed by the role's collaboration protocol. The persona leads (it
-// is the agent's identity); the protocol is appended as a standard operational
-// section. A blank persona still yields a usable prompt (protocol only).
-func injectTeamProtocol(persona string, role agentdef.Role) string {
+// persona, then its swarm grounding (space/name/role), then the role's
+// collaboration protocol. The persona leads (it is the agent's identity); the
+// grounding and protocol are appended as standard operational sections. A blank
+// persona still yields a usable prompt (grounding + protocol only).
+func injectTeamProtocol(persona, name, space string, role agentdef.Role) string {
 	var b strings.Builder
 	if p := strings.TrimRight(persona, "\n"); p != "" {
 		b.WriteString(p)
 		b.WriteString("\n\n")
 	}
+	b.WriteString(swarmIdentity(name, space, role))
+	b.WriteString("\n\n")
 	b.WriteString(teamProtocolCommon)
 	b.WriteString("\n\n")
 	if role == agentdef.RoleLeader {
@@ -38,6 +42,24 @@ func injectTeamProtocol(persona string, role agentdef.Role) string {
 		b.WriteString(workerProtocol)
 	}
 	return b.String()
+}
+
+// swarmIdentity grounds a member in its concrete, time-invariant coordinates:
+// which space it belongs to, its own member name, and its role. Deliberately
+// carries NO date/time — unlike evva's environment section — because a swarm
+// runs for weeks: a drifting date would bust the prompt-cache prefix on every
+// rebuild, so keeping grounding static lets the whole space reuse one cached
+// prefix (RP-5). The member's clock, when it needs one, arrives in wake prompts.
+func swarmIdentity(name, space string, role agentdef.Role) string {
+	s := strings.TrimSpace(space)
+	if s == "" {
+		s = "(unnamed)"
+	}
+	n := strings.TrimSpace(name)
+	if n == "" {
+		n = "(unnamed)"
+	}
+	return fmt.Sprintf("# Your place in the swarm\n\n- **Swarm space:** %s\n- **You are:** %s (role: %s)", s, n, role)
 }
 
 const teamProtocolCommon = `---
