@@ -92,13 +92,19 @@ func ctlSpace(t *testing.T, members map[string]agentdef.Role) (*SwarmSpace, map[
 }
 
 // startSup starts a supervisor with a fast tick under a cancel-on-cleanup ctx.
+// Cleanup cancels THEN waits for the run loops to exit before ctlSpace's later
+// (LIFO-earlier-registered) store Close runs — otherwise a serve goroutine can
+// touch the closed DB and leave .vero files alive past the temp-dir cleanup.
 func startSup(t *testing.T, sp *SwarmSpace) *Supervisor {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	sup := NewSupervisor(sp)
 	sup.tickInterval = 5 * time.Millisecond
 	sup.Start(ctx)
+	t.Cleanup(func() {
+		cancel()
+		sup.Wait()
+	})
 	return sup
 }
 

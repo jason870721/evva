@@ -38,6 +38,12 @@ type Supervisor struct {
 	members map[string]*memberRun
 	rootCtx context.Context
 	started bool
+
+	// wg tracks every goroutine launched under the supervisor's context — the
+	// per-member run loops plus the timer/rescan ticks. Wait blocks on it so a
+	// teardown can drain the run engine BEFORE the store closes; without it a
+	// serve goroutine mid-ClaimUnread races the Store.Close and hits a closed DB.
+	wg sync.WaitGroup
 }
 
 // defaultTickInterval is the scheduler's timer resolution. One second comfortably
@@ -93,9 +99,17 @@ func (s *Supervisor) Start(ctx context.Context) {
 	for _, name := range s.sp.Roster.Names() {
 		s.startMemberLoop(ctx, name)
 	}
-	go s.timerTick(ctx)
-	go s.rescanTick(ctx)
+	s.wg.Add(2)
+	go func() { defer s.wg.Done(); s.timerTick(ctx) }()
+	go func() { defer s.wg.Done(); s.rescanTick(ctx) }()
 }
+
+// Wait blocks until every run loop and tick goroutine started under the
+// supervisor's context has returned. Call it AFTER cancelling that context
+// (otherwise the loops never exit and Wait hangs) and BEFORE closing the space
+// store, so no run loop can touch a closed DB. teardownSpace orders it exactly
+// so; tests do the same in their cleanup.
+func (s *Supervisor) Wait() { s.wg.Wait() }
 
 // AddMember hot-loads agents/sub/<name>/ into the live space — roster entry,
 // mailbox, and run loop — with no restart (design §5.4, user-triggered). Start

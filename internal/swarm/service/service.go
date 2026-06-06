@@ -307,6 +307,12 @@ func teardownSpace(ent *spaceEntry) {
 	if ent.cancel != nil {
 		ent.cancel() // stop run loops + timer (no new runs)
 	}
+	if ent.super != nil {
+		// Drain the run engine before the store closes: cancel only signals, so a
+		// serve goroutine mid-ClaimUnread would otherwise race Store.Close and hit a
+		// closed DB (and keep .vero files alive past teardown). Wait makes it ordered.
+		ent.super.Wait()
+	}
 	if ent.space != nil {
 		ent.space.Shutdown() // cancel agents + close store; trailing events still buffered
 	}
@@ -428,7 +434,7 @@ func (s *Service) StopSpace(ref string) error {
 	}
 	// Flip to stopped and detach the live handles UNDER the lock, so a concurrent
 	// reader never observes a half-torn-down running space; tear them down after.
-	live := &spaceEntry{cancel: ent.cancel, space: ent.space, stopPump: ent.stopPump}
+	live := &spaceEntry{cancel: ent.cancel, super: ent.super, space: ent.space, stopPump: ent.stopPump}
 	ent.status = statusStopped
 	ent.space, ent.super, ent.cancel, ent.stopPump, ent.pending = nil, nil, nil, nil, nil
 	id, name := ent.id, ent.name
@@ -493,7 +499,7 @@ func (s *Service) RemoveSpace(ref string) error {
 		return fmt.Errorf("swarm: unknown space %q", ref)
 	}
 	delete(s.spaces, ent.id)
-	live := &spaceEntry{cancel: ent.cancel, space: ent.space, stopPump: ent.stopPump}
+	live := &spaceEntry{cancel: ent.cancel, super: ent.super, space: ent.space, stopPump: ent.stopPump}
 	id, name := ent.id, ent.name
 	s.mu.Unlock()
 
@@ -533,7 +539,7 @@ func (s *Service) ResetSpace(ref string) (string, error) {
 	// DB so its files are free to delete) and drop it from the registry. Detach
 	// the live handles under the lock; teardown is a no-op when already stopped.
 	s.mu.Lock()
-	live := &spaceEntry{cancel: ent.cancel, space: ent.space, stopPump: ent.stopPump}
+	live := &spaceEntry{cancel: ent.cancel, super: ent.super, space: ent.space, stopPump: ent.stopPump}
 	delete(s.spaces, id)
 	s.mu.Unlock()
 	teardownSpace(live)
@@ -721,8 +727,8 @@ func (s *Service) pump(sp *swarm.SwarmSpace, stop <-chan struct{}) {
 // publish records gate lifecycle for reconnect replay, then marshals one spaced
 // event and fans it out by (spaceID, AgentID).
 func (s *Service) publish(e swarm.SpacedEvent) {
-	if ent, ok := s.entry(e.SpaceID); ok {
-		ent.pending.observe(e.Event)
+	if pending, ok := s.pendingFor(e.SpaceID); ok {
+		pending.observe(e.Event)
 	}
 	payload, err := json.Marshal(wireEvent{SpaceID: e.SpaceID, Event: e.Event})
 	if err != nil {
@@ -750,6 +756,22 @@ func (s *Service) entry(ref string) (*spaceEntry, bool) {
 		return nil, false
 	}
 	return e, true
+}
+
+// pendingFor returns a live space's gate tracker, read UNDER the lock so a
+// concurrent StopSpace (which nils ent.pending under the write lock) can't race
+// the field access — the bug entry()'s callers hit by dereferencing ent.pending
+// after the lock was already dropped. The returned tracker is safe to use once
+// the lock releases: it has its own mutex, and StopSpace only detaches the
+// reference, never mutates the object behind it.
+func (s *Service) pendingFor(ref string) (*gateTracker, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	e := s.resolveLocked(ref)
+	if !e.live() || e.pending == nil {
+		return nil, false
+	}
+	return e.pending, true
 }
 
 // resolveLocked finds an entry by id first, then by name (any status); nil when
@@ -875,11 +897,11 @@ func (s *Service) Messages(id string) ([]webapi.MessageInfo, bool) {
 // their raw wire shape, so a reconnecting browser re-renders overlays for members
 // still blocked (RP-2 §3.3). false when the space id is unknown.
 func (s *Service) PendingGates(id string) ([]any, bool) {
-	ent, ok := s.entry(id)
+	pending, ok := s.pendingFor(id)
 	if !ok {
 		return nil, false
 	}
-	evs := ent.pending.snapshot()
+	evs := pending.snapshot()
 	out := make([]any, 0, len(evs))
 	for _, e := range evs {
 		out = append(out, e)
@@ -959,8 +981,8 @@ func (s *Service) RespondPermission(id, agent, reqID, behavior, reason, ruleTool
 	if ruleTool != "" {
 		dec.AddRule = &ui.PermissionRuleSeed{ToolName: ruleTool}
 	}
-	if ent, ok := s.entry(id); ok {
-		ent.pending.remove(reqID) // answered — drop it from the reconnect-replay set
+	if pending, ok := s.pendingFor(id); ok {
+		pending.remove(reqID) // answered — drop it from the reconnect-replay set
 	}
 	return ctl.RespondPermission(reqID, dec)
 }
@@ -970,8 +992,8 @@ func (s *Service) RespondQuestion(id, agent, reqID string, answers map[string]st
 	if !ok {
 		return fmt.Errorf("swarm: unknown space/agent %q/%q", id, agent)
 	}
-	if ent, ok := s.entry(id); ok {
-		ent.pending.remove(reqID)
+	if pending, ok := s.pendingFor(id); ok {
+		pending.remove(reqID)
 	}
 	return ctl.RespondQuestion(reqID, ui.QuestionResponse{Answers: answers})
 }

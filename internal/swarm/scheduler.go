@@ -58,7 +58,8 @@ func (s *Supervisor) startMemberLoop(ctx context.Context, name string) {
 	s.members[name] = m
 	s.mu.Unlock()
 
-	go s.runLoop(ctx, name, m)
+	s.wg.Add(1)
+	go func() { defer s.wg.Done(); s.runLoop(ctx, name, m) }()
 }
 
 // runLoop is one member's event loop: it blocks (idle, zero tokens) until a wake
