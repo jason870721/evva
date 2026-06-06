@@ -12,6 +12,7 @@ import (
 	"github.com/johnny1110/evva/pkg/hooks"
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/permission"
+	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/ui"
 )
 
@@ -259,6 +260,13 @@ func (a *agentAdapter) Skills() []Skill {
 
 func (a *agentAdapter) Compact(ctx context.Context, kind string) error {
 	return a.inner.Compact(ctx, kind)
+}
+
+// ReloadSkills implements the optional SkillReloader seam (RP-10): it swaps this
+// agent's skill catalog at runtime and re-renders the system prompt. Callers reach
+// it by type-asserting an Agent to SkillReloader. Call at a run boundary.
+func (a *agentAdapter) ReloadSkills(reg *skill.Registry) error {
+	return a.inner.ReloadSkills(reg)
 }
 
 func (a *agentAdapter) PermissionModeName() string { return a.inner.PermissionModeName() }

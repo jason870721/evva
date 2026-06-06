@@ -1,0 +1,21 @@
+name: demo-web-team
+workdir: .
+
+leader:
+  agent: lead
+
+workers:
+  - agent: builder
+  - agent: reviewer
+
+settings:
+  # `bypass` = the team runs hands-off: workers write files and run shell with no
+  # per-action approval, so the build→review loop completes without you clicking
+  # Allow on every write. This is a THROWAWAY demo folder — that's the point.
+  #
+  # For a supervised run instead, use `default` (workers' file/shell writes pop an
+  # approval in the web UI — click Allow, or "Always allow" to allow that tool for
+  # the session). The leader's task_create/assign/verify never gate either way.
+  # `accept_edits` sits in between: file writes auto-allow, shell still asks.
+  permission_mode: bypass
+  max_iterations: 40

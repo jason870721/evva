@@ -57,6 +57,20 @@ func main() {
 		return
 	}
 
+	// Veronica swarm subsystem (additive subcommands; the bare `evva` TUI path
+	// below is unchanged). These own their own arg handling and exit before the
+	// single-agent bootstrap runs.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "service":
+			runService(os.Args[2:])
+			return
+		case "swarm":
+			runSwarm(os.Args[2:])
+			return
+		}
+	}
+
 	_ = godotenv.Load()
 	cfg := config.Get()
 

@@ -1,6 +1,6 @@
 # SPRD-1-12 — M4: inbox-drainer **public seam** on `pkg/agent` + swarm consumer (drain B)
 
-> Milestone: M4 ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-6, 1-5
+> Milestone: M4 ｜ Status: IN REVIEW ｜ Owner: veronica ｜ Depends on: 1-6, 1-5
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 8) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §6.3, §9.2
 
 ## 1. Goal
@@ -75,8 +75,42 @@ func WithInboxDrainer(d Drainer) Option   // nil-safe: no drainer → no-op
 
 ## 7. Definition of Done
 
-- [ ] `WithInboxDrainer` public seam on `pkg/agent`; the loop folds at the iteration boundary.
-- [ ] Nil-drainer no-op — single-agent behavior does not regress (test).
-- [ ] swarm drainer (non-blocking mailbox check → synthetic message → mark read).
-- [ ] Downstream compile test; `docs/extending.md` + `CHANGELOG` + version bump.
-- [ ] This is the **only** sanctioned `pkg/agent` change (README invariant #1 exception).
+- [x] `WithInboxDrainer` public seam on `pkg/agent`; the loop folds at the iteration boundary.
+- [x] Nil-drainer no-op — single-agent behavior does not regress (test).
+- [x] swarm drainer (non-blocking mailbox check → synthetic message → mark read).
+- [x] Downstream compile test; `docs/extending.md` + `CHANGELOG` (version bump deferred to release cut — see note).
+- [x] This is the **only** sanctioned `pkg/agent` change (README invariant #1 exception).
+
+### Implementation notes
+
+- **Seam** (`internal/agent/drain_inbox.go` → re-exported in `pkg/agent`):
+  `Drainer{ Drain(ctx) (msg string, ok bool) }` + `WithInboxDrainer`. Stored on
+  `*Agent`; `drainInbox` is called in `internal/agent/loop.go` at the *same*
+  iteration boundary as the wakeup / user-prompt / daemon-signal drains, folds
+  the message as a `RoleUser` turn, and emits the new `event.KindDrainInbox`
+  (+`DrainInboxPayload{Count}`). Nil drainer = no-op.
+- **Swarm consumer** (`internal/swarm/drain.go`): `inboxDrainer` wired onto every
+  member in `constructMember`. Non-blocking `select`+`default` peek at the
+  mailbox; `GetMessage` the UUID; **skip if already read** (`ReadAt != nil`);
+  else `MarkRead` + format "[Incoming message from X] …". The mailbox is resolved
+  lazily per `Drain`, so `Bus.Register` ordering doesn't matter.
+- **Double-fold guard (the subtle bit):** drain A folds the whole unread batch
+  from the store at run start, but the batch's mailbox *hints* are still
+  buffered — drain B would re-fold them. The supervisor now drains those stale
+  hints right after composing a message-wake run-start prompt
+  (`drainStaleHints`, gated on `len(msgIDs) > 0`), so drain B only ever sees mail
+  that arrives *after* the run started. Everything runs on one goroutine
+  (runLoop → serve → ctl.Run → agent loop → drainer), so there's no concurrent
+  channel access. This is the minimal supervisor adjustment drain B needs; it
+  does not change drain A's fold/mark-read semantics.
+- **Tests** (`-race` clean): `pkg/agent/inbox_drainer_test.go` — nil no-op
+  regression, empty-drainer cheap-poll, and a fake drainer folded on the 2nd
+  boundary (proves *mid-run* fold + reaction + `KindDrainInbox`);
+  `internal/swarm/drain_test.go` — consumer reads+formats+marks-read, empty
+  no-op, skips-already-read; `examples/full-host/inbox_drainer.go` —
+  separate-module compile proof.
+- **Version bump:** `pkg/version` carries a `vX.Y.Z-dev` placeholder by design
+  (concrete numbers are set in the release-cut commit per CLAUDE.md "bump in a
+  separate commit before tagging; always ask before tags"). The additive change
+  is recorded in `CHANGELOG.md [Unreleased]` and becomes the next minor's entry
+  at the cut — not invented here.

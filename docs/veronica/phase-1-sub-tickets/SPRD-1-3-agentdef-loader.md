@@ -1,6 +1,6 @@
 # SPRD-1-3 — Agentdef loader: `agents/{main,sub}/` → AgentDefinition + skills + schedule
 
-> Milestone: M0 (min) / M3 (schedule) ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-1
+> Milestone: M0 (min) / M3 (schedule) ｜ Status: IN REVIEW ｜ Owner: (unassigned) ｜ Depends on: 1-1
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 4) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §4.5
 
 ## 1. Goal
@@ -73,7 +73,14 @@ func (l *Loader) BuildAll(workdir string, m Manifest) ([]Loaded, []Warning, erro
 
 ## 7. Definition of Done
 
-- [ ] Manifest + per-dir `Build` + `BuildAll`; re-callable, side-effect-free.
-- [ ] Schedule parsing (cron + interval) with `next()`.
-- [ ] `testdata/agents/` fixtures + table tests green.
-- [ ] Only `pkg/agent` + `pkg/skill` imported for SDK objects (invariant #1).
+- [x] `LoadManifest` (+ validation: name/leader required, unique non-empty member names, no replicas) + per-dir `Build` + `BuildAll`. `Build` is pure/side-effect-free (`TestBuildReCallable`: equal `Def`/`Schedule`/`Effort`/`Role` across two calls).
+- [x] Schedule parsing for both `cron:` and `every:` forms, absence → nil; `Next()` works (interval = after+Every; a self-contained 5-field cron with `*`,`*/n`,`a-b`,lists, correct dom/dow OR, strictly-after semantics). Exact + property cron tests.
+- [x] `testdata/agents/` fixtures (leader + 2 workers — one cron, one `every`, one with skills) + table tests green (`-race`).
+- [x] Only `pkg/agent` + `pkg/skill` (+ `pkg/tools` for `ToolName`) imported for SDK objects — dep-check green.
+
+### Implementation notes / decisions
+
+- **dep-check was corrected here.** SPRD-1-1's `depcheck.sh` used `go list -deps` (transitive), which works only while nothing imports the agent SDK. But `pkg/agent` is a thin facade that itself imports `internal/agent`, so the moment swarm legitimately uses `agent.AgentDefinition` the transitive check reports the whole `internal/agent` tree. Switched the check to **direct imports** (`go list -f '{{.Imports}}'`) — the in-module equivalent of the `examples/full-host` separate-module oracle. It still fails on a *direct* `internal/agent` import (proven) but correctly allows reaching the runtime through `pkg/*`. Committed as a separate `fix(swarm)` ahead of this ticket.
+- **Self-written cron, no dependency.** A minimal standard 5-field parser (`schedule.go`) instead of pulling in robfig/cron — matches evva's write-our-own ethos, keeps the swarm dependency-light, and the realistic specs (patrol/review cadences) are well within the supported subset. `Next()` minute-steps with a 5-year bound so an impossible spec errors instead of looping.
+- **`agentdef.Role` is its own type**, distinct from `store.Role` (SPRD-1-2). Same leader/worker concept, different layers (agent construction/tooling vs DB-write authorization); keeping them separate avoids coupling `agentdef` ↔ `store`. The tool layer (1-7) bridges them.
+- **Veronica layout** (`profile.yml` + `tools/active.yml` + `tools/deferr.yml`) differs from evva's disk persona layout (`meta.yml` + `tools.yml`); tool files are flat YAML lists. `system_prompt.md` is required; everything else is optional (absent → empty/zero). `main`→`As:[main]`, `sub`→`As:[subagent]` (both are roots in Veronica). `effort` is surfaced on `Loaded` (not on `AgentDefinition`, which has no such field) for 1-4 to apply at construction.

@@ -24,6 +24,7 @@ var bundledNames = []string{
 	"setup-hooks",
 	"setup-mcp",
 	"build-agent",
+	"setup-swarm",
 }
 
 // readBundled returns the raw SKILL.md content for a bundled skill. It

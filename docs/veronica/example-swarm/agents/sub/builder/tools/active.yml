@@ -1,0 +1,10 @@
+# Regular evva tools the builder needs to actually do the work.
+# (Swarm tools — my_tasks, task_get, send_message, list_members — are injected
+# automatically by the worker role; don't list them here.)
+- read
+- write
+- edit
+- bash
+- grep
+- glob
+- tree

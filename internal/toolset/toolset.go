@@ -22,6 +22,7 @@ package toolset
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/johnny1110/evva/internal/question"
 	"github.com/johnny1110/evva/internal/tools/meta"
@@ -67,12 +68,12 @@ type ToolState struct {
 	questionBroker question.Broker
 
 	// skillRegistry holds the merged catalog of user-installed skills.
-	// Installed once at startup by the host (cmd/evva) and read by the
-	// SKILL tool through its late-bound lookup. Subagents share the
-	// pointer via WithSkillRegistry on agent.New so a skill invoked from
-	// a subagent path still resolves; today only root sees SKILL in its
-	// active set, but threading is cheap and future-proof.
-	skillRegistry *skill.Registry
+	// Installed at startup by the host (cmd/evva) and read by the SKILL tool
+	// through its late-bound lookup. Subagents share the pointer via
+	// WithSkillRegistry on agent.New. It is an atomic.Pointer because the swarm
+	// hot-swaps it at runtime (Agent.ReloadSkills, RP-10) on a different goroutine
+	// than the readers (SKILL tool / Skills()).
+	skillRegistry atomic.Pointer[skill.Registry]
 
 	// cfg is the per-agent runtime configuration. Installed via SetConfig
 	// after agent construction; tools that need runtime settings (web,
@@ -256,7 +257,7 @@ func (s *ToolState) WakeupQueue() *meta.WakeupQueue {
 // none. The SKILL tool reads through this lookup at Execute time so the
 // host can SetSkillRegistry any time before the model invokes it.
 func (s *ToolState) SkillRegistry() *skill.Registry {
-	return s.skillRegistry
+	return s.skillRegistry.Load()
 }
 
 // SetSkillRegistry installs the skill catalog the SKILL tool will read
@@ -264,7 +265,7 @@ func (s *ToolState) SkillRegistry() *skill.Registry {
 // home+workdir registry. Subagents inherit the same pointer via
 // agent.WithSkillRegistry.
 func (s *ToolState) SetSkillRegistry(r *skill.Registry) {
-	s.skillRegistry = r
+	s.skillRegistry.Store(r)
 }
 
 // QuestionBroker returns the question back-channel, or nil if not installed.

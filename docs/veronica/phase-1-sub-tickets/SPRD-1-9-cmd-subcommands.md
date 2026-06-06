@@ -1,6 +1,6 @@
 # SPRD-1-9 — `cmd/evva` subcommands: `service` (daemon+pidfile), `swarm ./ls/stop/add`
 
-> Milestone: M0 (service / swarm .) / M3 (add) ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-8
+> Milestone: M0 (service / swarm .) / M3 (add) ｜ Status: IN REVIEW ｜ Owner: veronica ｜ Depends on: 1-8
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 7) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §4.1, §4.2, §4.3
 
 ## 1. Goal
@@ -65,7 +65,35 @@ manage spaces. Bare `evva` (TUI) is untouched.
 
 ## 7. Definition of Done
 
-- [ ] `service start/stop/status` with daemonize + pidfile + `~/.evva/service/` logs.
-- [ ] `swarm . / ls / stop` (+ `add` at M3) as thin authenticated HTTP clients.
-- [ ] TUI path untouched; stale-pid handled.
-- [ ] Integration test green; no `internal/agent` import (invariant #1).
+- [x] `service start/stop/status` with daemonize + pidfile + `~/.evva/service/` logs.
+- [x] `swarm . / ls / stop` (+ `add` at M3) as thin authenticated HTTP clients.
+- [x] TUI path untouched; stale-pid handled.
+- [x] Integration test green; no `internal/agent` import (invariant #1).
+
+### Implementation notes
+
+- New endpoints added to webapi to back the CLI: `POST /api/swarms` (register a
+  workdir → `{id}`) and `DELETE /api/swarm/{id}` (stop). `Backend` gained
+  `Register`/`StopSpace`; the `Service` already had those methods.
+- `cmd/evva/servicectl.go` — shared control-plane state under
+  `<AppHome>/service/` (`evva-service.pid`, `token`, `addr`, `evva-service.log`).
+  `EVVA_SERVICE_HOME` overrides the dir (tests), `EVVA_SERVICE_ADDR` the
+  listen/target address. Authed HTTP client reads the token file; clear
+  "is it running?" error on connection refusal.
+- `cmd/evva/service.go` — `start` daemonizes by **re-exec'ing the same binary**
+  with `EVVA_SERVICE_DAEMON=1` + `SysProcAttr{Setsid:true}` (no third-party
+  daemon lib); parent writes the pidfile, child (`serviceRun`) binds, publishes
+  token+addr, serves until SIGTERM, and clears the runtime files on clean exit.
+  `status`/`stop` handle the **stale-pid** case (pid not alive → treat as
+  stopped / clear the file). `processAlive` uses `Signal(0)`.
+- `cmd/evva/swarm.go` — thin clients: `.` validates the local manifest
+  (`agentdef.LoadManifest`) before POSTing the abs workdir; `ls` prints a
+  tabwriter table; `stop <id>`; `add <space-id> <member>` (M3). The `add`
+  signature takes an explicit space id (a multi-space host has no implicit
+  "current space").
+- Tests (`cmd/evva/swarm_service_test.go`, `-race` clean): stale-pid status,
+  stop no-op/stale, client `status`/`ls`/`stop` against a real in-process
+  service, register-client against a stub endpoint, and the no-manifest error.
+  Full daemon start→status→refuse→ls→stop verified manually (output in PR).
+- **Deviation from §5 stub signatures:** `swarm stop` / `add` take an explicit
+  space **id** (not name) — id is the stable per-space key the host exposes.

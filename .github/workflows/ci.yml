@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "dev", "pre-release", "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go build · vet · swarm tests · dep-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Swarm unit tests
+        run: go test -race ./internal/swarm/...
+      - name: dep-check (multi-agent oracle)
+        run: bash scripts/depcheck.sh
+
+  web:
+    name: Web SPA build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build SPA
+        run: npm run build
+      - name: Verify vendored dist/ is current
+        run: |
+          if ! git diff --quiet -- dist; then
+            echo "::error::web/dist is stale — run 'npm run build' in web/ and commit dist/."
+            git --no-pager diff --stat -- dist
+            exit 1
+          fi

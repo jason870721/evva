@@ -146,6 +146,13 @@ const (
 	// queued monitor events into the session. Payload carries the line
 	// count drained (events from multiple monitors are interleaved).
 	KindDrainMonitorEvents Kind = "drain_monitor_events"
+
+	// KindDrainInbox fires when the agent loop folds a message pulled from a
+	// pluggable inbox Drainer (pkg/agent.WithInboxDrainer) into the session as
+	// a synthetic user turn — the generalisation of the background-task drain
+	// that lets a busy agent react to an incoming message mid-run. Payload
+	// carries how many messages were folded on this boundary.
+	KindDrainInbox Kind = "drain_inbox"
 )
 
 // Event is the envelope. Exactly one of the *Payload fields is non-nil per
@@ -183,6 +190,7 @@ type Event struct {
 	MonitorEvent        *MonitorEventPayload        `json:",omitempty"`
 	DrainBackgroundTask *DrainBackgroundTaskPayload `json:",omitempty"`
 	DrainMonitorEvents  *DrainMonitorEventsPayload  `json:",omitempty"`
+	DrainInbox          *DrainInboxPayload          `json:",omitempty"`
 }
 
 // ModeChangedPayload reports a permission-mode transition. PrevMode is the
@@ -483,6 +491,12 @@ type DrainMonitorEventsPayload struct {
 	// MonitorIDs are the unique monitor ids the drained events came
 	// from, in first-occurrence order.
 	MonitorIDs []string
+}
+type DrainInboxPayload struct {
+	// Count is the number of inbox messages folded into the session on
+	// this iteration boundary (currently always 1 — one Drainer call per
+	// boundary — but kept as a count for forward compatibility).
+	Count int
 }
 
 // UsagePayload reports token usage for the LLM call that just completed.

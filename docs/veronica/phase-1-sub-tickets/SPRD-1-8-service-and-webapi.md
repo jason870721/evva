@@ -1,6 +1,6 @@
 # SPRD-1-8 — Service (multi-space host) + webapi (HTTP/WS, REST, event fan-out)
 
-> Milestone: M0–M3 ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-4, 1-6, 1-7
+> Milestone: M0–M3 ｜ Status: IN REVIEW ｜ Owner: veronica ｜ Depends on: 1-4, 1-6, 1-7
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 6) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §3.1, §8, §8.1, §8.3
 
 ## 1. Goal
@@ -84,7 +84,38 @@ func (s *Service) ListSpaces() []SpaceInfo
 
 ## 7. Definition of Done
 
-- [ ] `Service` multi-space registry + `:8888` (127.0.0.1) + token; start/stop/register/stop-space.
-- [ ] WS fan-out keyed by `(spaceID, AgentID)`; REST snapshots; inbound command routing.
-- [ ] Two-space isolation + token gate proven by test (invariants #2, #6).
-- [ ] Embeds `web/dist`; `-race` clean; no `internal/agent` import (invariant #1).
+- [x] `Service` multi-space registry + `:8888` (127.0.0.1) + token; start/stop/register/stop-space.
+- [x] WS fan-out keyed by `(spaceID, AgentID)`; REST snapshots; inbound command routing.
+- [x] Two-space isolation + token gate proven by test (invariants #2, #6).
+- [x] Embeds `web/dist`; `-race` clean; no `internal/agent` import (invariant #1).
+
+### Implementation notes
+
+- `Service` (`internal/swarm/service/service.go`) holds the `map[id]*spaceEntry`
+  registry, a `crypto/rand` session token, a root context whose children are
+  each space's supervisor + event pump. `Register(workdir)` is the from-disk
+  production path (manifest → `BuildAll` → `register`); the unexported
+  `register(manifest, loaded, cfg)` core is shared so tests bring spaces up with
+  a stub LLM and no disk/env. A `loadConfig` seam keeps `config.Load` overridable.
+- `webapi` (`api.go` + `hub.go`) owns its own wire DTOs and talks to the host
+  only through the narrow `Backend` interface — zero agent/store/llm imports.
+  WebSocket transport is `golang.org/x/net/websocket` (already an x/net
+  subpackage, so **no new module dependency** — keeps the pure-Go,
+  dep-conscious posture). `Hub.Publish` fans out by `(spaceID, AgentID)`;
+  a conn subscribes to one space (+ optional agent filter).
+- Endpoints follow the PRD names with a `?space=<id>` selector for the flat
+  ones: `GET /api/swarms`, `/api/swarm/{id}`, `/api/tasks`, `/api/messages`,
+  `/api/agents/{name}/transcript`; command POSTs (`run`, `suspend`/`resume`/
+  `freeze`/`unfreeze`, `members`, `halt`) mirror the WS inbound channel
+  (`run`, `respond_permission`, `respond_question`). `/healthz` is the only
+  unauthenticated route besides the SPA.
+- Added `store.ListMessages` (read-only DAO) for `/api/messages`.
+- Tests: `webapi/api_test.go` (token gate, REST, WS isolation, WS respond-
+  permission routing — fake Backend) + `service/service_integration_test.go`
+  (two real stub-LLM spaces: registration/isolation, REST reflects ledger, WS
+  routing across spaces, RespondPermission routing). `-race` clean.
+- **Out of scope (later tickets):** the `evva swarm .` CLI that POSTs a workdir
+  here (1-9); the real SPA content (1-10); restart reload (1-11). AC#5's
+  end-to-end "agent raises an approval" needs a permission-gated tool mid-run;
+  here the **routing path** is proven (unknown-reqID surfaces the controller's
+  own error, proving the call reached the right controller).

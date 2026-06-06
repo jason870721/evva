@@ -165,3 +165,25 @@ func WithHookRegistry(r *hooks.Registry) Option {
 func WithMcpManager(m *mcp.Manager) Option {
 	return agent_impl.WithMcpManager(m)
 }
+
+// Drainer is a pluggable source of out-of-band messages that a running agent
+// folds into its current run at each loop iteration boundary. It generalises
+// the built-in background-task / monitor drains into a public seam: supply one
+// (e.g. a swarm mailbox reader) so a *busy* agent reacts to an incoming message
+// mid-run instead of only between runs.
+//
+// Implementations MUST be non-blocking — return ok=false immediately when there
+// is nothing to fold — and are called at most once per boundary on the loop
+// goroutine. See WithInboxDrainer.
+//
+// Experimental: this seam may evolve in a minor release.
+type Drainer = agent_impl.Drainer
+
+// WithInboxDrainer installs the inbox Drainer the loop polls at every iteration
+// boundary, folding any returned message in as a synthetic user turn before the
+// next LLM call. A nil drainer is a no-op, so single-agent callers are
+// unaffected. This is the seam evva's swarm uses for mid-run message delivery
+// (drain B); see docs/extending.md.
+func WithInboxDrainer(d Drainer) Option {
+	return agent_impl.WithInboxDrainer(d)
+}

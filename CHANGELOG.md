@@ -12,6 +12,30 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Inbox drainer — pluggable mid-run message folding (`pkg/agent`)
+
+New **additive, Experimental** seam on `pkg/agent`: `WithInboxDrainer(Drainer)`,
+where `Drainer.Drain(ctx) (msg string, ok bool)` is polled at every loop
+iteration boundary and any returned message is folded into the run as a
+synthetic user turn before the next LLM call. It generalises the built-in
+background-task / monitor drains so a host (e.g. a multi-agent supervisor) can
+deliver an out-of-band message to a **busy** agent mid-run instead of only
+between runs. A nil drainer is a no-op — single-agent behaviour is unchanged.
+
+#### Added
+
+- **`pkg/agent.Drainer`** interface + **`agent.WithInboxDrainer`** option
+  (re-exported from `internal/agent`). Non-blocking contract; called at most
+  once per boundary on the loop goroutine.
+- **`event.KindDrainInbox`** + `DrainInboxPayload{Count}` — emitted when the
+  loop folds a drained message, mirroring `KindDrainBackgroundTask`.
+- Loop call site in `internal/agent/loop.go` at the same iteration boundary as
+  the existing wakeup / user-prompt / daemon-signal drains.
+- Separate-module compile proof in `examples/full-host` and a `pkg/agent`
+  unit test (nil no-op regression + a fake drainer folded mid-run).
+
+This is purely additive (no Stable surface change); it lands in the next minor.
+
 ### Typed memory directory
 
 Replaces the fixed-section, two-store auto-memory model with a single global

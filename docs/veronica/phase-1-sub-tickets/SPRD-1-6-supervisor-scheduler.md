@@ -1,6 +1,6 @@
 # SPRD-1-6 — Supervisor & Scheduler: wake sources, lifecycle, per-run recover
 
-> Milestone: M0–M3 ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-4, 1-5, 1-2
+> Milestone: M0–M3 ｜ Status: IN REVIEW ｜ Owner: (unassigned) ｜ Depends on: 1-4, 1-5, 1-2
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 3) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §5, §5.1, §5.5, §6.3, §3.1
 
 ## 1. Goal
@@ -99,8 +99,57 @@ func (s *Supervisor) wake(name, reason, prompt string) // idle→busy→Run→id
 
 ## 7. Definition of Done
 
-- [ ] Per-agent recover-guarded run loop; idle/busy/suspended bookkeeping on the roster.
-- [ ] Three wake sources (message/task/timer); idle burns no tokens.
-- [ ] Drain A (UUID → `GetMessage` → inject → `MarkRead`) on message wake.
-- [ ] Add/Freeze/Unfreeze/Suspend/Resume/HaltAll; suspend cancels the run ctx.
-- [ ] Panic containment proven; `-race` clean; no `internal/agent` import (invariants #1, #3).
+- [x] Per-agent recover-guarded run loop; idle/busy/suspended bookkeeping on the roster.
+- [x] Three wake sources (message/task/timer); idle burns no tokens.
+- [x] Drain A (UUID → `GetMessage` → inject → `MarkRead`) on message wake.
+- [x] Add/Freeze/Unfreeze/Suspend/Resume/HaltAll; suspend cancels the run ctx.
+- [x] Panic containment proven; `-race` clean; no `internal/agent` import (invariants #1, #3).
+
+### Implementation design / decisions
+
+- **Three wake sources, two mechanical channels.** §5.5's `{message, task,
+  timer}` collapse to **inbox + timer poke**: `task_assign` (1-7) wakes the
+  assignee by *sending it a message* (§7.1 "pending→running: 發 message 推給該
+  Worker"), so the task source rides the same mailbox as ordinary messages. The
+  run loop selects on `bus.Inbox(name)` (message/task) and a per-agent
+  `wake chan` (timer ticks + resume pokes). No separate task hook is needed in
+  the supervisor.
+- **Drain A reads `store.UnreadFor`, not the chan.** A mailbox UUID is only the
+  "you have mail" hint; `composePrompt` builds the prompt from the member's
+  unread set (DB-truth, §6.2), which naturally absorbs dropped hints (full
+  buffer) and stragglers. Messages are marked read **only after a clean,
+  unsuspended run** — a panic/suspend/error leaves them unread for retry on
+  Resume or restart (at-least-once, never lose a teammate's message).
+- **Suspension is a `serve()` gate, not a park-select.** A suspended (or frozen)
+  agent's wake is a cheap no-op (no `Run`, no token); no second select state to
+  reason about. Resume flips the gate and pokes the loop to re-process its unread
+  work — which is exactly the still-unread message the cancelled run left behind,
+  so "Resume starts a new run" falls out for free.
+- **Suspend/run race closed under `memberRun.mu`.** The roster status flips
+  (`RunBusy` / `RunIdle` / `RunSuspended`) inside the per-member lock, and
+  `serve` re-checks `suspended` after acquiring it, so a `Suspend` landing
+  mid-claim can't be clobbered by a late `RunBusy`. Lock order is always
+  `memberRun.mu → roster.mu`; the supervisor's `mu` (members map + schedule/
+  nextDue) never nests with `memberRun.mu`.
+- **Recover guard wraps the synchronous `Run`** (`safeRun` with a deferred
+  `recover`) rather than spawning a child goroutine — it contains the panic
+  *and* serialises one run at a time per agent. The loop goroutine survives its
+  own agent's panic (proven by a second message running after the first panics)
+  and siblings are untouched (invariant #3).
+- **Timer.** One tick goroutine per space (default 1s; tests 5ms) advances each
+  scheduled member's `nextDue` via `agentdef.Schedule.Next` and pokes the due,
+  active members. Standing-duty agents need no task row (§5.5), so the prompt is
+  a generic "scheduled duty" synthetic.
+- **`AddMember` reuses one construction path.** `NewSpace`'s per-member body was
+  extracted into `SwarmSpace.constructMember` (+ `registerDef`); the space now
+  retains the persona registry / cfg / toolset / loader so a hot-load is
+  `loader.Build → registerDef → constructMember → startMemberLoop`, no restart.
+  The `Bus` is now a `SwarmSpace` field (constructed in `NewSpace`, a mailbox
+  registered per member) so both the supervisor and 1-7's `send_message` reach
+  it via `sp`. *Known limitation:* concurrent `AddMember` during an active
+  subagent-spawn resolution isn't synchronised at the `pkg/agent` registry level
+  — fine for v1's user-triggered hot-load.
+- **Out of scope (deferred):** the `task_*`/`send_message` tools that drive the
+  bus + ledger (1-7); restart-reload of unread via `bus.Requeue` + `ResumeSession`
+  (1-11); the mid-run drain B seam (1-12). This ticket ships the engine + wiring
+  + tests.

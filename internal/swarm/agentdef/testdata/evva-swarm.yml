@@ -1,0 +1,13 @@
+name: test-eng-team
+workdir: .
+
+leader:
+  agent: leader
+
+workers:
+  - agent: backend-dev
+  - agent: frontend-dev
+
+settings:
+  permission_mode: default
+  max_iterations: 50

@@ -1,0 +1,13 @@
+# Standard evva tools this member may use.
+#
+# NOTE: do NOT list swarm tools here (task_create, task_assign, task_verify,
+# send_message, list_members, …). Those are injected AUTOMATICALLY based on the
+# member's role (leader vs worker) — listing them again would duplicate them.
+# active.yml is only for the regular evva tools.
+#
+# The lead only needs read access to glance at the builder's output when
+# verifying.
+- read
+- grep
+- glob
+- tree

@@ -50,6 +50,13 @@ type AgentDefinition struct {
 	// system_prompt.md). Empty on definitions read back from the registry for
 	// built-in personas, whose prompts are assembled internally.
 	SystemPrompt string
+
+	// LongRunning marks a persona expected to stay live for a very long time
+	// (e.g. a swarm member running for weeks). The prompt builder then omits
+	// fragments that would drift across rebuilds and bust the prompt-cache
+	// prefix — currently the "- Today:" date in the environment section. Leave
+	// false for ordinary personas; the swarm subsystem sets it for its members.
+	LongRunning bool
 }
 
 // IsMain reports whether the persona appears in the /profile picker.
@@ -78,6 +85,7 @@ func (d AgentDefinition) toSpec() agent_impl.AgentSpec {
 		DeferredTools:   d.DeferredTools,
 		Model:           d.Model,
 		SystemPrompt:    d.SystemPrompt,
+		LongRunning:     d.LongRunning,
 	}
 }
 
@@ -92,5 +100,6 @@ func definitionFromSpec(s agent_impl.AgentSpec) AgentDefinition {
 		DeferredTools:   s.DeferredTools,
 		Model:           s.Model,
 		SystemPrompt:    s.SystemPrompt,
+		LongRunning:     s.LongRunning,
 	}
 }

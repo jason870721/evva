@@ -62,7 +62,7 @@ func buildMainPrompt(ctx PromptContext) string {
 		autoMemoryGuidanceSection(ctx),
 		memoryIndexSection(ctx),
 		sessionSpecificGuidanceSection(),
-		skillsSection(ctx.Skills),
+		skillsSection(ctx.Skills, false),
 		summarizeToolResultsSection(),
 		mainTodoSection(),
 		mainDeferredToolsSection(ctx.DeferredTools),

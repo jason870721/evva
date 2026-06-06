@@ -112,10 +112,13 @@ type Profile struct {
 // memory snapshot is threaded into the prompt under labeled headings. Callers
 // pass an empty memdir.Snapshot{} when memory injection is not desired.
 //
-// Streaming is on by default — the user-facing UX win is large and the
-// chunk adapter falls back cleanly for providers without native streaming.
-// Callers who want the old buffered behavior can pass WithStream(false) at
-// agent construction.
+// Streaming defaults OFF for the Main profile (Stream: false below): the
+// single-agent TUI renders a whole turn at once, and buffered Complete is the
+// safe default for downstream SDK hosts that have not built a streaming UI.
+// Callers who DO want live token deltas pass WithStream(true) at construction
+// — the swarm does this for every member (internal/swarm/space.go) so the web
+// console streams. The chunk adapter falls back cleanly for providers without
+// native streaming.
 func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
 	return mainProfile(cfg, provider, model, skills, mem, options, nil)
 }
@@ -274,6 +277,9 @@ func ResolveMainProfileAutoMem(cfg *config.Config, reg *AgentRegistry, name stri
 // built-in evva does.
 func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName) Profile {
 	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
+	// A long-running persona (swarm member) keeps a date-free, bit-stable prompt
+	// prefix so a weeks-long run reuses one cached prefix (RP-5).
+	ctx.OmitDate = def.LongRunning
 	if def.AdvertiseSkills {
 		ctx.Skills = skills
 	}

@@ -144,6 +144,57 @@ func (s jsonSink) Emit(e event.Event) {
 ag, _ := agent.NewWithProfile(prof, agent.WithSink(jsonSink{enc: json.NewEncoder(os.Stdout)}))
 ```
 
+### Inbox drainer — folding out-of-band messages mid-run
+
+By default an agent only takes new input between runs. A long, multi-iteration
+run (lots of tool calls) is otherwise deaf to anything that arrives while it is
+working. `agent.WithInboxDrainer` opens a seam for exactly that: at every loop
+iteration boundary the agent polls a `Drainer` you supply and folds any returned
+message in as a synthetic user turn, *before the next LLM call* — so a busy
+agent can react to an urgent message in the same run instead of after it ends.
+
+```go
+type Drainer interface {
+    Drain(ctx context.Context) (msg string, ok bool)
+}
+```
+
+Contract:
+
+- Called **at most once per iteration boundary**, on the loop goroutine, with
+  the run's context.
+- **Must be non-blocking** — return `ok=false` immediately when there's nothing
+  to fold (an empty-inbox poll should cost ~nothing).
+- When `ok` is true, `msg` is appended verbatim as a `RoleUser` turn; the loop
+  emits `event.KindDrainInbox`.
+- A **nil drainer is a no-op** — agents without one behave exactly as before, so
+  this is purely additive.
+
+```go
+// Deliver one queued message per boundary; the durable store is the source of
+// truth, the channel only a hint.
+type mailDrainer struct{ inbox <-chan string; store *Store }
+
+func (d mailDrainer) Drain(context.Context) (string, bool) {
+    select {
+    case id := <-d.inbox:
+        m, err := d.store.Get(id)
+        if err != nil || m.Read { return "", false }
+        d.store.MarkRead(id)
+        return "Message from " + m.From + ": " + m.Body, true
+    default:
+        return "", false // empty inbox — cheap no-op
+    }
+}
+
+ag, _ := agent.New(cfg, agent.WithInboxDrainer(mailDrainer{inbox: ch, store: st}))
+```
+
+This is the seam evva's own swarm subsystem uses to deliver inter-agent messages
+to a busy member mid-run (its supervisor clears the run-start batch's stale
+hints first, so a message folded at run start isn't re-folded by the drainer).
+`Drainer` is **Experimental** — the contract may evolve in a minor release.
+
 ### Custom UI
 
 `pkg/ui.UI` is the surface a custom UI satisfies. Implement `Emit`,

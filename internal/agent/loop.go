@@ -169,6 +169,12 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 		// turns — this call collects and injects them.
 		a.drainLSPDiagnostics()
 
+		// Drain a pluggable inbox (WithInboxDrainer): a host-supplied source
+		// of out-of-band messages — e.g. a swarm mailbox — so a busy agent
+		// folds an incoming message into THIS run rather than waiting for it
+		// to end. Nil drainer is a no-op (single-agent behaviour unchanged).
+		a.drainInbox(ctx)
+
 		a.logger.Debug("turn.start", "iter", iter, "messages", len(a.session.Messages))
 		resp, err := a.thinking(ctx, iter)
 		if err != nil {

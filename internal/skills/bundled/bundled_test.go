@@ -134,3 +134,33 @@ func TestBuildAgentSkill_Content(t *testing.T) {
 		}
 	}
 }
+
+// TestSetupSwarmSkill_Content pins the key references in the setup-swarm skill
+// so a future edit can't silently drop load-bearing guidance.
+func TestSetupSwarmSkill_Content(t *testing.T) {
+	body, err := readBundled("setup-swarm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, must := range []string{
+		"evva-swarm.yml",
+		"evva swarm .",
+		"evva service start",
+		"agents/main/",
+		"agents/sub/",
+		"system_prompt.md",
+		"profile.yml",
+		"tools/active.yml",
+		"tools/deferr.yml",
+		"permission_mode",
+		"task_create",
+		"send_message",
+		"list_members",
+		"skill",
+		"advertise_skills",
+	} {
+		if !strings.Contains(body, must) {
+			t.Errorf("setup-swarm body missing required reference %q", must)
+		}
+	}
+}

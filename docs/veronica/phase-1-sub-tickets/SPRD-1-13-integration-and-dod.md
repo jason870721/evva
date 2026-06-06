@@ -1,6 +1,6 @@
 # SPRD-1-13 — Phase-1 integration + DoD e2e (multi-space isolation, full loop, restart)
 
-> Milestone: DoD ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: all (1-1 … 1-12)
+> Milestone: DoD ｜ Status: IN REVIEW ｜ Owner: veronica ｜ Depends on: all (1-1 … 1-12)
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (§3 A1–A11, §7) ｜ Roadmap: [`../roadmap.md`](../roadmap.md) §5 DoD
 
 ## 1. Goal
@@ -65,7 +65,38 @@ failing leg means the owning ticket is reopened (roadmap §1 "no patching in a l
 
 ## 7. Definition of Done
 
-- [ ] Full-loop e2e (start→assign→collaborate→restart→resume) green and hermetic.
-- [ ] Multi-space isolation, dep-check, token + permission, idle-cost all asserted.
-- [ ] Roadmap §5 DoD checklist fully ticked, each box → a proof.
-- [ ] A1–A11 (PRD §3) all green; Phase-1 ready to gate into Phase 2.
+- [x] Full-loop e2e (start→assign→collaborate→restart→resume) green and hermetic.
+- [x] Multi-space isolation, dep-check, token + permission, idle-cost all asserted.
+- [x] Roadmap §5 DoD checklist fully ticked, each box → a proof.
+- [x] A1–A11 (PRD §3) all green; Phase-1 ready to gate into Phase 2.
+
+### Implementation notes
+
+- **`internal/swarm/service/e2e_test.go`** — hermetic, deterministic, loopback
+  only. A **transcript-driven `scriptedClient`** (registered as provider
+  `e2e_stub`) decides each member's next tool call purely from what its
+  conversation shows — so role falls out of visibility (only a worker's
+  transcript carries an assignment; only the leader's carries the KICKOFF /
+  the worker's report), and the supervisor + bus + drains do all the
+  orchestration. Three tests:
+  - `TestE2E_FullLoop` — kick the leader → the loop self-drives
+    `task_create`→`assign`→ worker `send_message` report → `task_update_status`
+    verifying → `task_verify` approve → **completed**; asserts the message
+    round-trip both ways with `ReadAt` set, and that idle `worker-b` never ran
+    (empty transcript = no tokens).
+  - `TestE2E_RestartContinuity` — kick, tear the host down mid-flight, new
+    `Service` + `Reconcile`, and the reloaded swarm drives the task to
+    completion with no new input.
+  - `TestE2E_MultiSpaceIsolation` — two same-named spaces; drive + stop A, then
+    B still completes its own independent loop.
+- The 5-state path is proven by *reaching* `completed` (the store enforces the
+  legal transitions) + the exhaustive `store` unit matrix; the deterministic
+  restart guarantees live in `swarm.TestRestartResume`; this ticket integrates
+  them.
+- Poll timeouts are generous (25–30s) so the `-race` build (≈10× slower) never
+  flakes — polls return the instant the ledger converges, so it costs nothing on
+  the happy path.
+- **DoD checklist**: [`../phase-1-dod-checklist.md`](../phase-1-dod-checklist.md)
+  maps every roadmap §5 box and PRD A1–A11 to its proving test/command.
+
+**Phase 1 DoD is GREEN — Phase 2 (trader-team) may open.**

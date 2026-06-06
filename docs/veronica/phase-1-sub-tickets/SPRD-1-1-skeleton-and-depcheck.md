@@ -1,6 +1,6 @@
 # SPRD-1-1 — Module skeleton, package layout, dep-check, CI
 
-> Milestone: M0 ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: —
+> Milestone: M0 ｜ Status: IN REVIEW ｜ Owner: (unassigned) ｜ Depends on: —
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 0) ｜ Index: [`README.md`](README.md)
 
 ## 1. Goal
@@ -66,8 +66,14 @@ commit #1**. No behavior beyond a health endpoint and CLI arg parsing.
 
 ## 7. Definition of Done
 
-- [ ] Package tree + subcommand dispatch + web scaffold committed; `go build ./...` green.
-- [ ] `/healthz` works; TUI path untouched.
-- [ ] dep-check committed, wired to CI, and proven to fail on a bad import.
-- [ ] `web` builds and embeds.
-- [ ] Global invariant #1 holds.
+- [x] Package tree + subcommand dispatch + web scaffold; `go build ./...` + `go vet ./...` green.
+- [x] `/healthz` → 200 "ok" (unit test `service_test.go` + manual curl); TUI path untouched (`-version` + bare path unchanged; dispatch only fires on `service`/`swarm`).
+- [x] dep-check (`scripts/depcheck.sh` + `make depcheck`), wired into CI (`.github/workflows/ci.yml`), and proven to FAIL on a deliberate `internal/agent` import (exit 1) and pass when reverted (exit 0).
+- [x] `web` builds (`npm ci && npm run build` → `web/dist`) and embeds (`web/embed.go` `//go:embed all:dist`); `dist/` is vendored (stable asset names) so `go build`/`go install`/release embed a working UI without a node step.
+- [x] Global invariant #1 holds: `go list -deps ./internal/swarm/...` contains no `internal/agent` (dep-check green).
+
+### Implementation notes / decisions
+
+- **Layout reconciliation.** §2 lists `service/supervisor/scheduler/roster` as stub *packages*, but SPRD-1-4 §4 and the parent PRD §8 put `SwarmSpace`/`Roster` (and supervisor/scheduler) as *files in `package swarm`*. They are a tightly-coupled per-space coordination core, so: **`package swarm` = {space, roster, supervisor, scheduler}** (files); **subpackages = {service, webapi, bus, store, agentdef, tools}**. `service` stays a subpackage per §4's explicit `New(addr) *Service`. Layering: `service` → `swarm` → {`bus`,`store`,`agentdef`}, no cycles.
+- **CI is new.** The repo had only a tag-triggered `release.yml`; added `ci.yml` (push/PR) running build · vet · `go test ./internal/swarm/...` · dep-check, plus a `web` job that rebuilds the SPA and fails if the vendored `dist/` is stale.
+- **`evva service start`** runs in the foreground (blocking) for M0; daemonization/pidfile/`stop`/`status` are SPRD-1-9 stubs that print "not implemented".

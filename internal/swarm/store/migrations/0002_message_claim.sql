@@ -1,0 +1,14 @@
+-- RP-1: give messages a three-state lifecycle so drain A (the run-start batch)
+-- and drain B (mid-run fold) share ONE consistent rule and can never lose or
+-- double-fold a message:
+--
+--   unread  : read_at NULL, claimed_at NULL          -- waiting
+--   claimed : claimed_at set, read_at NULL            -- folded into an in-flight run
+--   read    : read_at set                             -- the run that folded it finished cleanly
+--
+-- The DB stays the single source of truth for both content AND liveness: a claim
+-- that never settles (run suspended / errored / crashed) is reset back to unread
+-- on run exit and on restart, so the message retries. This replaces the old
+-- in-memory `drainStaleHints` hack, whose blanket channel-clear could delete the
+-- wake hint for a freshly-arrived message and strand it unread forever.
+ALTER TABLE messages ADD COLUMN claimed_at INTEGER;

@@ -39,3 +39,5 @@ bin/
 log/
 
 minimal-host
+
+.DS_Store

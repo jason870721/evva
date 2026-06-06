@@ -1,6 +1,6 @@
 # SPRD-1-5 — Message bus & mailboxes (per-space, chan-of-uuid, broadcast)
 
-> Milestone: M2 ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-2
+> Milestone: M2 ｜ Status: IN REVIEW ｜ Owner: (unassigned) ｜ Depends on: 1-2
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 2) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §6, §6.2
 
 ## 1. Goal
@@ -85,7 +85,48 @@ type Membership interface { ActiveMembers() []string }
 
 ## 7. Definition of Done
 
-- [ ] Per-agent mailbox `chan` of UUIDs; `Send`/`Inbox`/`Register`/`Requeue`.
-- [ ] Persist-before-signal ordering proven by test (the §6.2 invariant).
-- [ ] Broadcast respects active membership; non-blocking send.
-- [ ] `-race` clean; per-space isolation; no `internal/agent` import (invariants #1, #2).
+- [x] Per-agent mailbox `chan` of UUIDs; `Send`/`Inbox`/`Register`/`Deregister`/`Requeue`.
+- [x] Persist-before-signal ordering proven by test (the §6.2 invariant).
+- [x] Broadcast respects active membership; non-blocking send.
+- [x] `-race` clean; per-space isolation; no `internal/agent` import (invariants #1, #2).
+
+### Implementation design / decisions
+
+- **Broadcast fans out into one durable row per active peer** (each its own
+  UUID + `read_at`), *not* a single `recipient="all"` row. This is forced by
+  §6.2's restart query (`WHERE recipient=? AND read_at IS NULL` per agent name):
+  a shared `"all"` row would be invisible to every member's `UnreadFor`, so it
+  could neither restart-resume nor track per-recipient read state. Per-recipient
+  rows make a broadcast behave exactly like a unicast for both. (`store.RecipientAll`
+  stays a valid opaque value the store can hold; the *bus* never persists it.)
+- **The sender is skipped on broadcast** — a broadcast goes to peers, so an
+  agent never mails (and thus never self-wakes) on its own broadcast. AC #3's
+  "every active member" is read as the membership filter it demonstrates (frozen
+  excluded), not as self-inclusion.
+- **Persist-before-signal** lives in one private `deliver()`: `PutMessage`
+  returns (row committed) *before* `signal()` pushes the UUID. The ordering test
+  asserts `GetMessage` succeeds the instant the UUID arrives — if signal could
+  outrun the write it would be `ErrMessageNotFound`.
+- **`signal()` is always non-blocking** (`select { case ch <- uuid: default: }`).
+  A missing inbox (unregistered / deregistered-on-freeze) *and* a full buffer
+  both drop only the **hint**; the row is durable, so the reader recovers it via
+  `store.UnreadFor` next cycle (DB is truth, chan is a hint). Proven by the
+  full-buffer test (no deadlock; all rows persisted; chan holds exactly the cap).
+- **The bus owns message identity**: `Send` always mints a fresh
+  `common.GenUUID()` per delivered row (any `ID` on the passed `Message` is
+  ignored), so it is the single source of identity (§6.2). Return value = the
+  delivered row's UUID for a single recipient; `""` for a broadcast (no single
+  identity — N rows).
+- **`Deregister` deletes, never closes** the channel: closing would make a
+  scheduler's `select` spin on the zero value and risk a send-on-closed panic
+  under a racing `Send`. Undrained UUIDs stay durable and reload via `Requeue`.
+  **`Register` is idempotent** — it keeps the existing channel + its queued mail.
+- **`Membership` interface is declared in package `bus`** (`ActiveMembers() []string`)
+  so the bus never imports package `swarm`; the swarm `Roster` gained
+  `ActiveMembers()` and satisfies it structurally (compile-time `var _ bus.Membership`
+  assertion in `roster_test.go`). Dependency stays one-directional: `swarm → bus`.
+- **`inboxBuffer = 256`** — UUID-only hints are cheap; overflow is recoverable.
+- **Out of scope (per ticket), deferred:** the drain (UUID → prompt → mark-read)
+  is the scheduler's job (1-6 drain A / 1-12 drain B); the `send_message` tool
+  that calls `Send` is 1-7; wiring the `Bus` into `SwarmSpace`/supervisor is 1-6.
+  This ticket ships the transport + tests only.

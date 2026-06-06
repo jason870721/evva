@@ -1,6 +1,6 @@
 # SPRD-1-2 — `.vero` store: persistence layer, task state machine, message DAO
 
-> Milestone: M1 (tasks) / M2 (messages) ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-1
+> Milestone: M1 (tasks) / M2 (messages) ｜ Status: IN REVIEW ｜ Owner: (unassigned) ｜ Depends on: 1-1
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 1) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §7
 
 ## 1. Goal
@@ -84,8 +84,16 @@ func (s *Store) UnreadFor(recipient string) ([]string, error) // ordered by crea
 
 ## 7. Definition of Done
 
-- [ ] `Open` + migrations + WAL/busy_timeout; one db file per workdir.
-- [ ] Task state machine with leader-only writes; illegal transitions inert.
-- [ ] Message DAO incl. `UnreadFor` (restart-reload ready).
-- [ ] `-race` clean; transition matrix + message tests green.
-- [ ] No `internal/agent` import (invariant #1); state-machine is per-space (invariant #2).
+- [x] `Open` + forward-only migration runner (`schema_migrations`) + WAL/busy_timeout/foreign_keys; one db file per workdir. Verified: `journal_mode==wal`, `busy_timeout==5000`, `foreign_keys==1`, and a dangling `ref_task` is rejected (FK actually enforced).
+- [x] Task state machine with leader-only writes; illegal transitions inert. Verified by the full 5×5 `TestTaskStateMachine` matrix (6 legal moves succeed; the other 19 — incl. self-transitions and any move out of `completed` — return `ErrIllegalTransition` and leave the row unchanged). Non-leader actor → `ErrNotLeader`, no mutation.
+- [x] Message DAO incl. `UnreadFor` (unread-only, oldest-first, recipient-isolated; restart-reload ready). `MarkRead` is idempotent; missing id → `ErrMessageNotFound`.
+- [x] `-race` clean; transition matrix + message tests + an 8-reader/3-writer concurrency test green.
+- [x] No `internal/agent` import (dep-check green); one `*sql.DB` per workdir = per-space (invariant #2).
+
+### Implementation notes / decisions
+
+- **Driver: `modernc.org/sqlite` (pure Go, no cgo).** `mattn/go-sqlite3` (cgo) would break `release.yml`, which cross-compiles darwin/linux × amd64/arm64 with a plain `CGO_ENABLED=0 go build`. Documented at the top of `store.go`. Cost: a sizeable indirect dependency tree (modernc libc et al.) in `go.sum` — runtime links only libc/mathutil/memory.
+- **Pragmas via DSN** (`_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)`) so every pooled connection gets the connection-scoped ones; WAL is also re-asserted via `Exec` (file-level). A test reads each pragma back to prove the DSN took.
+- **Concurrency:** `sync.RWMutex` wraps the DAO (writes `Lock`, reads `RLock`), per design §7.3. Tasks are single-writer (Leader) by design; the mutex's real job is the multi-writer `messages` table. Default connection pool + WAL gives real read concurrency.
+- **State writes are Leader-only at the DAO** (`TransitionTask(by Actor)`), checked before any read — defence-in-depth under the tool-layer gate (SPRD-1-7). `CreateTask` always inserts `pending` and requires a non-empty assignee (push model).
+- **Broadcast (`recipient="all"`) fan-out is the bus's job (SPRD-1-5);** the store treats `"all"` as an opaque recipient — `UnreadFor` matches the exact string.

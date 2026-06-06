@@ -26,9 +26,9 @@ GOBIN_DIR := $(shell go env GOPATH)/bin
 endif
 PREFIX ?= $(GOBIN_DIR)
 
-.PHONY: all build run test vet fmt tidy clean lint install uninstall
+.PHONY: all build run test vet fmt tidy clean lint install uninstall depcheck
 
-all: fmt vet test build
+all: fmt vet depcheck test build
 
 build:
 	@mkdir -p $(BIN_DIR)
@@ -79,6 +79,11 @@ tidy:
 
 lint:
 	golangci-lint run ./...
+
+# depcheck enforces the Veronica multi-agent oracle: internal/swarm must
+# import only pkg/* (+ internal/swarm). See scripts/depcheck.sh.
+depcheck:
+	@bash scripts/depcheck.sh
 
 clean:
 	rm -rf $(BIN_DIR)

@@ -50,6 +50,13 @@ type PromptContext struct {
 	AgentName string    // e.g. "evva" — the name the main agent introduces itself as.
 	Today     time.Time // anchors the model in absolute time; zero = use time.Now() at render.
 
+	// OmitDate drops the "- Today:" line from the environment section. Long-
+	// running personas (swarm members) set it so the system-prompt prefix stays
+	// bit-stable across rebuilds — a drifting date would bust the prompt cache for
+	// a swarm that runs for weeks. The time they need arrives in wake/run prompts,
+	// never in the static system prompt (RP-5). Driven by AgentDefinition.LongRunning.
+	OmitDate bool
+
 	// Environment
 	OS       string // runtime.GOOS — "darwin", "linux", "windows".
 	Shell    string // basename of $SHELL — "zsh", "bash", ...

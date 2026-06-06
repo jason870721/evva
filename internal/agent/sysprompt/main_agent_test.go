@@ -254,6 +254,33 @@ func TestMainAgent_SkillsSection_EmptyDescriptionFallback(t *testing.T) {
 	}
 }
 
+// TestSkillsSection_OmitAuthoring (RP-10-3): the slim mode (omitAuthoring=true, used
+// by long-running swarm members) drops the "how to create a skill" guidance while
+// keeping the list + the load instruction; the full mode (evva) keeps the guidance.
+func TestSkillsSection_OmitAuthoring(t *testing.T) {
+	refs := []SkillRef{{Name: "commit", Description: "make a commit"}}
+
+	full := skillsSection(refs, false)
+	if !strings.Contains(full, "How to create a skill") {
+		t.Errorf("full skills section should include authoring guidance; got:\n%s", full)
+	}
+
+	slim := skillsSection(refs, true)
+	if strings.Contains(slim, "How to create a skill") {
+		t.Errorf("slim skills section (omitAuthoring) must drop authoring guidance; got:\n%s", slim)
+	}
+
+	// Both still list the skill and tell the model to load it with the skill tool.
+	for label, s := range map[string]string{"full": full, "slim": slim} {
+		if !strings.Contains(s, "- commit: make a commit") {
+			t.Errorf("%s section missing the skill list item; got:\n%s", label, s)
+		}
+		if !strings.Contains(s, "Invoke a skill with the `skill` tool") {
+			t.Errorf("%s section missing the load instruction; got:\n%s", label, s)
+		}
+	}
+}
+
 func TestMainAgent_NoTrailingBlankLines(t *testing.T) {
 	got := buildMainPrompt(mainCtx())
 	if strings.HasSuffix(got, "\n\n") {

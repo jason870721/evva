@@ -1,6 +1,6 @@
 # SPRD-1-11 — Restart-resume: unread reload + `ResumeSession` + boot reconcile
 
-> Milestone: M3 ｜ Status: TODO ｜ Owner: (unassigned) ｜ Depends on: 1-2, 1-5, 1-6, 1-4
+> Milestone: M3 ｜ Status: IN REVIEW ｜ Owner: veronica ｜ Depends on: 1-2, 1-5, 1-6, 1-4
 > Parent: [`../prd-phase1-swarm.md`](../prd-phase1-swarm.md) (元件 1+3) ｜ Design: [`../veronica-design-v1.md`](../veronica-design-v1.md) §6.2, §4.3, §5
 
 ## 1. Goal
@@ -66,8 +66,40 @@ Package `internal/swarm` (a `resume.go` + hooks in `service.go`/`supervisor.go`)
 
 ## 7. Definition of Done
 
-- [ ] Boot reconcile rebuilds every registered space from disk.
-- [ ] Unread reload (`UnreadFor` → `Requeue`) — no message dropped.
-- [ ] `Agent.ResumeSession` from `.vero/sessions/`; tasks persist via the ledger.
-- [ ] Membership (frozen) restored from `runtime.json`; idempotent.
-- [ ] Multi-space restart isolation; tests green; no `internal/agent` import (invariant #1).
+- [x] Boot reconcile rebuilds every registered space from disk.
+- [x] Unread reload (`UnreadFor` → `Requeue`) — no message dropped.
+- [x] `Agent.ResumeSession`; tasks persist via the ledger.
+- [x] Membership (frozen) restored from `runtime.json`; idempotent.
+- [x] Multi-space restart isolation; tests green; no `internal/agent` import (invariant #1).
+
+### Implementation notes
+
+- **`internal/swarm/resume.go` — `SwarmSpace.Reload()`** stitches the three
+  durable stores back together on a rebuild, in §6.2 order (call after
+  `NewSpace`, before the Supervisor starts): (1) resume each member's latest
+  real persona session via `Agent.ListSessions`/`ResumeSession`; (2)
+  `store.UnreadFor(name)` → `bus.Requeue` so the scheduler drains it on its
+  first cycle; (3) reapply frozen membership from `runtime.json`. Idempotent —
+  the DB is truth, so a duplicate mailbox hint is harmless (`MarkRead` is
+  idempotent). Tasks need no handling: they live in `vero.db`.
+- **Session-store deviation:** the SDK persists transcripts at
+  `<AppHome>/sessions/<workdir-slug>/`, keyed by persona — there is **no public
+  option to relocate the session dir to `.vero/sessions/`**, and adding one
+  would mean touching `pkg/agent` (forbidden outside 1-12). So sessions stay in
+  the SDK's standard path; members are disambiguated by `Profile == member
+  name`. Faithful to invariant #1.
+- **`runtime.json`** (`<workdir>/.vero/runtime.json`) carries only membership
+  (the one thing neither the ledger nor the session store holds); written by
+  the Supervisor on `Freeze`/`Unfreeze`/`AddMember`.
+- **Service**: `spaces.json` (under the state dir, `SetStateDir`) records the
+  registered workdirs; `register()` persists + calls `sp.Reload()`; `Reconcile()`
+  rebuilds each on boot (`cmd/evva` calls `SetStateDir`+`Reconcile` in the
+  daemon child). **Key fix:** graceful `Stop()` now tears spaces down *without*
+  rewriting `spaces.json` (preserving the reconcile set), while `StopSpace`
+  (explicit, per-space) *does* drop it — otherwise a clean shutdown would erase
+  the set it's meant to restore.
+- Tests (`-race` clean): `resume_test.go` (the centerpiece — transcript resume +
+  unread reload + running-task persist + frozen-membership across a tear-down/
+  rebuild; fresh-space no-op; idempotency) and `service/reconcile_test.go` (two
+  on-disk spaces rebuilt + isolated after restart; no-state no-op). Daemon
+  restart verified manually (clean reconcile, no-op on empty set).
