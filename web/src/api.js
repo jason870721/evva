@@ -26,7 +26,16 @@ export function createApi(getToken) {
     // snapshots
     spaces: () => req('GET', '/api/swarms'),
     roster: (id) => req('GET', `/api/swarm/${enc(id)}`),
+    // Board snapshot: { tasks: [active… + newest-5 completed], total: <completed count> }.
     tasks: (id) => req('GET', `/api/tasks?space=${enc(id)}`),
+    // On-demand paged view of one status (the Completed tab): { tasks, total }.
+    tasksPage: (id, { status, limit, offset } = {}) => {
+      const p = new URLSearchParams({ space: id })
+      if (status) p.set('status', status)
+      if (limit != null) p.set('limit', String(limit))
+      if (offset != null) p.set('offset', String(offset))
+      return req('GET', `/api/tasks?${p.toString()}`)
+    },
     messages: (id) => req('GET', `/api/messages?space=${enc(id)}`),
     transcript: (id, agent) =>
       req('GET', `/api/agents/${enc(agent)}/transcript?space=${enc(id)}`),

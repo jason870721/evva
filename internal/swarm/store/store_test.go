@@ -196,6 +196,72 @@ func TestTransitionUnknownTask(t *testing.T) {
 	}
 }
 
+// TestListTasksPaginationAndCount covers RP-6: ListTasks honors Limit/Offset and
+// Newest ordering, CountTasks reports the full match total (not the page size),
+// Statuses filters by an IN-list, and a zero-value filter still returns every
+// row oldest-first (the unchanged default).
+func TestListTasksPaginationAndCount(t *testing.T) {
+	st := openTemp(t)
+
+	// 7 completed (ids ascending, oldest→newest) + 2 pending + 1 running = 10.
+	var completedIDs []int64
+	for i := 0; i < 7; i++ {
+		completedIDs = append(completedIDs, taskInState(t, st, StatusCompleted))
+	}
+	taskInState(t, st, StatusPending)
+	taskInState(t, st, StatusPending)
+	taskInState(t, st, StatusRunning)
+
+	// CountTasks ignores Limit/Offset — it's the full total for the WHERE.
+	if n, err := st.CountTasks(TaskFilter{Status: StatusCompleted}); err != nil || n != 7 {
+		t.Fatalf("CountTasks(completed) = %d, %v; want 7", n, err)
+	}
+
+	// Newest-first page 1: the 5 highest completed ids, descending.
+	page1, err := st.ListTasks(TaskFilter{Status: StatusCompleted, Limit: 5, Newest: true})
+	if err != nil {
+		t.Fatalf("ListTasks page1: %v", err)
+	}
+	if len(page1) != 5 || page1[0].ID != completedIDs[6] || page1[4].ID != completedIDs[2] {
+		t.Fatalf("page1 ids = %v, want newest-first %d..%d", idsOf(page1), completedIDs[6], completedIDs[2])
+	}
+
+	// Page 2 via Offset: the remaining 2, still newest-first.
+	page2, err := st.ListTasks(TaskFilter{Status: StatusCompleted, Limit: 5, Offset: 5, Newest: true})
+	if err != nil {
+		t.Fatalf("ListTasks page2: %v", err)
+	}
+	if len(page2) != 2 || page2[0].ID != completedIDs[1] || page2[1].ID != completedIDs[0] {
+		t.Fatalf("page2 ids = %v, want [%d %d]", idsOf(page2), completedIDs[1], completedIDs[0])
+	}
+
+	// Statuses IN-list: the active set (pending+running) = 3 rows, oldest-first.
+	active, err := st.ListTasks(TaskFilter{Statuses: []Status{StatusPending, StatusRunning}})
+	if err != nil {
+		t.Fatalf("ListTasks active: %v", err)
+	}
+	if len(active) != 3 {
+		t.Fatalf("active len = %d (%v), want 3", len(active), idsOf(active))
+	}
+
+	// Zero-value filter: all 10 rows, oldest-first (regression — default unchanged).
+	all, err := st.ListTasks(TaskFilter{})
+	if err != nil {
+		t.Fatalf("ListTasks all: %v", err)
+	}
+	if len(all) != 10 || all[0].ID != completedIDs[0] {
+		t.Fatalf("all len = %d (want 10), first id = %d (want %d)", len(all), all[0].ID, completedIDs[0])
+	}
+}
+
+func idsOf(tasks []Task) []int64 {
+	out := make([]int64, len(tasks))
+	for i, t := range tasks {
+		out[i] = t.ID
+	}
+	return out
+}
+
 func TestVerifyNoteWritten(t *testing.T) {
 	st := openTemp(t)
 	id := taskInState(t, st, StatusVerifying)

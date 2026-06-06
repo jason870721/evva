@@ -851,26 +851,80 @@ func (s *Service) Roster(id string) ([]webapi.MemberInfo, bool) {
 	return out, true
 }
 
-func (s *Service) Tasks(id string) ([]webapi.TaskInfo, bool) {
-	ent, ok := s.entry(id)
-	if !ok {
-		return nil, false
+// boardCompletedPreview is how many of the newest completed tasks the board
+// snapshot carries: the completed column shows these plus the total count, while
+// the full history is paged on-demand via TasksByStatus (the Completed tab) (RP-6).
+const boardCompletedPreview = 5
+
+// activeStatuses are the four non-terminal states — the board's live columns.
+func activeStatuses() []store.Status {
+	return []store.Status{store.StatusPending, store.StatusRunning, store.StatusSuspended, store.StatusVerifying}
+}
+
+func toTaskInfo(t store.Task) webapi.TaskInfo {
+	return webapi.TaskInfo{
+		ID: t.ID, Title: t.Title, Spec: t.Spec, Status: string(t.Status),
+		Assignee: t.Assignee, CreatedBy: t.CreatedBy, Result: t.Result,
+		VerifyNote: t.VerifyNote, ParentID: t.ParentID,
+		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
-	tasks, err := ent.space.Store.ListTasks(store.TaskFilter{})
-	if err != nil {
-		s.log.Warn("swarm: list tasks", "space", id, "err", err)
-		return []webapi.TaskInfo{}, true
-	}
+}
+
+func toTaskInfos(tasks []store.Task) []webapi.TaskInfo {
 	out := make([]webapi.TaskInfo, 0, len(tasks))
 	for _, t := range tasks {
-		out = append(out, webapi.TaskInfo{
-			ID: t.ID, Title: t.Title, Spec: t.Spec, Status: string(t.Status),
-			Assignee: t.Assignee, CreatedBy: t.CreatedBy, Result: t.Result,
-			VerifyNote: t.VerifyNote, ParentID: t.ParentID,
-			CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
-		})
+		out = append(out, toTaskInfo(t))
 	}
-	return out, true
+	return out
+}
+
+// Tasks is the board snapshot: all active tasks (oldest-first) + the newest few
+// completed, with Total = the full completed count. Bounded so the 2.5s board
+// poll never re-ships the whole (monotonic) completed history (RP-6).
+func (s *Service) Tasks(id string) (webapi.TaskPage, bool) {
+	ent, ok := s.entry(id)
+	if !ok {
+		return webapi.TaskPage{}, false
+	}
+	st := ent.space.Store
+	active, err := st.ListTasks(store.TaskFilter{Statuses: activeStatuses()})
+	if err != nil {
+		s.log.Warn("swarm: list active tasks", "space", id, "err", err)
+		return webapi.TaskPage{Tasks: []webapi.TaskInfo{}}, true
+	}
+	recent, err := st.ListTasks(store.TaskFilter{Status: store.StatusCompleted, Limit: boardCompletedPreview, Newest: true})
+	if err != nil {
+		s.log.Warn("swarm: list recent completed", "space", id, "err", err)
+	}
+	total, err := st.CountTasks(store.TaskFilter{Status: store.StatusCompleted})
+	if err != nil {
+		s.log.Warn("swarm: count completed", "space", id, "err", err)
+	}
+	return webapi.TaskPage{Tasks: toTaskInfos(append(active, recent...)), Total: total}, true
+}
+
+// TasksByStatus is the on-demand paged view of one status (the Completed tab):
+// limit/offset page the rows (completed newest-first), Total is the full count
+// for that status — so the UI can show "showing N of TOTAL" and page (RP-6).
+func (s *Service) TasksByStatus(id, status string, limit, offset int) (webapi.TaskPage, bool) {
+	ent, ok := s.entry(id)
+	if !ok {
+		return webapi.TaskPage{}, false
+	}
+	st := ent.space.Store
+	match := store.TaskFilter{Status: store.Status(status)}
+	page := match
+	page.Limit, page.Offset, page.Newest = limit, offset, status == string(store.StatusCompleted)
+	tasks, err := st.ListTasks(page)
+	if err != nil {
+		s.log.Warn("swarm: list tasks by status", "space", id, "status", status, "err", err)
+		return webapi.TaskPage{Tasks: []webapi.TaskInfo{}}, true
+	}
+	total, err := st.CountTasks(match)
+	if err != nil {
+		s.log.Warn("swarm: count tasks by status", "space", id, "status", status, "err", err)
+	}
+	return webapi.TaskPage{Tasks: toTaskInfos(tasks), Total: total}, true
 }
 
 func (s *Service) Messages(id string) ([]webapi.MessageInfo, bool) {

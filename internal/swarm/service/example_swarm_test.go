@@ -127,8 +127,8 @@ func TestResetSpace(t *testing.T) {
 	if _, err := ent.space.Store.CreateTask(store.Task{Title: "seed", Assignee: "builder", CreatedBy: "lead"}); err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
-	if tasks, _ := svc.Tasks(id); len(tasks) != 1 {
-		t.Fatalf("pre-reset tasks = %d, want 1", len(tasks))
+	if page, _ := svc.Tasks(id); len(page.Tasks) != 1 {
+		t.Fatalf("pre-reset tasks = %d, want 1", len(page.Tasks))
 	}
 
 	newID, err := svc.ResetSpace(id)
@@ -141,12 +141,12 @@ func TestResetSpace(t *testing.T) {
 	if !svc.HasSpace(id) {
 		t.Error("space gone after reset; it should be rebuilt under the same id")
 	}
-	tasks, ok := svc.Tasks(id)
+	page, ok := svc.Tasks(id)
 	if !ok {
 		t.Fatal("no tasks view after reset (store not reopened?)")
 	}
-	if len(tasks) != 0 {
-		t.Errorf("post-reset tasks = %d, want 0 (ledger should be wiped)", len(tasks))
+	if len(page.Tasks) != 0 {
+		t.Errorf("post-reset tasks = %d, want 0 (ledger should be wiped)", len(page.Tasks))
 	}
 
 	if _, err := svc.ResetSpace("nope"); err == nil {

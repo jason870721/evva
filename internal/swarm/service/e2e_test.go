@@ -176,8 +176,8 @@ func pollUntil(t *testing.T, what string, timeout time.Duration, cond func() boo
 }
 
 func taskStatus(svc *Service, space string, id int64) string {
-	tasks, _ := svc.Tasks(space)
-	for _, t := range tasks {
+	page, _ := svc.Tasks(space)
+	for _, t := range page.Tasks {
 		if t.ID == id {
 			return t.Status
 		}

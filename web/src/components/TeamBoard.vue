@@ -6,7 +6,11 @@ import { agentColor } from '../colors.js'
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
   now: { type: Number, default: 0 },
+  // Full completed count (the board only renders the newest few; the rest live
+  // in the Completed tab). RP-6: keeps the column bounded as history grows.
+  completedTotal: { type: Number, default: 0 },
 })
+const emit = defineEmits(['view-all'])
 
 const columns = computed(() => groupTasks(props.tasks))
 const open = ref(null) // id of the expanded card, or null
@@ -28,7 +32,7 @@ const titles = {
     <div v-for="s in TASK_STATES" :key="s" class="col">
       <div class="col-head">
         <span :class="['dot', s]"></span>{{ titles[s] }}
-        <span class="count">{{ columns[s].length }}</span>
+        <span class="count">{{ s === 'completed' ? completedTotal : columns[s].length }}</span>
       </div>
       <div class="cards">
         <div
@@ -56,6 +60,13 @@ const titles = {
         </div>
         <div v-if="!columns[s].length" class="empty">—</div>
       </div>
+      <button
+        v-if="s === 'completed' && completedTotal > columns.completed.length"
+        class="viewall"
+        @click="emit('view-all')"
+      >
+        view all {{ completedTotal }} →
+      </button>
     </div>
   </div>
 </template>
@@ -171,5 +182,20 @@ const titles = {
   text-align: center;
   font-size: 0.8rem;
   padding: 0.4rem;
+}
+.viewall {
+  margin-top: 0.4rem;
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--dim);
+  font-size: 0.72rem;
+  padding: 0.3rem;
+  cursor: pointer;
+}
+.viewall:hover {
+  border-color: var(--accent);
+  color: #e6edf3;
 }
 </style>

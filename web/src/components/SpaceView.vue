@@ -4,6 +4,7 @@ import { openSocket } from '../ws.js'
 import { reduceChat, reducePhase, consoleTurns, isApproval, isQuestion, approvalOf, questionOf, touchesLedger, attentionItems } from '../events.js'
 import MemberConsole from './MemberConsole.vue'
 import TeamBoard from './TeamBoard.vue'
+import CompletedTasks from './CompletedTasks.vue'
 import Timeline from './Timeline.vue'
 import Roster from './Roster.vue'
 import AgentTranscript from './AgentTranscript.vue'
@@ -20,7 +21,8 @@ const props = defineProps({
 const emit = defineEmits(['leave'])
 
 const roster = ref([])
-const tasks = ref([])
+const tasks = ref([]) // board snapshot: active + newest-few completed
+const completedTotal = ref(0) // full completed count (RP-6) — board shows it, tab pages it
 const messages = ref([])
 const chat = ref([])
 // Live per-agent sub-phase derived from the WS event stream (AgentID → {phase,
@@ -48,7 +50,7 @@ function toggleGateMode() {
 }
 const focused = ref('') // the member whose console is in the center pane
 const selected = ref('') // the member whose transcript+mailbox is in the right pane
-const centerTab = ref('board') // 'board' | 'timeline' | 'console' (RP-4 UX-2)
+const centerTab = ref('board') // 'board' | 'completed' | 'timeline' | 'console' (RP-4 UX-2, RP-6)
 const transcript = ref([])
 const err = ref('')
 const now = ref(Date.now()) // ticks every 1s so elapsed clocks stay live
@@ -105,7 +107,10 @@ async function refreshSnapshots() {
       props.api.messages(props.space.id),
     ])
     roster.value = r || []
-    tasks.value = t || []
+    // /api/tasks now returns the board snapshot { tasks, total } (RP-6): active
+    // tasks + the newest-few completed, plus the full completed count.
+    tasks.value = (t && t.tasks) || []
+    completedTotal.value = (t && t.total) || 0
     messages.value = m || []
     err.value = ''
   } catch (e) {
@@ -351,13 +356,29 @@ onBeforeUnmount(() => {
       <main class="center">
         <nav class="tabs">
           <button :class="{ active: centerTab === 'board' }" @click="centerTab = 'board'">Board</button>
+          <button :class="{ active: centerTab === 'completed' }" @click="centerTab = 'completed'">
+            Completed<span v-if="completedTotal" class="who-tab"> · {{ completedTotal }}</span>
+          </button>
           <button :class="{ active: centerTab === 'timeline' }" @click="centerTab = 'timeline'">Timeline</button>
           <button :class="{ active: centerTab === 'console' }" @click="centerTab = 'console'">
             Console<span v-if="focusedMember" class="who-tab"> · {{ focusedMember }}</span>
           </button>
         </nav>
         <section class="tabbody">
-          <TeamBoard v-show="centerTab === 'board'" :tasks="tasks" :now="now" />
+          <TeamBoard
+            v-show="centerTab === 'board'"
+            :tasks="tasks"
+            :now="now"
+            :completed-total="completedTotal"
+            @view-all="centerTab = 'completed'"
+          />
+          <CompletedTasks
+            v-show="centerTab === 'completed'"
+            :api="api"
+            :space-id="space.id"
+            :visible="centerTab === 'completed'"
+            :now="now"
+          />
           <Timeline v-show="centerTab === 'timeline'" :messages="messages" :now="now" />
           <MemberConsole
             v-show="centerTab === 'console'"

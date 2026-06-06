@@ -39,8 +39,8 @@ func TestSendUserMessage_DeliveredAndDrained(t *testing.T) {
 	}
 
 	// The ledger is untouched — a user message is not a task.
-	if tasks, _ := svc.Tasks(id); len(tasks) != 0 {
-		t.Errorf("user message created %d tasks, want 0 (ledger is leader-only)", len(tasks))
+	if page, _ := svc.Tasks(id); len(page.Tasks) != 0 {
+		t.Errorf("user message created %d tasks, want 0 (ledger is leader-only)", len(page.Tasks))
 	}
 }
 

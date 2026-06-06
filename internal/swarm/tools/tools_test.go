@@ -305,17 +305,43 @@ func TestTaskListMyTasksAndGet(t *testing.T) {
 	sp := liteSpace(t)
 	a, _ := sp.Store.CreateTask(store.Task{Title: "task-a", Assignee: "worker-a", CreatedBy: "leader"})
 	_, _ = sp.Store.CreateTask(store.Task{Title: "task-b", Assignee: "worker-b", CreatedBy: "leader"})
+	c, _ := sp.Store.CreateTask(store.Task{Title: "task-c", Assignee: "worker-a", CreatedBy: "leader"})
 
-	// task_list (leader) sees both.
+	// task_list (leader) sees all on the default page.
 	all := exec(t, newTaskList(leaderMC(sp)), `{}`)
 	if !strings.Contains(all.Content, "task-a") || !strings.Contains(all.Content, "task-b") {
 		t.Errorf("task_list missing tasks: %s", all.Content)
 	}
 
-	// my_tasks (worker-a) sees only its own.
+	// RP-6 paging: a small explicit limit returns one window + a next-offset hint.
+	pg1 := exec(t, newTaskList(leaderMC(sp)), `{"limit":2}`)
+	if !strings.Contains(pg1.Content, "showing 1-2 of 3") || !strings.Contains(pg1.Content, "offset=2") {
+		t.Errorf("task_list page1 missing window/next-offset hint: %s", pg1.Content)
+	}
+	if tasks, ok := pg1.Metadata.([]store.Task); !ok || len(tasks) != 2 {
+		t.Errorf("task_list page1 should carry 2 tasks in Metadata, got %#v", pg1.Metadata)
+	}
+	pg2 := exec(t, newTaskList(leaderMC(sp)), `{"limit":2,"offset":2}`)
+	if !strings.Contains(pg2.Content, "showing 3-3 of 3") || strings.Contains(pg2.Content, "pass offset") {
+		t.Errorf("task_list page2 wrong window or stray next-offset hint: %s", pg2.Content)
+	}
+
+	// Completed is newest-first: complete a then c → c (higher id) leads.
+	completeTask(t, sp.Store, a)
+	completeTask(t, sp.Store, c)
+	done := exec(t, newTaskList(leaderMC(sp)), `{"status":"completed"}`)
+	ic, ia := strings.Index(done.Content, "task-c"), strings.Index(done.Content, "task-a")
+	if ic < 0 || ia < 0 || ic > ia {
+		t.Errorf("completed should be newest-first (task-c before task-a): %s", done.Content)
+	}
+
+	// my_tasks (worker-a) sees only its own, and stays UNPAGED (plain header, no hints).
 	mine := exec(t, newMyTasks(workerMC(sp, "worker-a")), `{}`)
 	if !strings.Contains(mine.Content, "task-a") || strings.Contains(mine.Content, "task-b") {
 		t.Errorf("my_tasks scoping wrong: %s", mine.Content)
+	}
+	if strings.Contains(mine.Content, "showing") || strings.Contains(mine.Content, "offset=") {
+		t.Errorf("my_tasks must stay unpaged (no paging hints): %s", mine.Content)
 	}
 
 	// task_get reads one; unknown id errors.
@@ -324,6 +350,17 @@ func TestTaskListMyTasksAndGet(t *testing.T) {
 	}
 	if miss := exec(t, newTaskGet(workerMC(sp, "worker-a")), `{"task_id":99999}`); !miss.IsError {
 		t.Error("task_get of an unknown id should error")
+	}
+}
+
+// completeTask drives a task pending→running→verifying→completed via leader writes.
+func completeTask(t *testing.T, st *store.Store, id int64) {
+	t.Helper()
+	ld := store.Actor{Name: "leader", Role: store.RoleLeader}
+	for _, s := range []store.Status{store.StatusRunning, store.StatusVerifying, store.StatusCompleted} {
+		if err := st.TransitionTask(id, s, ld, ""); err != nil {
+			t.Fatalf("complete task %d ->%s: %v", id, s, err)
+		}
 	}
 }
 

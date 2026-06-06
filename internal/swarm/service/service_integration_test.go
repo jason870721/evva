@@ -152,10 +152,10 @@ func TestRESTReflectsSpace(t *testing.T) {
 		t.Fatalf("roster = %d members, want 2", len(roster))
 	}
 
-	var tasks []webapi.TaskInfo
-	getJSON(t, ts.URL+"/api/tasks?space="+id+"&token="+svc.Token(), &tasks)
-	if len(tasks) != 1 || tasks[0].Title != "build it" || tasks[0].Status != "pending" {
-		t.Fatalf("tasks = %+v", tasks)
+	var page webapi.TaskPage
+	getJSON(t, ts.URL+"/api/tasks?space="+id+"&token="+svc.Token(), &page)
+	if len(page.Tasks) != 1 || page.Tasks[0].Title != "build it" || page.Tasks[0].Status != "pending" {
+		t.Fatalf("tasks = %+v", page)
 	}
 }
 

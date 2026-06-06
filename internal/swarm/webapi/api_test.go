@@ -66,11 +66,17 @@ func (f *fakeBackend) Spaces() []SpaceInfo {
 	return out
 }
 func (f *fakeBackend) Roster(id string) ([]MemberInfo, bool) { r, ok := f.spaces[id]; return r, ok }
-func (f *fakeBackend) Tasks(id string) ([]TaskInfo, bool) {
+func (f *fakeBackend) Tasks(id string) (TaskPage, bool) {
 	if !f.HasSpace(id) {
-		return nil, false
+		return TaskPage{}, false
 	}
-	return []TaskInfo{{ID: 1, Title: "t", Status: "pending", Assignee: "w"}}, true
+	return TaskPage{Tasks: []TaskInfo{{ID: 1, Title: "t", Status: "pending", Assignee: "w"}}}, true
+}
+func (f *fakeBackend) TasksByStatus(id, status string, limit, offset int) (TaskPage, bool) {
+	if !f.HasSpace(id) {
+		return TaskPage{}, false
+	}
+	return TaskPage{Tasks: []TaskInfo{{ID: 2, Title: "done", Status: status, Assignee: "w"}}, Total: 7}, true
 }
 func (f *fakeBackend) Messages(id string) ([]MessageInfo, bool) {
 	if !f.HasSpace(id) {
@@ -185,10 +191,17 @@ func TestRESTSnapshots(t *testing.T) {
 		t.Fatalf("roster = %+v", roster)
 	}
 
-	var tasks []TaskInfo
-	getJSON(t, srv.URL+"/api/tasks?space=sp-a&token=secret", &tasks)
-	if len(tasks) != 1 || tasks[0].Status != "pending" {
-		t.Fatalf("tasks = %+v", tasks)
+	// No status → board snapshot TaskPage {tasks,total}.
+	var page TaskPage
+	getJSON(t, srv.URL+"/api/tasks?space=sp-a&token=secret", &page)
+	if len(page.Tasks) != 1 || page.Tasks[0].Status != "pending" {
+		t.Fatalf("board tasks = %+v", page)
+	}
+	// A status filter → on-demand paged view (TasksByStatus) carrying the full total.
+	var done TaskPage
+	getJSON(t, srv.URL+"/api/tasks?space=sp-a&status=completed&limit=5&offset=0&token=secret", &done)
+	if len(done.Tasks) != 1 || done.Tasks[0].Status != "completed" || done.Total != 7 {
+		t.Fatalf("paged completed = %+v", done)
 	}
 
 	// Unknown space → 404.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/websocket"
@@ -40,7 +41,13 @@ type Backend interface {
 	// Read snapshots. The bool is false when the space id is unknown.
 	Spaces() []SpaceInfo
 	Roster(spaceID string) ([]MemberInfo, bool)
-	Tasks(spaceID string) ([]TaskInfo, bool)
+	// Tasks is the board snapshot: every active (non-completed) task plus only
+	// the most recent few completed; TaskPage.Total is the full completed count,
+	// so the 2.5s board poll stays small however much history accumulates (RP-6).
+	Tasks(spaceID string) (TaskPage, bool)
+	// TasksByStatus is the on-demand paged view of one status (the Completed tab):
+	// limit/offset page the rows (completed newest-first), Total is the full count.
+	TasksByStatus(spaceID, status string, limit, offset int) (TaskPage, bool)
 	Messages(spaceID string) ([]MessageInfo, bool)
 	Transcript(spaceID, agent string) ([]TranscriptEntry, bool)
 	// PendingGates returns the space's outstanding approval/question gates as raw
@@ -110,6 +117,14 @@ type TaskInfo struct {
 	ParentID   *int64 `json:"parentId,omitempty"`
 	CreatedAt  int64  `json:"createdAt"`
 	UpdatedAt  int64  `json:"updatedAt"`
+}
+
+// TaskPage is a bounded slice of tasks plus the full match total, so a paged
+// client can render "N of TOTAL" and decide whether to fetch more (RP-6). On the
+// board snapshot, Total is the completed count (Tasks holds active + a preview).
+type TaskPage struct {
+	Tasks []TaskInfo `json:"tasks"`
+	Total int        `json:"total"`
 }
 
 // MessageInfo mirrors store.Message on the wire (GET /api/messages).
@@ -208,8 +223,22 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 		}
 	}))
 	mux.Handle("GET /api/tasks", guard(func(w http.ResponseWriter, r *http.Request) {
-		if tasks, ok := b.Tasks(r.URL.Query().Get("space")); ok {
-			writeJSON(w, http.StatusOK, tasks)
+		q := r.URL.Query()
+		space := q.Get("space")
+		// A status filter switches to the on-demand paged view (the Completed tab);
+		// without it, return the board snapshot (active + recent completed). Both
+		// shapes are a TaskPage so the client always reads {tasks,total} (RP-6).
+		var (
+			page TaskPage
+			ok   bool
+		)
+		if status := q.Get("status"); status != "" {
+			page, ok = b.TasksByStatus(space, status, queryInt(q.Get("limit")), queryInt(q.Get("offset")))
+		} else {
+			page, ok = b.Tasks(space)
+		}
+		if ok {
+			writeJSON(w, http.StatusOK, page)
 		} else {
 			http.Error(w, "unknown space", http.StatusNotFound)
 		}
@@ -291,6 +320,16 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 	}
 
 	return mux
+}
+
+// queryInt parses a non-negative int query param; missing or invalid → 0 (the
+// callers treat 0 as "use the default / no offset", so a junk value degrades
+// safely rather than erroring the request).
+func queryInt(s string) int {
+	if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+		return n
+	}
+	return 0
 }
 
 // tokenGuard returns a middleware that rejects any request not carrying the

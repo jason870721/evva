@@ -47,12 +47,36 @@ func formatTask(t store.Task) string {
 	return b.String()
 }
 
-func formatTasks(label string, tasks []store.Task) pubtools.Result {
+// task_list paging: completed is monotonic, so an unbounded list would re-inject
+// the whole history into the leader's context on every poll (RP-6). Default to a
+// recent page; cap hard so even an explicit limit can't blow the context.
+const (
+	taskListDefaultLimit = 20
+	taskListMaxLimit     = 50
+)
+
+// formatTasks renders a page of tasks. offset/total describe the window within
+// the full match set: when the page IS the whole set (offset 0, total == len) it
+// prints the plain "label (N)" header (unchanged for my_tasks); otherwise it
+// shows "showing A–B of TOTAL" and, if more remain, the next offset to page with.
+func formatTasks(label string, tasks []store.Task, offset, total int) pubtools.Result {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s (%d):\n", label, len(tasks))
+	end := offset + len(tasks)
+	if offset > 0 || total > len(tasks) {
+		start := offset + 1
+		if len(tasks) == 0 {
+			start = offset
+		}
+		fmt.Fprintf(&b, "%s (showing %d-%d of %d):\n", label, start, end, total)
+	} else {
+		fmt.Fprintf(&b, "%s (%d):\n", label, len(tasks))
+	}
 	for _, t := range tasks {
 		b.WriteString(formatTask(t))
 		b.WriteByte('\n')
+	}
+	if end < total {
+		fmt.Fprintf(&b, "\n%d more — pass offset=%d to see the next page.\n", total-end, end)
 	}
 	return pubtools.Result{Content: b.String(), Metadata: tasks}
 }
@@ -225,22 +249,50 @@ func newTaskVerify(mc swarm.MemberContext) pubtools.Tool {
 func newTaskList(mc swarm.MemberContext) pubtools.Tool {
 	return &swarmTool{
 		name: toolTaskList,
-		desc: "List tasks in the ledger, optionally filtered by status and/or assignee. Read-only.",
+		desc: "List tasks in the ledger, optionally filtered by status and/or assignee. Returns one page " +
+			"(default 20, max 50) plus the total count; completed tasks are newest-first — page back through " +
+			"older ones with offset (the result tells you the next offset). Read-only.",
 		schema: `{"type":"object","properties":{` +
 			`"status":{"type":"string","enum":["pending","running","suspended","verifying","completed"],"description":"Optional status filter."},` +
-			`"assignee":{"type":"string","description":"Optional assignee filter."}` +
+			`"assignee":{"type":"string","description":"Optional assignee filter."},` +
+			`"limit":{"type":"integer","description":"Max tasks to return (default 20, max 50)."},` +
+			`"offset":{"type":"integer","description":"Skip this many matches for paging; the result reports the next offset when more remain."}` +
 			`}}`,
 		exec: func(_ context.Context, input json.RawMessage) (pubtools.Result, error) {
 			var in struct {
 				Status   string `json:"status"`
 				Assignee string `json:"assignee"`
+				Limit    int    `json:"limit"`
+				Offset   int    `json:"offset"`
 			}
 			_ = json.Unmarshal(input, &in) // all fields optional; ignore parse noise
-			tasks, err := mc.Space.Store.ListTasks(store.TaskFilter{Status: store.Status(in.Status), Assignee: in.Assignee})
+			limit := in.Limit
+			if limit <= 0 {
+				limit = taskListDefaultLimit
+			}
+			if limit > taskListMaxLimit {
+				limit = taskListMaxLimit
+			}
+			offset := in.Offset
+			if offset < 0 {
+				offset = 0
+			}
+			// Completed is the monotonic terminal pile — the leader almost always
+			// wants the most recent, so default it newest-first; active states keep
+			// the board's oldest-first reading order.
+			newest := in.Status == string(store.StatusCompleted)
+			match := store.TaskFilter{Status: store.Status(in.Status), Assignee: in.Assignee}
+			page := match
+			page.Limit, page.Offset, page.Newest = limit, offset, newest
+			tasks, err := mc.Space.Store.ListTasks(page)
 			if err != nil {
 				return errf("task_list: %v", err), nil
 			}
-			return formatTasks("Tasks", tasks), nil
+			total, err := mc.Space.Store.CountTasks(match)
+			if err != nil {
+				return errf("task_list: %v", err), nil
+			}
+			return formatTasks("Tasks", tasks, offset, total), nil
 		},
 	}
 }
@@ -258,7 +310,10 @@ func newMyTasks(mc swarm.MemberContext) pubtools.Tool {
 			if err != nil {
 				return errf("my_tasks: %v", err), nil
 			}
-			return formatTasks("Your tasks", tasks), nil
+			// my_tasks stays unpaged (a worker's own set is small and called
+			// on-demand, not polled — RP-6 scopes paging to the leader's task_list):
+			// offset 0 + total == len prints the plain "Your tasks (N)" header.
+			return formatTasks("Your tasks", tasks, 0, len(tasks)), nil
 		},
 	}
 }
