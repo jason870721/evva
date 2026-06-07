@@ -74,7 +74,7 @@ depcheck clean、web `npm test` + build 完成）。
 
 ---
 
-## 第二波 refine —— 優化（RP-5 ~ RP-8）
+## 第二波 refine —— 優化（RP-5 ~ RP-10）
 
 > 狀態：**草案 / Draft（待 Johnny 拍板，尚未實作）** ｜ 日期：2026-06-06
 > 觸發：RP-1~4 落地後的下一輪使用回饋 —— 不是「卡死 bug」，而是**長時間運行的規模化、
@@ -104,3 +104,24 @@ schedule 欄位）；RP-9（Phase 2）獨立，但與 RP-7 互補（timer 驅動
 
 **與第一波的關係**：RP-1~4 是「讓團隊**不卡死**」；RP-5~8 是「讓團隊**跑得久、管得動、編得了**」
 —— 接續 [RP-4](RP-4-web-ui-ux.md) 把 Web 從 console（監看+介入）再往「**team & schedule 編組台**」推進。
+
+---
+
+## 第三波 refine —— FE v2（Web UI 2.0 重寫）
+
+> 狀態：**草案 / Draft（待 Johnny 拍板，尚未實作）** ｜ 日期：2026-06-07 ｜ 索引：[`fe-v2/README.md`](fe-v2/README.md)
+
+接在 RP-10 之後的 **FE v2 track**：swarm 功能從 RP-1 長到 RP-10，v1 web 是「邊長功能邊補 UI」，已撞到密度與可維護性天花板。第三波**不再補丁 v1，而是平行新建一套 Web UI 2.0**（Vue 3 + TypeScript + Pinia），達 parity 後汰換 v1。三個招牌：① **NEON TOKYO 設計語言**（對齊 TUI 配色）＋可切換主題＋三層 token CSS；② **agent stream 交互**重設計（多 agent 並發串流、tool/thinking/diff 可讀呈現）；③ 正式型別化狀態層（收掉 662 行 god-component）。本波承接 [RP-4](RP-4-web-ui-ux.md) 的「swarm operations console」北極星，把它從「在 v1 上分階段補丁」升級為「設計系統重寫」。
+
+| # | 計畫 | 主題 | 一句話 |
+| --- | --- | --- | --- |
+| [FE-1](fe-v2/FE-1-foundations-theme-system.md) | 地基：骨架＋token＋主題 | NEON TOKYO | Vue3+TS+Pinia 骨架、三層 token、NEON TOKYO 旗艦＋可切換主題、port 純邏輯層為 `.ts`。 |
+| [FE-2](fe-v2/FE-2-app-shell-and-ia.md) | 資訊架構＋App 殼層 | IA / shell | 全域 chrome、region 版面、深連結路由、破壞性操作收進安全選單。 |
+| [FE-3](fe-v2/FE-3-realtime-data-layer.md) | 即時資料層 | Pinia / WS | stores＋WS ingest pipeline＋gate 重放＋command 通道，收掉 god-component 的 IO。 |
+| [FE-4](fe-v2/FE-4-agent-stream-console.md) | **Agent stream console** | 串流交互 | 多 agent 並發串流、tool/thinking/diff 分型呈現、follow-tail、firehose/focused。 |
+| [FE-5](fe-v2/FE-5-situational-awareness.md) | 態勢感知 | 監看 | Attention（含 stall）＋5 態看板 v2＋Team Timeline 多源 feed。 |
+| [FE-6](fe-v2/FE-6-intervention-and-gates.md) | 介入＋安全 | gates | 審批/問答 v2（modal/tray、佇列、鍵盤、**multi-select 補洞**）、破壞性操作分級確認。 |
+| [FE-7](fe-v2/FE-7-team-composition-and-automation.md) | 團隊編組＋自動化 | 編組台 | Roster v2、成員增刪、排程（cron 預覽）、skills 管理、外部事件可視化。 |
+| [FE-8](fe-v2/FE-8-a11y-rwd-and-migration.md) | a11y／RWD／收尾＋遷移 | cutover | WCAG AA、RWD、四態、i18n scaffold、**parity checklist＋cutover（embed 切 web2）**。 |
+
+**架構決策（已拍板 2026-06-07）**：Vue 3 + TypeScript + Pinia｜平行新建 `web2/`、達 parity 後汰換 v1（保留並 port 已測純邏輯層）｜完整 8 份 arc。**建議落地序**：FE-1 →（FE-2 ∥ FE-3）→（FE-4 ∥ FE-5 ∥ FE-6）→ FE-7 → FE-8。

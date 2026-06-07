@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	agent_impl "github.com/johnny1110/evva/internal/agent"
-	"github.com/johnny1110/evva/internal/question"
 	config "github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/hooks"
@@ -306,16 +305,10 @@ func convertPermissionRuleSeed(r *PermissionRuleSeed) *ui.PermissionRuleSeed {
 }
 
 func (a *agentAdapter) RespondQuestion(id string, resp QuestionResponse) error {
-	r := question.Response{
-		Answers:     resp.Answers,
-		Annotations: make(map[string]question.Annotation, len(resp.Annotations)),
-	}
-	for k, v := range resp.Annotations {
-		r.Annotations[k] = question.Annotation{Notes: v.Notes, Preview: v.Preview}
-	}
 	return a.inner.RespondQuestion(id, ui.QuestionResponse{
-		Answers:     resp.Answers,
-		Annotations: convertQuestionAnnotations(resp.Annotations),
+		Answers:      resp.Answers,
+		MultiAnswers: resp.MultiAnswers,
+		Annotations:  convertQuestionAnnotations(resp.Annotations),
 	})
 }
 

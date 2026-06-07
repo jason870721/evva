@@ -1,0 +1,25 @@
+/* NEON TOKYO — flagship primitive palette, ported 1:1 from the evva TUI
+   (pkg/ui/bubbletea/theme/palette.go:15-60). This is the ONE place these raw
+   hex values live; semantic tokens (tokens.semantic.css) map onto them, and
+   components only ever read the semantic layer. Switching data-theme swaps this
+   whole table out. */
+:root[data-theme='neon-tokyo'] {
+  --neon-bg: #0a0a14; /* palette.go bg  — abyssal navy (terminal bg) */
+  --neon-surface: #1b1b2f; /* palette.go dim — panel/card */
+  --neon-fg: #e2e2ff; /* palette.go fg  — cool fog white (primary text) */
+  --neon-muted: #7a7e94; /* palette.go muted — dim chrome / gutter */
+  --neon-think: #5e627a; /* palette.go think — thinking aside */
+  --neon-cyan: #05d9e8; /* palette.go cyan  — primary accent */
+  --neon-violet: #b967ff; /* palette.go purple — secondary accent */
+  --neon-copper: #b87333; /* palette.go brown — tool calls / executing */
+  --neon-sky: #69b4ff; /* palette.go sky   — tool result content */
+  --neon-yellow: #fafc4e; /* palette.go yellow — compacting / paused */
+  --neon-green: #39ff14; /* palette.go green  — success / diff add */
+  --neon-red: #ff003c; /* palette.go red    — errors / diff remove */
+  --neon-light-blue: #7df9ff; /* palette.go lightBlue — thinking spinner */
+  --neon-blue: #5d5fef; /* palette.go blue   — info */
+  --neon-magenta: #ff2a6d; /* palette.go magenta — flourish (sparing) */
+  --neon-white: #ffffff;
+  --neon-diff-add-bg: #1a3a1a; /* palette.go diffAddBg */
+  --neon-diff-del-bg: #3a1a1a; /* palette.go diffRemoveBg */
+}

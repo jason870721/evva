@@ -1355,6 +1355,22 @@ func (a *Agent) RespondPermission(id string, dec ui.PermissionDecision) error {
 	return a.permissionBroker.Respond(id, pd)
 }
 
+// questionAnswers folds the public response — the back-compat string Answers
+// plus the additive MultiAnswers — into the canonical multi-value map. A key in
+// MultiAnswers wins; a key only in Answers becomes a one-element slice.
+func questionAnswers(resp ui.QuestionResponse) map[string][]string {
+	out := make(map[string][]string, len(resp.Answers)+len(resp.MultiAnswers))
+	for k, v := range resp.MultiAnswers {
+		out[k] = v
+	}
+	for k, v := range resp.Answers {
+		if _, ok := out[k]; !ok {
+			out[k] = []string{v}
+		}
+	}
+	return out
+}
+
 // RespondQuestion forwards the user's answers from the TUI to the question
 // broker. id ties back to a single blocked question.Broker.Request call.
 // Implements ui.Controller.
@@ -1363,7 +1379,7 @@ func (a *Agent) RespondQuestion(id string, resp ui.QuestionResponse) error {
 		return errors.New("agent: no question broker installed")
 	}
 	r := question.Response{
-		Answers:     resp.Answers,
+		Answers:     questionAnswers(resp),
 		Annotations: make(map[string]question.Annotation, len(resp.Annotations)),
 	}
 	for k, v := range resp.Annotations {

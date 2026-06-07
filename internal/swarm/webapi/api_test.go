@@ -127,7 +127,7 @@ func (f *fakeBackend) RespondPermission(space, agent, reqID, behavior, reason, r
 	f.perms = append(f.perms, [6]string{space, agent, reqID, behavior, reason, ruleTool})
 	return nil
 }
-func (f *fakeBackend) RespondQuestion(string, string, string, map[string]string) error { return nil }
+func (f *fakeBackend) RespondQuestion(string, string, string, map[string][]string) error { return nil }
 func (f *fakeBackend) Suspend(space, agent string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

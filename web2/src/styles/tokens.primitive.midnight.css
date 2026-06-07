@@ -1,0 +1,25 @@
+/* MIDNIGHT — the second shipped theme. Deliberately a softer, lower-saturation
+   dark palette (not neon) so it stress-tests the token abstraction: if any
+   component leaks a raw hex or reaches past the semantic layer, switching to
+   midnight makes it obvious. Same primitive names, different values — that is
+   the entire cost of a new theme (FE-1 §5: "未來擴充 css 方便使用"). */
+:root[data-theme='midnight'] {
+  --neon-bg: #14161f; /* slate */
+  --neon-surface: #1d2030;
+  --neon-fg: #e6e8f0;
+  --neon-muted: #8b90a6;
+  --neon-think: #6b7090;
+  --neon-cyan: #4fd6e0; /* softened cyan */
+  --neon-violet: #a98cff;
+  --neon-copper: #c98a4b;
+  --neon-sky: #7fb6f0;
+  --neon-yellow: #e6e25a;
+  --neon-green: #5fd06a; /* softened green */
+  --neon-red: #ff5c7a; /* softened red */
+  --neon-light-blue: #8fe0ff;
+  --neon-blue: #6f72e0;
+  --neon-magenta: #ff6b9d;
+  --neon-white: #ffffff;
+  --neon-diff-add-bg: #16291a;
+  --neon-diff-del-bg: #2c1a20;
+}

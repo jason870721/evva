@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/johnny1110/evva/internal/question"
@@ -176,7 +177,7 @@ func mcpPromptViaQuestion(brokerFn func() question.Broker) mcp.OAuthPromptFn {
 		if err != nil {
 			return mcp.OAuthCancelled, err
 		}
-		if resp.Answers[qText] == "Cancel" {
+		if slices.Contains(resp.Answers[qText], "Cancel") {
 			return mcp.OAuthCancelled, nil
 		}
 		return mcp.OAuthCompleted, nil

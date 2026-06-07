@@ -1,0 +1,10 @@
+/* Token-system load order matters (cascade):
+   reset → primitives (per-theme raw palette) → semantic (theme-agnostic names
+   that map to primitives) → component (element-level aliases) → base (scale +
+   element defaults). Components only ever read semantic/component tokens. */
+@import './reset.css';
+@import './tokens.primitive.neon-tokyo.css';
+@import './tokens.primitive.midnight.css';
+@import './tokens.semantic.css';
+@import './tokens.component.css';
+@import './base.css';

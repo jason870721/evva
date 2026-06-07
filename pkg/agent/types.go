@@ -150,8 +150,13 @@ type SkillReloader interface {
 
 // QuestionResponse is the payload returned through Agent.RespondQuestion.
 type QuestionResponse struct {
-	Answers     map[string]string
-	Annotations map[string]QuestionAnnotation
+	// Answers maps question text → answer string (single label; comma-joined for
+	// multi-select). Kept for back-compat; prefer MultiAnswers for multi-select.
+	Answers map[string]string
+	// MultiAnswers maps question text → the chosen option labels (native
+	// multi-select form). Additive in v2.x — authoritative when set.
+	MultiAnswers map[string][]string
+	Annotations  map[string]QuestionAnnotation
 }
 
 // QuestionAnnotation captures the preview content (if any) of the option the

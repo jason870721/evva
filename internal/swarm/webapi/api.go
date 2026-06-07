@@ -69,7 +69,7 @@ type Backend interface {
 	// the operator picked "Always allow" — add a session-scope allow rule for
 	// that tool so it stops re-prompting for the rest of the session.
 	RespondPermission(spaceID, agent, reqID, behavior, reason, ruleTool string) error
-	RespondQuestion(spaceID, agent, reqID string, answers map[string]string) error
+	RespondQuestion(spaceID, agent, reqID string, answers map[string][]string) error
 	Suspend(spaceID, agent string) error
 	Resume(spaceID, agent string) error
 	Freeze(spaceID, agent string) error
@@ -555,7 +555,7 @@ type wsCommand struct {
 	Behavior string            `json:"behavior"`
 	Reason   string            `json:"reason"`
 	RuleTool string            `json:"ruleTool"` // "Always allow": tool to session-allow ("" = one-shot)
-	Answers  map[string]string `json:"answers"`
+	Answers  map[string][]string `json:"answers"` // question text → chosen labels (native multi-select)
 }
 
 // dispatchInbound routes one inbound WS command, returning the command's reqId

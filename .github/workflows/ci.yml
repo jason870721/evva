@@ -27,26 +27,30 @@ jobs:
         run: bash scripts/depcheck.sh
 
   web:
-    name: Web SPA build
+    name: Web SPA build (web2 / FE v2)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web
+        working-directory: web2
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          # Node 24: strips TypeScript types natively, so the `node --test` lib
+          # suite runs .test.ts without a flag.
+          node-version: "24"
           cache: "npm"
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: web2/package-lock.json
       - name: Install
         run: npm ci
-      - name: Build SPA
+      - name: Typecheck + build SPA
         run: npm run build
+      - name: Unit tests (lib + stores)
+        run: npm test
       - name: Verify vendored dist/ is current
         run: |
           if ! git diff --quiet -- dist; then
-            echo "::error::web/dist is stale — run 'npm run build' in web/ and commit dist/."
+            echo "::error::web2/dist is stale — run 'npm run build' in web2/ and commit dist/."
             git --no-pager diff --stat -- dist
             exit 1
           fi

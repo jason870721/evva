@@ -1,0 +1,25 @@
+/* Component layer — element-level aliases built from the semantic layer. These
+   let a component tune its own surface without reintroducing raw colour, and
+   give FE-2+ a stable hook to theme individual widgets. Optional: a component
+   may also read semantic tokens directly. */
+:root {
+  --panel-bg: var(--color-surface);
+  --panel-border: var(--color-line);
+  --panel-radius: var(--r-lg);
+
+  --console-bg: var(--color-surface);
+  --card-bg: var(--color-bg);
+  --card-border: var(--color-line);
+
+  --pill-idle-fg: var(--phase-idle);
+  --pill-thinking-fg: var(--phase-thinking);
+  --pill-executing-fg: var(--phase-executing);
+  --pill-waiting-fg: var(--phase-waiting);
+  --pill-error-fg: var(--phase-error);
+
+  --btn-primary-bg: var(--color-accent);
+  --btn-primary-fg: var(--color-bg); /* dark ink on the bright accent — stays themed */
+  --btn-danger-fg: var(--color-danger);
+
+  --scrim: color-mix(in srgb, #000 62%, transparent);
+}

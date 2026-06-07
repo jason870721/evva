@@ -12,6 +12,32 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.4.1-beta.1] — 2026-06-07
+
+Patch beta on v1.4.0. Native multi-select question answers (an additive,
+non-breaking SDK change) plus the swarm web workstation rebuilt as FE v2.
+
+### Added
+
+- **Native multi-select question answers.** `pkg/ui.QuestionResponse` and
+  `pkg/agent.QuestionResponse` gain an additive `MultiAnswers map[string][]string`
+  field — the chosen option labels per question (single-select is a one-element
+  slice; "Other" is the typed text). `Answers map[string]string` is retained
+  (comma-joined) for back-compat, so this is **additive only — no Stable break**.
+  The `ask_user_question` tool now returns answers as arrays; the canonical
+  internal shape (`question.Response.Answers`) is `map[string][]string`, and the
+  swarm web wire (`RespondQuestion` / `wsCommand.Answers`) carries the arrays.
+
+### Changed
+
+- **Swarm web workstation → FE v2 (`web2/`).** `evva service` now embeds and
+  serves a rebuilt Vue 3 + TypeScript + Pinia SPA: NEON TOKYO themes aligned with
+  the TUI (switchable, token-based), an agent stream console, situational-awareness
+  board/timeline/attention, modal/tray approval gates, and roster + member /
+  schedule / skills composition, with a11y + responsive layout. The v1 SPA
+  (`web/`) is retained but no longer embedded. Operational only — no `pkg/*`
+  surface change.
+
 ## [v1.4.0-beta.1] — 2026-06-07
 
 Second beta since v1.1.0. This release ships the typed memory directory
@@ -922,7 +948,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.0-beta.1...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.1-beta.1...HEAD
+[v1.4.1-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.0-beta.1...v1.4.1-beta.1
 [v1.4.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.3.0-beta.1...v1.4.0-beta.1
 [v1.3.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.1.0...v1.3.0-beta.1
 [v1.1.0]: https://github.com/johnny1110/evva/compare/v1.0.0...v1.1.0

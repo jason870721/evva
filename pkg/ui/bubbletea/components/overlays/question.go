@@ -241,6 +241,7 @@ func (q *Question) cancel() (bool, tea.Cmd) {
 
 func (q *Question) submit() (bool, tea.Cmd) {
 	answers := make(map[string]string, len(q.payload.Questions))
+	multi := make(map[string][]string, len(q.payload.Questions))
 	annotations := make(map[string]ui.QuestionAnnotation)
 
 	for i, qitem := range q.payload.Questions {
@@ -249,12 +250,14 @@ func (q *Question) submit() (bool, tea.Cmd) {
 		isOther := qs.selected[len(opts)]
 
 		var answer string
+		var multiVals []string
 		if isOther {
 			answer = strings.TrimSpace(qs.otherText)
 			if answer == "" {
 				answer = "Other"
 			}
 			annotations[qitem.Question] = ui.QuestionAnnotation{Notes: answer}
+			multiVals = []string{answer}
 		} else if qitem.MultiSelect {
 			var labels []string
 			for j, sel := range qs.selected[:len(opts)] {
@@ -266,6 +269,7 @@ func (q *Question) submit() (bool, tea.Cmd) {
 				}
 			}
 			answer = strings.Join(labels, ", ")
+			multiVals = labels
 		} else {
 			for j, sel := range qs.selected[:len(opts)] {
 				if sel {
@@ -276,14 +280,19 @@ func (q *Question) submit() (bool, tea.Cmd) {
 					break
 				}
 			}
+			if answer != "" {
+				multiVals = []string{answer}
+			}
 		}
 		answers[qitem.Question] = answer
+		multi[qitem.Question] = multiVals
 	}
 
 	id := q.payload.RequestID
 	err := q.ctrl.RespondQuestion(id, ui.QuestionResponse{
-		Answers:     answers,
-		Annotations: annotations,
+		Answers:      answers,
+		MultiAnswers: multi,
+		Annotations:  annotations,
 	})
 	if err != nil {
 		q.errMsg = err.Error()
