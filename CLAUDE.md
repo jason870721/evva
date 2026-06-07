@@ -140,9 +140,12 @@ mature), `pkg/ui/bubbletea`, `pkg/observable`, `pkg/tools/kits`.
   provider and a model, but there is **no `pkg/llm/openai`** and
   `pkg/llm/builtins` never registers it — selecting OpenAI fails at
   factory lookup. The Vision lists OpenAI as a first-class provider.
-- **MCP**: absent entirely. The tool-search layer is already MCP-aware
-  (`meta/fuzzy.go` + `toolsearch.go` parse `mcp__server__tool` names), but
-  there is no client, config, discovery, or the four MCP tools.
+- **MCP**: ✅ shipped (v1.3). Lives in `pkg/mcp` (client, `settings.json`
+  `mcpServers` config, stdio + Streamable-HTTP transports, OAuth, the four
+  MCP tools) and is auto-loaded by the agent at boot via
+  `internal/agent/mcp_wiring.go`. Configured servers connect on every
+  launch; stdio servers spawn a subprocess per connect (note: a
+  `docker run` server needs `--rm` or it leaks a container per launch).
 - **Bundled skills**: only `/commit` ships; `/review`, `/security-review`,
   `/simplify` (named in the old Phase 3) do not — the framework is done,
   only the content is missing.

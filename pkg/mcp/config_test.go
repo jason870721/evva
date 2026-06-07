@@ -3,6 +3,7 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -158,5 +159,56 @@ func TestLoad_Disabled(t *testing.T) {
 	s := findServer(cfg, "off")
 	if s == nil || !s.Disabled {
 		t.Fatalf("disabled flag should parse: %+v", s)
+	}
+}
+
+func TestLoad_DockerRunWithoutRmWarns(t *testing.T) {
+	home := t.TempDir()
+	writeSettings(t, home, `{"mcpServers":{"github":{"command":"docker","args":["run","-i","github-mcp-server:latest"]}}}`)
+	cfg, warns := Load("", home)
+	// The server still loads — the warning is advisory, not fatal.
+	if s := findServer(cfg, "github"); s == nil {
+		t.Fatalf("docker server should still load")
+	}
+	if len(warns) == 0 {
+		t.Fatalf("docker run without --rm should warn")
+	}
+	if !strings.Contains(warns[0].Error(), "--rm") {
+		t.Fatalf("warning should mention --rm, got %q", warns[0].Error())
+	}
+}
+
+func TestLoad_DockerRunWithRmNoWarn(t *testing.T) {
+	home := t.TempDir()
+	writeSettings(t, home, `{"mcpServers":{"github":{"command":"docker","args":["run","-i","--rm","github-mcp-server:latest"]}}}`)
+	_, warns := Load("", home)
+	if len(warns) != 0 {
+		t.Fatalf("docker run with --rm should not warn, got %v", warns)
+	}
+}
+
+func TestContainerRunWithoutRm(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		args    []string
+		want    bool
+	}{
+		{"docker run no rm", "docker", []string{"run", "-i", "img"}, true},
+		{"docker run with rm", "docker", []string{"run", "-i", "--rm", "img"}, false},
+		{"docker run rm=true", "docker", []string{"run", "--rm=true", "img"}, false},
+		{"podman run no rm", "podman", []string{"run", "img"}, true},
+		{"nerdctl run no rm", "nerdctl", []string{"run", "img"}, true},
+		{"full path docker", "/usr/bin/docker", []string{"run", "img"}, true},
+		{"non-container command", "github-mcp-server", []string{"stdio"}, false},
+		{"docker but not run", "docker", []string{"ps"}, false},
+		{"npx (not a container)", "npx", []string{"-y", "some-server"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := containerRunWithoutRm(c.command, c.args); got != c.want {
+				t.Fatalf("containerRunWithoutRm(%q, %v) = %v, want %v", c.command, c.args, got, c.want)
+			}
+		})
 	}
 }

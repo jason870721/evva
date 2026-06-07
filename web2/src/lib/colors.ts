@@ -44,3 +44,36 @@ export function agentColor(name?: string | null): string {
   }
   return PALETTE[Math.abs(h) % PALETTE.length]
 }
+
+// ── Context meter colour ─────────────────────────────────────────────────────
+// Port of the TUI's status.contextBarColor (pkg/ui/.../status/model.go): map a
+// 0..100 context-utilization % onto the green→yellow→red spectrum so the swarm
+// web's CTX bar reads the same hue as evva's TUI at the same load. Green ≤20%,
+// yellow at 40–60%, red ≥80%, linearly interpolated through the transition bands.
+
+const CTX_GREEN: [number, number, number] = [0x39, 0xff, 0x14]
+const CTX_YELLOW: [number, number, number] = [0xfa, 0xfc, 0x4e]
+const CTX_RED: [number, number, number] = [0xff, 0x00, 0x3c]
+
+function lerpRGB(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * t),
+    Math.round(a[1] + (b[1] - a[1]) * t),
+    Math.round(a[2] + (b[2] - a[2]) * t),
+  ]
+}
+
+const hex2 = (n: number): string => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')
+
+// contextColor returns a CSS hex for the given utilization %. Clamps out-of-range
+// input; never throws.
+export function contextColor(pct: number): string {
+  const p = Math.max(0, Math.min(100, pct || 0))
+  let c: [number, number, number]
+  if (p <= 20) c = CTX_GREEN
+  else if (p <= 40) c = lerpRGB(CTX_GREEN, CTX_YELLOW, (p - 20) / 20)
+  else if (p <= 60) c = CTX_YELLOW
+  else if (p <= 80) c = lerpRGB(CTX_YELLOW, CTX_RED, (p - 60) / 20)
+  else c = CTX_RED
+  return `#${hex2(c[0])}${hex2(c[1])}${hex2(c[2])}`
+}

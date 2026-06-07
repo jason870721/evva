@@ -63,7 +63,9 @@ describe('ledger + space getters', () => {
     expect(led.groups.completed.length).toBe(0)
 
     const sp = useSpaceStore()
-    sp.roster = [{ name: 'qa', agentId: 'a1', role: 'worker', membership: 'active', run: 'idle', currentTask: 0 }]
+    sp.roster = [
+      { name: 'qa', agentId: 'a1', role: 'worker', membership: 'active', run: 'idle', currentTask: 0, contextTokens: 0, contextLimit: 0 },
+    ]
     useStreamStore().foldPhase({ Kind: 'tool_use_start', AgentID: 'a1', ToolUseStart: { Name: 'bash' } })
     expect(sp.merged[0].phase).toBe('executing')
   })

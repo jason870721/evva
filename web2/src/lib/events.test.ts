@@ -16,6 +16,8 @@ import {
   elapsed,
   attentionItems,
   relTime,
+  contextUsage,
+  humanTokens,
   TASK_STATES,
 } from './events.ts'
 
@@ -308,4 +310,48 @@ test('attentionItems flags a long-running phase as a stall (warn)', () => {
   assert.ok(!names.includes('b'))
   assert.ok(names.includes('c'))
   assert.equal(items.find((i) => i.name === 'a').stalled, true)
+})
+
+test('contextUsage derives a capped, known pct from the wire fields', () => {
+  assert.deepEqual(contextUsage({ contextTokens: 180_000, contextLimit: 500_000 }), {
+    used: 180_000,
+    limit: 500_000,
+    pct: 36,
+    known: true,
+  })
+  // No turn yet → 0% but known (the window is known).
+  assert.deepEqual(contextUsage({ contextTokens: 0, contextLimit: 200_000 }), {
+    used: 0,
+    limit: 200_000,
+    pct: 0,
+    known: true,
+  })
+})
+
+test('contextUsage caps at 100 and treats an unknown/zero limit as not-known', () => {
+  const over = contextUsage({ contextTokens: 600_000, contextLimit: 500_000 })
+  assert.equal(over.pct, 100) // clamp, never > 100
+  const unknown = contextUsage({ contextTokens: 12_000, contextLimit: 0 })
+  assert.deepEqual(unknown, { used: 12_000, limit: 0, pct: 0, known: false })
+})
+
+test('contextUsage is null-safe and floors negatives to zero', () => {
+  assert.deepEqual(contextUsage(null), { used: 0, limit: 0, pct: 0, known: false })
+  assert.deepEqual(contextUsage({}), { used: 0, limit: 0, pct: 0, known: false })
+  assert.deepEqual(contextUsage({ contextTokens: -5, contextLimit: -9 }), {
+    used: 0,
+    limit: 0,
+    pct: 0,
+    known: false,
+  })
+})
+
+test('humanTokens matches the TUI k/M thresholds', () => {
+  assert.equal(humanTokens(0), '0')
+  assert.equal(humanTokens(-3), '0')
+  assert.equal(humanTokens(512), '512')
+  assert.equal(humanTokens(1_500), '1.5k')
+  assert.equal(humanTokens(42_000), '42k')
+  assert.equal(humanTokens(500_000), '500k')
+  assert.equal(humanTokens(1_050_000), '1.1M')
 })

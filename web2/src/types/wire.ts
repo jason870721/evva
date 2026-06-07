@@ -29,6 +29,12 @@ export interface MemberInfo {
   whenToUse?: string
   cron?: string
   schedulePrompt?: string
+  // Context-utilization meter (CTX bar): contextTokens is the input-token count
+  // of the member's most recent turn (how full its prompt is now), contextLimit
+  // its model's context window. contextLimit is 0 when the model is unknown.
+  // Same pair evva's TUI status bar reads (LastTurnInputTokens / MODEL_CONTEXT_SIZE).
+  contextTokens: number
+  contextLimit: number
 }
 
 // MemberSpec — POST /api/members add-agent form (api.go:148).

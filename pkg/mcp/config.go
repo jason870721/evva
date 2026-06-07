@@ -155,6 +155,14 @@ func normalizeServer(path, name string, scope ConfigScope, rs rawServer) (*Serve
 			ea, _ := ExpandEnv(a)
 			cfg.Args[i] = ea
 		}
+		// Container-leak footgun: `docker run` (or podman/nerdctl) without --rm
+		// leaves an exited container behind on every connect, and a stdio server
+		// reconnects on every evva launch — so they pile up by the hundreds. We
+		// don't rewrite the user's invocation (it may be intentional or wrapped);
+		// just flag it so the cause is visible in the startup warnings.
+		if containerRunWithoutRm(cfg.Command, cfg.Args) {
+			warns = append(warns, Warning{Path: path, Err: fmt.Errorf("mcpServers.%s: %q runs a container without --rm — each evva launch leaves an exited container behind; add \"--rm\" to args", name, cfg.Command)})
+		}
 	case "http":
 		if rs.URL == "" {
 			warns = append(warns, Warning{Path: path, Err: fmt.Errorf("mcpServers.%s: http requires url", name)})
@@ -178,4 +186,27 @@ func normalizeServer(path, name string, scope ConfigScope, rs rawServer) (*Serve
 		cfg.Timeout = 30 * time.Second
 	}
 	return cfg, warns
+}
+
+// containerRunWithoutRm reports whether a stdio command launches a container
+// engine with `run` but no `--rm`. Matches docker / podman / nerdctl by the
+// command's base name so a full path (e.g. /usr/bin/docker) still triggers.
+// This is the single most common MCP container-leak cause, so it's worth a
+// dedicated warning rather than leaving the user to discover it via `docker ps`.
+func containerRunWithoutRm(command string, args []string) bool {
+	switch filepath.Base(command) {
+	case "docker", "podman", "nerdctl":
+	default:
+		return false
+	}
+	var hasRun, hasRm bool
+	for _, a := range args {
+		switch {
+		case a == "run":
+			hasRun = true
+		case a == "--rm" || strings.HasPrefix(a, "--rm="):
+			hasRm = true
+		}
+	}
+	return hasRun && !hasRm
 }

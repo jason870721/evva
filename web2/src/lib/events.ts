@@ -201,6 +201,45 @@ export function phaseClass(m?: PhaseLike | null): string {
   return 'busy'
 }
 
+// ── Context-utilization meter ────────────────────────────────────────────────
+// The CTX bar's data twin of evva's TUI status meter (pkg/ui/.../status.SetContext
+// + renderContextBar): used = the member's most-recent-turn input tokens (how full
+// its prompt is now), limit = its model context window. Kept pure so it unit-tests.
+
+export interface ContextLike {
+  contextTokens?: number
+  contextLimit?: number
+}
+export interface ContextUsage {
+  used: number
+  limit: number
+  pct: number // 0..100, capped (matches the TUI's clamp)
+  known: boolean // limit > 0 — false when the model's window is unknown
+}
+
+// contextUsage derives the meter's view model from a member's wire fields. A
+// non-positive limit (unknown/custom model) yields pct 0 + known:false so the UI
+// can render an "unknown" rail instead of a misleading 0%.
+export function contextUsage(m?: ContextLike | null): ContextUsage {
+  const used = Math.max(0, m?.contextTokens || 0)
+  const limit = Math.max(0, m?.contextLimit || 0)
+  const known = limit > 0
+  let pct = known ? (used * 100) / limit : 0
+  if (pct > 100) pct = 100
+  return { used, limit, pct, known }
+}
+
+// humanTokens formats a raw token count with a k/M suffix once it crosses the
+// threshold — the JS twin of status.humanTokens (pkg/ui/.../status/model.go), so
+// the web's CTX tooltip reads the same as the TUI's IN/OUT cells.
+export function humanTokens(n: number): string {
+  if (!n || n < 0) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 10_000) return `${Math.floor(n / 1_000)}k`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
 interface PhaseDelta {
   phase: string
   tool: string

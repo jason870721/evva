@@ -835,21 +835,31 @@ func (s *Service) Roster(id string) ([]webapi.MemberInfo, bool) {
 	views := ent.space.Roster.Snapshot()
 	out := make([]webapi.MemberInfo, 0, len(views))
 	for _, v := range views {
+		// AgentID and the context-meter pair are controller-derived (not on the
+		// roster's MemberView), so read them from the live handle here — the same
+		// pair evva's TUI status bar shows: how full the prompt is right now
+		// (LastTurnInputTokens) against the model's context window. An unknown
+		// model (custom/stub, absent from MODEL_CONTEXT_SIZE) leaves the limit 0.
 		var agentID string
+		var ctxUsed, ctxLimit int
 		if ctl, ok := ent.space.Roster.Controller(v.Name); ok {
 			agentID = ctl.AgentID()
+			ctxUsed = ctl.LastTurnInputTokens()
+			ctxLimit = constant.MODEL_CONTEXT_SIZE[constant.Model(ctl.Model())]
 		}
 		mi := webapi.MemberInfo{
-			Name:        v.Name,
-			AgentID:     agentID,
-			Role:        string(v.Role),
-			Membership:  string(v.Membership),
-			Run:         string(v.Run),
-			Phase:       string(v.Phase),
-			Tool:        v.Tool,
-			PhaseSince:  v.PhaseSince,
-			CurrentTask: v.CurrentTask,
-			WhenToUse:   v.WhenToUse,
+			Name:          v.Name,
+			AgentID:       agentID,
+			Role:          string(v.Role),
+			Membership:    string(v.Membership),
+			Run:           string(v.Run),
+			Phase:         string(v.Phase),
+			Tool:          v.Tool,
+			PhaseSince:    v.PhaseSince,
+			CurrentTask:   v.CurrentTask,
+			WhenToUse:     v.WhenToUse,
+			ContextTokens: ctxUsed,
+			ContextLimit:  ctxLimit,
 		}
 		// Schedule lives in the space's map (RP-7 didn't put it on MemberView);
 		// surface it on the wire so the roster card can show/edit the crontab (RP-8).

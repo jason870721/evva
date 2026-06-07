@@ -19,6 +19,7 @@ package lp
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -86,5 +87,21 @@ func (u *UI) Run(ctx context.Context) error {
 	}()
 	_, err := u.program.Run()
 	close(done)
+	if isCleanExit(err) {
+		return nil
+	}
 	return err
+}
+
+// isCleanExit reports whether a tea.Program.Run error represents a normal
+// user-initiated quit (SIGINT → tea.ErrInterrupted, kill → tea.ErrProgramKilled)
+// rather than a real failure. This Run's contract is "ctx cancellation triggers
+// a clean shutdown", so an interrupt is the expected exit. Returning it as an
+// error makes cmd/evva take an os.Exit path that skips the deferred agent
+// Shutdown, orphaning MCP subprocesses (a leaked container per launch for
+// docker-based stdio servers).
+func isCleanExit(err error) bool {
+	return err == nil ||
+		errors.Is(err, tea.ErrProgramKilled) ||
+		errors.Is(err, tea.ErrInterrupted)
 }

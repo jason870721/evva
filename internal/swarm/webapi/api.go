@@ -138,6 +138,17 @@ type MemberInfo struct {
 	PhaseSince  int64  `json:"phaseSince,omitempty"` // unix millis the phase was entered (RP-4 timing)
 	CurrentTask int64  `json:"currentTask"`
 	WhenToUse   string `json:"whenToUse,omitempty"`
+	// ContextTokens / ContextLimit drive the per-member context-utilization meter
+	// (the web roster's CTX bar). ContextTokens is the input-token count of the
+	// member's most recent turn — how full its prompt is right now; ContextLimit
+	// is its model's context window. They are the same pair evva's TUI status bar
+	// reads (controller.LastTurnInputTokens / constant.MODEL_CONTEXT_SIZE; see
+	// pkg/ui/.../status.SetContext). ContextLimit is 0 when the model is unknown
+	// (custom/stub models absent from the context-size table) — the UI then shows
+	// an unknown rail with no %. Not omitempty: 0 is meaningful (no turn yet /
+	// unknown window) and the TS contract expects both fields always present.
+	ContextTokens int `json:"contextTokens"`
+	ContextLimit  int `json:"contextLimit"`
 	// Cron / SchedulePrompt expose the member's recurring timer (RP-7/RP-8), read
 	// live from the space's schedule map (the schedule's owner — it is NOT on
 	// MemberView). Empty when the member has no schedule.

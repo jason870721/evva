@@ -146,6 +146,12 @@ func runTUI(ctx context.Context, acfg agent.Config, evvaHome, tuiName string) {
 	defer ag.Shutdown()
 	tui.Attach(ag.Controller())
 	if err := tui.Run(ctx); err != nil {
+		// exitf calls os.Exit, which does NOT run the deferred Shutdown — so
+		// close MCP sessions / background tasks explicitly first. Without this
+		// a UI that returns an error (e.g. an interrupt surfaced as
+		// tea.ErrInterrupted) orphans every stdio MCP subprocess, leaking a
+		// container per launch for docker-based servers. Shutdown is idempotent.
+		ag.Shutdown()
 		exitf(1, "evva: %v", err)
 	}
 }
@@ -188,6 +194,10 @@ func runCLI(ctx context.Context, acfg agent.Config) {
 		resp, err = ag.Continue(ctx)
 	}
 	if err != nil {
+		// Both exits below are os.Exit, which skips the deferred Shutdown —
+		// run it explicitly so MCP sessions / background tasks tear down
+		// (idempotent; the success path still relies on the defer).
+		ag.Shutdown()
 		if errors.Is(err, llm.ErrInterrupted) {
 			fmt.Fprintln(os.Stderr, "\ninterrupted")
 			os.Exit(130)

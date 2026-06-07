@@ -6,6 +6,7 @@ import { describeCron } from '@/lib/cron'
 import { agentColor } from '@/lib/colors'
 import EvPill from '@/components/base/EvPill.vue'
 import EvBadge from '@/components/base/EvBadge.vue'
+import EvContextBar from '@/components/base/EvContextBar.vue'
 
 // Calm resting card (RP-4 H10): identity / role / phase / task / schedule always
 // visible; controls hidden behind a ⋯ menu. The leader is never removable.
@@ -38,6 +39,7 @@ const menu = ref(false)
       <span v-if="member.phaseSince && phaseClass(member) !== 'idle'" class="since">{{ elapsed(member.phaseSince, now) }}</span>
       <span v-if="member.currentTask" class="task">#{{ member.currentTask }}</span>
     </div>
+    <div class="l3"><EvContextBar :used="member.contextTokens" :limit="member.contextLimit" /></div>
     <div v-if="member.cron" class="sched" :title="member.schedulePrompt">⏰ {{ describeCron(member.cron) }}</div>
 
     <div v-if="menu" class="menu" @click.stop>
@@ -106,6 +108,9 @@ const menu = ref(false)
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+.l3 {
   margin-top: 0.35rem;
 }
 .since,

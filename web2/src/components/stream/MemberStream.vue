@@ -7,6 +7,7 @@ import { agentColor } from '@/lib/colors'
 import TurnList from './TurnList.vue'
 import Composer from './Composer.vue'
 import EvPill from '@/components/base/EvPill.vue'
+import EvContextBar from '@/components/base/EvContextBar.vue'
 
 // Focused single-member console: head identity + live phase pill, the member's
 // demuxed turns, and a mail-mode composer. Same component for leader and worker
@@ -32,6 +33,7 @@ function send(text: string) {
       <span v-if="entry" class="role">{{ entry.role }}</span>
       <EvPill v-if="entry" :tone="phaseClass(entry)" :label="displayPhase(entry) || entry.run" />
       <span v-if="entry?.currentTask" class="task">#{{ entry.currentTask }}</span>
+      <EvContextBar v-if="entry" class="ctxbar" :used="entry.contextTokens" :limit="entry.contextLimit" />
     </header>
     <TurnList :key="member" :turns="turns">
       <template #empty>No activity yet. Send {{ member }} a message to begin.</template>
@@ -73,5 +75,8 @@ function send(text: string) {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--color-text-muted);
+}
+.ctxbar {
+  margin-left: auto; /* push the meter to the right edge — TUI status-line layout */
 }
 </style>
