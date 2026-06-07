@@ -43,11 +43,6 @@ const related = computed(() => mail.messages.filter((m) => m.refTask === props.t
 </template>
 
 <style scoped>
-.ti {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
 .title {
   font-weight: 600;
   margin-bottom: var(--sp-2);

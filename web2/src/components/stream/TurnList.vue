@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, computed, onMounted } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 import type { Turn } from '@/lib/events'
 import { agentColor } from '@/lib/colors'
 import AssistantTurn from './turns/AssistantTurn.vue'
@@ -58,23 +58,14 @@ function jump() {
   nextTick(scrollToEnd)
 }
 
-// Pin to the latest on entry: without this, opening a stream that already has
-// turns (stream tab / "open live stream") lands at the top showing the oldest.
-onMounted(() => {
-  void nextTick(scrollToEnd)
-})
-
-// Watch array identity, not just length: every reducer fold replaces the array,
-// so streaming text growth inside a turn also keeps the tail pinned.
 watch(
-  () => props.turns,
-  async (now, prev) => {
+  () => props.turns.length,
+  async () => {
     if (following.value) {
       await nextTick()
       scrollToEnd()
     } else {
-      const grew = now.length - (prev?.length ?? 0)
-      if (grew > 0) newCount.value += grew
+      newCount.value++
     }
   },
 )

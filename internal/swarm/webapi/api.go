@@ -91,9 +91,6 @@ type Backend interface {
 	CreateMember(spaceID string, spec MemberSpec) error
 	RemoveMember(spaceID, agent string, deleteDir bool) error
 	SelectableTools() []string
-	// SelectableModels is the model catalog the add-agent form offers for the
-	// optional per-member model pin (every model of every built-in provider).
-	SelectableModels() []string
 
 	// IngestEvent delivers an external webhook event (RP-9) onto a member's
 	// mailbox (default the leader), waking it through the ordinary bus path — a
@@ -152,8 +149,6 @@ type MemberSpec struct {
 	Name         string   `json:"name"`
 	SystemPrompt string   `json:"systemPrompt"`
 	WhenToUse    string   `json:"whenToUse"`
-	Model        string   `json:"model"`  // optional model pin; "" = configured default. Fixed at creation.
-	Effort       string   `json:"effort"` // optional effort pin (low|medium|high|ultra); "" = default. Fixed at creation.
 	Active       []string `json:"active"`
 	Deferred     []string `json:"deferred"`
 	Cron         string   `json:"cron"`
@@ -466,9 +461,6 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 	// The tool catalog the add-agent form offers (collaboration tools excluded).
 	mux.Handle("GET /api/tools", guard(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, b.SelectableTools())
-	}))
-	mux.Handle("GET /api/models", guard(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, b.SelectableModels())
 	}))
 	mux.Handle("POST /api/halt", guard(func(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, b.HaltAll(r.URL.Query().Get("space")))

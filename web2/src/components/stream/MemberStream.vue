@@ -33,7 +33,7 @@ function send(text: string) {
       <EvPill v-if="entry" :tone="phaseClass(entry)" :label="displayPhase(entry) || entry.run" />
       <span v-if="entry?.currentTask" class="task">#{{ entry.currentTask }}</span>
     </header>
-    <TurnList :key="member" :turns="turns">
+    <TurnList :turns="turns">
       <template #empty>No activity yet. Send {{ member }} a message to begin.</template>
     </TurnList>
     <Composer :placeholder="`Message ${member}…`" @send="send" />

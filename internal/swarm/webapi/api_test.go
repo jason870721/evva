@@ -184,8 +184,7 @@ func (f *fakeBackend) RemoveMember(space, agent string, deleteDir bool) error {
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakeBackend) SelectableTools() []string  { return []string{"read", "write", "bash"} }
-func (f *fakeBackend) SelectableModels() []string { return []string{"claude-sonnet-4-6"} }
+func (f *fakeBackend) SelectableTools() []string { return []string{"read", "write", "bash"} }
 
 func (f *fakeBackend) MemberSkills(space, agent string) ([]SkillInfo, bool) {
 	if !f.HasSpace(space) {

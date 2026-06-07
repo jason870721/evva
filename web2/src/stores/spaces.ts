@@ -11,9 +11,6 @@ export const useSpacesStore = defineStore('spaces', {
     list: [] as SpaceInfo[],
     loading: false,
     error: '',
-    // Bumped after a space reset; the active workspace (useSwarm) watches this
-    // to tear down and re-bootstrap its per-space stores + WS.
-    epoch: 0,
   }),
   getters: {
     byId:
@@ -49,9 +46,6 @@ export const useSpacesStore = defineStore('spaces', {
     async reset(id: string) {
       await api.reset(id)
       await this.load()
-      // The swarm was rebuilt server-side under the same id — everything the
-      // FE-3 stores hold (turns, gates, roster agentIds) is now stale.
-      this.epoch++
     },
     async halt(id: string) {
       await api.halt(id)

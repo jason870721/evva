@@ -75,8 +75,6 @@ export function createApi(getToken: () => string) {
       req<null>('DELETE', `/api/agents/${enc(agent)}?space=${enc(id)}&deleteDir=${deleteDir ? 'true' : 'false'}`),
     // Tool catalog the add-agent form offers (collaboration tools excluded).
     tools: (id: string) => req<string[]>('GET', `/api/tools?space=${enc(id)}`),
-    // Model catalog for the add-agent form's optional model pin.
-    models: () => req<string[]>('GET', '/api/models'),
     // Schedule CRUD (RP-7/RP-8). The operator may target ANY member, incl. the leader.
     setSchedule: (id: string, agent: string, { cron, prompt }: { cron: string; prompt: string }) =>
       req<null>('POST', `/api/agents/${enc(agent)}/schedule?space=${enc(id)}`, { cron, prompt }),

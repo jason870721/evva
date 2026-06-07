@@ -66,8 +66,6 @@ func TestWriteMemberDirRoundTrip(t *testing.T) {
 		Name:         "qa-bot",
 		SystemPrompt: "You are QA.",
 		WhenToUse:    "QA and testing.",
-		Model:        "claude-sonnet-4-6",
-		Effort:       "high",
 		Active:       []tools.ToolName{"read", "bash"},
 		Deferred:     []tools.ToolName{"grep"},
 		Schedule:     &Schedule{Cron: "*/30 * * * *", Prompt: "patrol the suite"},
@@ -91,9 +89,6 @@ func TestWriteMemberDirRoundTrip(t *testing.T) {
 	if ld.Schedule == nil || ld.Schedule.Cron != "*/30 * * * *" || ld.Schedule.Prompt != "patrol the suite" {
 		t.Errorf("Schedule = %+v", ld.Schedule)
 	}
-	if ld.Def.Model != "claude-sonnet-4-6" || ld.Effort != "high" {
-		t.Errorf("model/effort pins = %q / %q, want claude-sonnet-4-6 / high", ld.Def.Model, ld.Effort)
-	}
 }
 
 // TestWriteMemberDirRejects: unsafe names, an empty prompt, and clobbering an
@@ -107,12 +102,6 @@ func TestWriteMemberDirRejects(t *testing.T) {
 	}
 	if err := WriteMemberDir(wd, MemberSpec{Name: "noprompt"}); err == nil {
 		t.Error("empty system prompt should error")
-	}
-	if err := WriteMemberDir(wd, MemberSpec{Name: "badmodel", SystemPrompt: "x", Model: "gpt-99"}); err == nil {
-		t.Error("unknown model should error")
-	}
-	if err := WriteMemberDir(wd, MemberSpec{Name: "badeffort", SystemPrompt: "x", Effort: "max"}); err == nil {
-		t.Error("invalid effort should error")
 	}
 	if err := WriteMemberDir(wd, MemberSpec{Name: "dup", SystemPrompt: "x"}); err != nil {
 		t.Fatalf("first write: %v", err)

@@ -79,12 +79,6 @@ function openStream() {
 </template>
 
 <style scoped>
-.mi {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
 .who {
   display: flex;
   align-items: center;
@@ -122,10 +116,6 @@ function openStream() {
 .pane {
   display: grid;
   gap: var(--sp-2);
-  align-content: start;
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
 }
 .row {
   font-size: var(--fs-sm);
