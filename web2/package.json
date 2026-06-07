@@ -1,0 +1,30 @@
+{
+  "name": "evva-swarm-web2",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Vue 3 + TypeScript + Pinia SPA for the evva swarm workstation (Veronica) — FE v2.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "node --test 'src/lib/*.test.ts' && vitest run",
+    "test:lib": "node --test 'src/lib/*.test.ts'",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "pinia": "^2.2.6",
+    "vue": "^3.5.13",
+    "vue-i18n": "^10.0.5",
+    "vue-router": "^4.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8",
+    "vue-tsc": "^2.1.10"
+  }
+}
