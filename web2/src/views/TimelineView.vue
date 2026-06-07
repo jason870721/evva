@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMailStore } from '@/stores/mail'
 import { useLedgerStore } from '@/stores/ledger'
@@ -17,9 +17,35 @@ const router = useRouter()
 const filter = ref<'all' | 'message' | 'task'>('all')
 
 const items = computed<TimelineItem[]>(() => {
-  const all = buildTimeline(mail.messages, ledger.tasks)
+  // buildTimeline returns newest-first; reverse so the feed reads chronologically
+  // with the latest entry at the bottom (chat-log order).
+  const all = buildTimeline(mail.messages, ledger.tasks).reverse()
   return filter.value === 'all' ? all : all.filter((i) => i.kind === filter.value)
 })
+
+// Follow-tail: pinned to the latest (bottom) on entry and on new items, but
+// don't yank the user back if they've scrolled up to read history.
+const feed = ref<HTMLElement | null>(null)
+function atBottom(): boolean {
+  const el = feed.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 40
+}
+function scrollToEnd() {
+  const el = feed.value
+  if (el) el.scrollTop = el.scrollHeight
+}
+onMounted(() => {
+  void nextTick(scrollToEnd)
+})
+watch(
+  () => items.value.length,
+  async () => {
+    const stick = atBottom()
+    await nextTick()
+    if (stick) scrollToEnd()
+  },
+)
 
 function onClick(it: TimelineItem) {
   if (it.kind === 'task' && it.taskId) {
@@ -43,7 +69,7 @@ function onClick(it: TimelineItem) {
         {{ f }}
       </button>
     </div>
-    <ul class="feed">
+    <ul ref="feed" class="feed">
       <li v-for="it in items" :key="it.id" :class="it.kind" @click="onClick(it)">
         <span class="t">{{ relTime(it.time, space.now) }}</span>
         <span class="g" aria-hidden="true">{{ it.kind === 'message' ? '✉' : '◆' }}</span>
@@ -62,6 +88,15 @@ function onClick(it: TimelineItem) {
 <style scoped>
 .fill {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+/* EvPanel's .body is a plain padded div; flex it into the height chain so the
+   feed's flex:1 + overflow:auto actually engage (otherwise the feed grows to
+   content height and the panel's overflow:hidden clips it — no scrollbar). */
+.fill :deep(.body) {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }

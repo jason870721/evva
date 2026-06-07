@@ -32,10 +32,13 @@ export interface MemberInfo {
 }
 
 // MemberSpec — POST /api/members add-agent form (api.go:148).
+// model / effort are optional pins, fixed at creation ('' = configured default).
 export interface MemberSpec {
   name: string
   systemPrompt: string
   whenToUse: string
+  model: string
+  effort: string
   active: string[]
   deferred: string[]
   cron: string

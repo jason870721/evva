@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/johnny1110/evva/pkg/constant"
+	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/tools"
 	"gopkg.in/yaml.v3"
 )
@@ -20,6 +22,8 @@ type MemberSpec struct {
 	Name         string
 	SystemPrompt string
 	WhenToUse    string
+	Model        string // optional model pin; empty = configured default. Fixed at creation.
+	Effort       string // optional effort pin (low|medium|high|ultra); empty = default. Fixed at creation.
 	Active       []tools.ToolName
 	Deferred     []tools.ToolName
 	Schedule     *Schedule // optional recurring timer (RP-7)
@@ -29,8 +33,30 @@ type MemberSpec struct {
 // write-only subset of profileYml (omitempty everywhere) so a freshly authored
 // member's profile.yml carries only what the operator actually set.
 type profileWrite struct {
+	Model     string       `yaml:"model,omitempty"`
+	Effort    string       `yaml:"effort,omitempty"`
 	WhenToUse string       `yaml:"when_to_use,omitempty"`
 	Schedule  *scheduleYml `yaml:"schedule,omitempty"`
+}
+
+// ValidateModelEffort checks a member's optional model / effort pins against
+// the built-in catalogs. Empty values are valid (use the configured defaults).
+// Used by WriteMemberDir to reject a bad add-agent form before touching disk —
+// the form's choices come from the same catalogs. Hand-authored profile.yml
+// pins are deliberately looser (constructMember accepts custom-registry model
+// ids the constant table doesn't know).
+func ValidateModelEffort(model, effort string) error {
+	if m := strings.TrimSpace(model); m != "" {
+		if _, ok := constant.GetModel(m); !ok {
+			return fmt.Errorf("agentdef: unknown model %q", m)
+		}
+	}
+	if e := strings.TrimSpace(effort); e != "" {
+		if llm.ParseEffort(e) == 0 {
+			return fmt.Errorf("agentdef: invalid effort %q (want low|medium|high|ultra)", e)
+		}
+	}
+	return nil
 }
 
 // validMemberName rejects anything that could escape <workdir>/agents/sub/ or
@@ -94,6 +120,9 @@ func WriteMemberDir(workdir string, spec MemberSpec) error {
 	if strings.TrimSpace(spec.SystemPrompt) == "" {
 		return errors.New("agentdef: system prompt is required")
 	}
+	if err := ValidateModelEffort(spec.Model, spec.Effort); err != nil {
+		return err
+	}
 	dir := memberDir(workdir, spec.Name)
 	if _, err := os.Stat(dir); err == nil {
 		return fmt.Errorf("agentdef: member %q already exists on disk", spec.Name)
@@ -106,7 +135,11 @@ func WriteMemberDir(workdir string, spec MemberSpec) error {
 		return fmt.Errorf("agentdef: write system_prompt.md: %w", err)
 	}
 
-	pw := profileWrite{WhenToUse: spec.WhenToUse}
+	pw := profileWrite{
+		Model:     strings.TrimSpace(spec.Model),
+		Effort:    strings.TrimSpace(spec.Effort),
+		WhenToUse: spec.WhenToUse,
+	}
 	if spec.Schedule != nil {
 		sy := &scheduleYml{Cron: spec.Schedule.Cron, Prompt: spec.Schedule.Prompt}
 		if spec.Schedule.Every > 0 {

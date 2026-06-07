@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Vue 3 + TypeScript + Pinia SPA for the evva swarm workstation (Veronica) — FE v2.",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",

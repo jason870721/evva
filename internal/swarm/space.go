@@ -3,6 +3,7 @@ package swarm
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
@@ -10,7 +11,9 @@ import (
 	"github.com/johnny1110/evva/internal/swarm/store"
 	"github.com/johnny1110/evva/pkg/agent"
 	"github.com/johnny1110/evva/pkg/config"
+	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/event"
+	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
 )
@@ -181,6 +184,30 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 	name := ld.Def.Name
 
 	acfg := sp.cfg.Clone() // own scalars (agent.New mutates DefaultProvider/Model)
+
+	// Per-member model / effort pins (profile.yml `model:` / `effort:`, or the
+	// add-agent form). Fixed at creation: applied by pointing the member's own
+	// config clone at them, so the normal construction path (ResolveMainProfile
+	// reads DefaultProvider/DefaultModel; agent.New picks up DefaultEffort)
+	// honors them with no extra plumbing.
+	//
+	// The model pin is deliberately NOT validated against the built-in constant
+	// table: SDK hosts register custom providers/models (the swarm tests pin a
+	// stub), so an unknown id may still resolve at LLM-client build — where a
+	// truly bad pin fails loudly. A pin that IS a built-in model also switches
+	// the provider, so a deepseek member can sit next to anthropic ones.
+	if m := strings.TrimSpace(ld.Def.Model); m != "" {
+		if p, ok := constant.ProviderOfModel(constant.Model(m)); ok {
+			acfg.DefaultProvider = p
+		}
+		acfg.DefaultModel = constant.Model(m)
+	}
+	if e := strings.TrimSpace(ld.Effort); e != "" {
+		if llm.ParseEffort(e) == 0 {
+			return fmt.Errorf("swarm: member %q: invalid effort %q (want low|medium|high|ultra)", name, e)
+		}
+		acfg.DefaultEffort = e
+	}
 
 	// Bind this member's runtime identity onto its own config so the swarm
 	// custom tools (SPRD-1-7) can read who they belong to at build time — a

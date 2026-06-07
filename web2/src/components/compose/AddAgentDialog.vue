@@ -16,20 +16,28 @@ const space = useSpaceStore()
 const name = ref('')
 const whenToUse = ref('')
 const systemPrompt = ref('')
+const model = ref('')
+const effort = ref('')
 const active = ref<string[]>([])
 const deferred = ref<string[]>([])
 const cron = ref('')
 const prompt = ref('')
 const tools = ref<string[]>([])
+const models = ref<string[]>([])
 const err = ref('')
 const busy = ref(false)
+
+const EFFORTS = ['low', 'medium', 'high', 'ultra'] as const
 
 const cronOk = computed(() => !cron.value.trim() || isValidCron(cron.value.trim()))
 const canCreate = computed(() => !!name.value.trim() && cronOk.value)
 
 onMounted(async () => {
   try {
-    tools.value = (await space.fetchTools()) || []
+    ;[tools.value, models.value] = await Promise.all([
+      space.fetchTools().then((t) => t || []),
+      space.fetchModels().then((m) => m || []),
+    ])
   } catch (e) {
     err.value = errMsg(e)
   }
@@ -44,6 +52,8 @@ async function create() {
       name: name.value.trim(),
       systemPrompt: systemPrompt.value,
       whenToUse: whenToUse.value.trim(),
+      model: model.value,
+      effort: effort.value,
       active: active.value,
       deferred: deferred.value,
       cron: cron.value.trim(),
@@ -68,6 +78,19 @@ async function create() {
     <section class="sec">
       <h4>Persona</h4>
       <textarea v-model="systemPrompt" rows="4" placeholder="system prompt" />
+    </section>
+    <section class="sec">
+      <h4>Model &amp; effort <span class="opt">(optional — fixed after creation)</span></h4>
+      <div class="pair">
+        <select v-model="model">
+          <option value="">model: default</option>
+          <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+        </select>
+        <select v-model="effort">
+          <option value="">effort: default</option>
+          <option v-for="e in EFFORTS" :key="e" :value="e">{{ e }}</option>
+        </select>
+      </div>
     </section>
     <section class="sec">
       <h4>Tools</h4>
@@ -105,6 +128,14 @@ h4 {
 input,
 textarea {
   width: 100%;
+}
+.pair {
+  display: flex;
+  gap: var(--sp-2);
+}
+.pair select {
+  flex: 1;
+  min-width: 0;
 }
 input.bad {
   border-color: var(--color-danger);

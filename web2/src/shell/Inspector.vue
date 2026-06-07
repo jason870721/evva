@@ -37,5 +37,16 @@ function close() {
 <style scoped>
 .ins {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+/* Same fix as TimelineView: EvPanel's .body is a plain padded div — flex it
+   into the height chain so the inspectors' scroll panes (mailbox, history)
+   can actually overflow + scroll instead of being clipped. */
+.ins :deep(.body) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 </style>

@@ -104,6 +104,21 @@ type Profile struct {
 	Stream bool
 }
 
+// detectContext wraps sysprompt.DetectContext and pins the prompt's WorkDir to
+// cfg.WorkDir when set. DetectContext falls back to the process cwd, which is
+// wrong whenever the agent's logical workdir diverges from it — a swarm space
+// under a shared service daemon, a worktree-isolated subagent — and a prompt
+// that misreports the workdir makes the model emit absolute paths into the
+// wrong tree (the tools themselves already resolve relative paths against
+// cfg.WorkDir via ToolState).
+func detectContext(cfg *config.Config) sysprompt.PromptContext {
+	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
+	if cfg.WorkDir != "" {
+		ctx.WorkDir = cfg.WorkDir
+	}
+	return ctx
+}
+
 // Main returns the full-kit profile: fs/shell/meta/skill are active; the rest
 // are deferred (loaded on demand via TOOL_SEARCH).
 //
@@ -168,7 +183,7 @@ func mainProfile(cfg *config.Config, provider constant.LLMProvider, model consta
 	// allowlist and the prompt's deferred catalog.
 	deferredTools = append(deferredTools, extraDeferred...)
 
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
+	ctx := detectContext(cfg)
 	ctx.Skills = skills
 	ctx.WorkdirMemory = mem.WorkdirMemory
 	ctx.MemoryIndex = mem.MemoryIndex
@@ -276,7 +291,7 @@ func ResolveMainProfileAutoMem(cfg *config.Config, reg *AgentRegistry, name stri
 // prompt so disk personas see their lazy-loadable tools the same way
 // built-in evva does.
 func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName) Profile {
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
+	ctx := detectContext(cfg)
 	// A long-running persona (swarm member) keeps a date-free, bit-stable prompt
 	// prefix so a weeks-long run reuses one cached prefix (RP-5).
 	ctx.OmitDate = def.LongRunning
@@ -342,7 +357,7 @@ func deferredToolSpecs(names []tools.ToolName) []sysprompt.DeferredToolSpec {
 // does not include EVVA.md / USER_PROFILE.md — sysprompt.ExploreAgent
 // declares OmitMemory: true.
 func Explore(cfg *config.Config, provider constant.LLMProvider, model constant.Model, options []llm.Option) Profile {
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
+	ctx := detectContext(cfg)
 	ctx.Model = string(model)
 	sp := sysprompt.ExploreAgent.BuildSystemPrompt(ctx)
 	options = append(options, llm.WithSystem(sp))
@@ -368,7 +383,7 @@ func Explore(cfg *config.Config, provider constant.LLMProvider, model constant.M
 // the prompt does not include EVVA.md / USER_PROFILE.md
 // (sysprompt.PlanAgent declares OmitMemory: true).
 func Plan(cfg *config.Config, provider constant.LLMProvider, model constant.Model, options []llm.Option) Profile {
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
+	ctx := detectContext(cfg)
 	ctx.Model = string(model)
 	sp := sysprompt.PlanAgent.BuildSystemPrompt(ctx)
 	options = append(options, llm.WithSystem(sp))
@@ -388,7 +403,7 @@ func Plan(cfg *config.Config, provider constant.LLMProvider, model constant.Mode
 //
 // Like Explore, the General prompt does not include EVVA.md / USER_PROFILE.md.
 func General(cfg *config.Config, provider constant.LLMProvider, model constant.Model, options []llm.Option, toolset ...tools.ToolName) Profile {
-	ctx := sysprompt.DetectContext(cfg.AppName, cfg.AppHome, cfg.AppEnv)
+	ctx := detectContext(cfg)
 	ctx.Model = string(model)
 	sp := sysprompt.GeneralAgent.BuildSystemPrompt(ctx)
 	options = append(options, llm.WithSystem(sp))

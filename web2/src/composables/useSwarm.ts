@@ -1,5 +1,6 @@
-import { onMounted, onBeforeUnmount, type Ref } from 'vue'
+import { onMounted, onBeforeUnmount, watch, type Ref } from 'vue'
 import { useConnectionStore } from '../stores/connection'
+import { useSpacesStore } from '../stores/spaces'
 import { useSpaceStore } from '../stores/space'
 import { useLedgerStore } from '../stores/ledger'
 import { useMailStore } from '../stores/mail'
@@ -13,6 +14,7 @@ import { useGateStore } from '../stores/gate'
 // stores (FE-3 §9.1).
 export function useSwarm(spaceId: Ref<string>) {
   const conn = useConnectionStore()
+  const spaces = useSpacesStore()
   const space = useSpaceStore()
   const ledger = useLedgerStore()
   const mail = useMailStore()
@@ -50,4 +52,14 @@ export function useSwarm(spaceId: Ref<string>) {
 
   onMounted(start)
   onBeforeUnmount(stop)
+
+  // A space reset rebuilds the swarm under the same id — restart the whole IO
+  // lifecycle so stale turns / gates / roster agentIds don't linger on screen.
+  watch(
+    () => spaces.epoch,
+    () => {
+      stop()
+      void start()
+    },
+  )
 }

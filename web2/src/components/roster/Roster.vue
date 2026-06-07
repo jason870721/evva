@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // The team roster (LEFT region). Calm member cards + all the composition dialogs
 // (add agent, schedule, skills, external-events guide) and the remove confirm.
-// Emits 'select' so the workspace opens the member inspector; everything else is
-// handled here against the space store.
+// Emits 'select' so the workspace opens the member's live stream + inspector;
+// everything else is handled here against the space store.
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSpaceStore } from '@/stores/space'

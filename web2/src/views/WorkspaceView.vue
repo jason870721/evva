@@ -36,9 +36,15 @@ const tabs = computed(() => [
 
 useSwarm(spaceId)
 
+// Roster click goes straight into the member's live stream (center) and keeps
+// the inspector (?m) in sync — focused and selected move together here.
 function openMember(name: string) {
   ui.closeRoster()
-  router.push({ query: { ...route.query, m: name, t: undefined } })
+  router.push({
+    name: 'stream-member',
+    params: { spaceId: spaceId.value, member: name },
+    query: { ...route.query, m: name, t: undefined },
+  })
 }
 function onAttention(name: string) {
   const m = space.roster.find((r) => r.name === name)

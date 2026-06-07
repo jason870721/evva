@@ -83,6 +83,9 @@ export const useSpaceStore = defineStore('space', {
       const id = useConnectionStore().spaceId
       return id ? api.tools(id) : Promise.resolve([])
     },
+    fetchModels(): Promise<string[]> {
+      return api.models()
+    },
     fetchSkills(name: string): Promise<SkillInfo[]> {
       const id = useConnectionStore().spaceId
       return id ? api.memberSkills(id, name) : Promise.resolve([])

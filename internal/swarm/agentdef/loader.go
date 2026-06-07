@@ -30,7 +30,7 @@ type Loaded struct {
 	Def      agent.AgentDefinition // ready for agent.New / registry.Register
 	Skills   *skill.Registry       // never nil (an empty registry when no skills/)
 	Schedule *Schedule             // nil when the profile declares no schedule
-	Effort   string                // profile effort; applied at construction (1-4)
+	Effort   string                // profile effort pin (low|medium|high|ultra); applied at construction
 	Role     Role
 }
 

@@ -37,6 +37,7 @@ import (
 	"github.com/johnny1110/evva/pkg/agent"
 	"github.com/johnny1110/evva/pkg/common"
 	"github.com/johnny1110/evva/pkg/config"
+	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/toolset"
@@ -1155,6 +1156,8 @@ func (s *Service) CreateMember(id string, spec webapi.MemberSpec) error {
 		Name:         spec.Name,
 		SystemPrompt: spec.SystemPrompt,
 		WhenToUse:    spec.WhenToUse,
+		Model:        spec.Model,
+		Effort:       spec.Effort,
 		Active:       toToolNames(spec.Active),
 		Deferred:     toToolNames(spec.Deferred),
 	}
@@ -1223,6 +1226,19 @@ func (s *Service) SelectableTools() []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// SelectableModels is the model catalog the add-agent form offers for the
+// optional per-member model pin: every model of every built-in provider, in
+// provider order. The form treats "" as "use the configured default".
+func (s *Service) SelectableModels() []string {
+	var out []string
+	for _, p := range constant.GetAllProviders() {
+		for _, m := range p.Models {
+			out = append(out, string(m))
+		}
+	}
 	return out
 }
 
