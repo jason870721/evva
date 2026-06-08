@@ -3,7 +3,6 @@ package toolset
 import (
 	configtool "github.com/johnny1110/evva/internal/tools/config"
 	"github.com/johnny1110/evva/internal/tools/dev"
-	"github.com/johnny1110/evva/internal/tools/memory"
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/internal/tools/ux"
@@ -195,13 +194,7 @@ func init() {
 		return configtool.New(s.Config()), nil
 	})
 
-	// --- memory (auto-memory writers; gated by config.GetEnableAutoMemory
-	// at Execute time. Always registered so the toolset knows the names —
-	// the Main profile decides whether to include them in ActiveTools.) ---
-	r.MustRegister(tools.UPDATE_USER_PROFILE, func(s tools.State) (tools.Tool, error) {
-		return memory.NewUpdateUserProfile(s.Config()), nil
-	})
-	r.MustRegister(tools.UPDATE_PROJECT_MEMORY, func(s tools.State) (tools.Tool, error) {
-		return memory.NewUpdateProjectMemory(s.Config(), s.Workdir()), nil
-	})
+	// Auto-memory has no dedicated write tool — the model writes typed memory
+	// files itself via write/edit, auto-allowed inside the memory dir by the
+	// permission carve-out (pkg/permission + state_machine.go).
 }

@@ -255,8 +255,14 @@ type SessionInfo struct {
 type QuestionResponse struct {
 	// Answers maps question text → answer string. For single-select the value
 	// is the chosen option label; for multi-select it is comma-separated
-	// labels; for "Other" it is the user-typed free text.
+	// labels; for "Other" it is the user-typed free text. Kept for back-compat;
+	// prefer MultiAnswers for multi-select fidelity.
 	Answers map[string]string
+	// MultiAnswers maps question text → the chosen option labels (the native
+	// multi-select form: single-select is a one-element slice, "Other" the typed
+	// text). Additive in v2.x — when set it is authoritative; Answers stays
+	// populated (comma-joined) for callers that still read it. Optional; nil is fine.
+	MultiAnswers map[string][]string
 	// Annotations is keyed by question text. Present only when the user
 	// selected an option that had a preview, or typed "Other" notes.
 	Annotations map[string]QuestionAnnotation

@@ -46,15 +46,17 @@ type Request struct {
 // Response is the payload delivered back to the blocked tool goroutine once
 // the user has finished answering.
 //
-// Answers maps question text → answer string. For single-select questions the
-// value is the chosen option's label. For multi-select questions the value is
-// a comma-separated list of chosen labels. For "Other" free-text the value is
-// whatever the user typed.
+// Answers maps question text → the chosen option labels. Single-select carries a
+// one-element slice; multi-select carries one entry per chosen option; "Other"
+// free-text carries the user-typed string as the sole element. This is the
+// canonical multi-value shape — the public ui.QuestionResponse keeps a string
+// map (comma-joined) for back-compat plus an additive MultiAnswers that maps
+// onto this.
 //
 // Annotations is keyed by question text. It is always non-nil but entries are
 // only present when the user's selection had an associated preview or notes.
 type Response struct {
-	Answers     map[string]string
+	Answers     map[string][]string
 	Annotations map[string]Annotation
 }
 

@@ -1,0 +1,6 @@
+node_modules
+*.local
+.DS_Store
+*.log
+# NOTE: dist/ is intentionally NOT ignored — it is vendored (committed) and
+# embedded by embed.go. Run `npm run build` and commit dist/ after FE changes.

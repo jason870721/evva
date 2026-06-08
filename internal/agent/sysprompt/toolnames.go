@@ -36,10 +36,6 @@ const (
 	nameEnterWorktree = "enter_worktree"
 	nameExitWorktree  = "exit_worktree"
 
-	// Auto-memory tools — see internal/tools/memory.
-	nameUpdateUserProfile   = "update_user_profile"
-	nameUpdateProjectMemory = "update_project_memory"
-
 	// Daemon-control surface — see pkg/tools/daemon.
 	nameDaemonList   = "daemon_list"
 	nameDaemonOutput = "daemon_output"

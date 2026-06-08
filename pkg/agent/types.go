@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/johnny1110/evva/pkg/constant"
+	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/ui"
 )
 
@@ -136,10 +137,26 @@ type Agent interface {
 	Shutdown()
 }
 
+// SkillReloader is the optional runtime skill-reload seam. The base Agent interface
+// stays unchanged (Stable — no new method); a host that needs to hot-swap a live
+// agent's skill catalog — the swarm web UI adding/removing a member's skills
+// (RP-10) — type-asserts an Agent to SkillReloader. ReloadSkills installs the new
+// catalog on the skill tool AND re-renders the prompt's # Skills section; an empty
+// registry advertises "no skills". Call at a run boundary (no Run in flight); the
+// re-render costs a one-turn KV-cache miss.
+type SkillReloader interface {
+	ReloadSkills(reg *skill.Registry) error
+}
+
 // QuestionResponse is the payload returned through Agent.RespondQuestion.
 type QuestionResponse struct {
-	Answers     map[string]string
-	Annotations map[string]QuestionAnnotation
+	// Answers maps question text → answer string (single label; comma-joined for
+	// multi-select). Kept for back-compat; prefer MultiAnswers for multi-select.
+	Answers map[string]string
+	// MultiAnswers maps question text → the chosen option labels (native
+	// multi-select form). Additive in v2.x — authoritative when set.
+	MultiAnswers map[string][]string
+	Annotations  map[string]QuestionAnnotation
 }
 
 // QuestionAnnotation captures the preview content (if any) of the option the

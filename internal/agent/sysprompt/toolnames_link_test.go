@@ -63,8 +63,6 @@ func TestToolNamesAppearInMainPrompt(t *testing.T) {
 		tools.EXIT_PLAN_MODE,
 		tools.ENTER_WORKTREE,
 		tools.EXIT_WORKTREE,
-		tools.UPDATE_USER_PROFILE,
-		tools.UPDATE_PROJECT_MEMORY,
 		tools.DAEMON_LIST,
 		tools.DAEMON_OUTPUT,
 		tools.DAEMON_STOP,

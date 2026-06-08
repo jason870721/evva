@@ -25,6 +25,7 @@ import (
 	"github.com/johnny1110/evva/pkg/hooks"
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/permission"
+	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/lsp"
@@ -171,6 +172,12 @@ type Agent struct {
 
 	sink event.Sink // event to ui
 
+	// inboxDrainer, when set, is polled at every loop iteration boundary so a
+	// busy agent can fold an incoming message into its current run (the
+	// generalisation of the background-task drain). Nil is a no-op — single-
+	// agent behaviour is unaffected. Set via WithInboxDrainer.
+	inboxDrainer Drainer
+
 	// maxIters is the agent loop's safety cap. Atomic so the TUI's
 	// /config form can mutate it from another goroutine while the loop
 	// reads it at iteration boundaries.
@@ -312,7 +319,12 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	// agent.New runs; passing an empty registry disables auto-load. Done
 	// here (not in cmd/evva/main.go) so every host — bundled CLI, SDK
 	// consumers, examples — gets disk skills for free.
-	if a.toolState.SkillRegistry() == nil {
+	// A registry installed via WithSkillRegistry (swarm members, SDK hosts) is the
+	// explicit, authoritative catalog for THIS agent; its absence means "auto-load
+	// from disk". Capture which case we're in before the auto-load so the skillRefs
+	// wiring below can tell an explicit injection from the default path.
+	injectedSkills := a.toolState.SkillRegistry() != nil
+	if !injectedSkills {
 		reg := loadDiskSkillRegistry(a.cfg)
 		for _, w := range reg.Warnings {
 			lgr.Warn("skill: load", "msg", w)
@@ -321,6 +333,20 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		if a.skillRefs == nil {
 			a.skillRefs = refsFromRegistry(reg)
 		}
+	}
+	// An explicitly injected registry must drive BOTH the skill tool AND the prompt's
+	// # Skills section. WithSkillRegistry only sets the tool side, leaving a.skillRefs
+	// nil — which makes resolveMainProfileWithExtra fall back to the cfg-GLOBAL catalog
+	// (a different source than the tool). Derive the prompt refs from the injected
+	// registry instead, coercing an empty one to a non-nil empty slice so it advertises
+	// "no skills" rather than inheriting the global set (RP-10-2). Scoped to explicit
+	// injection so evva's auto-load path stays bit-identical.
+	if injectedSkills && a.skillRefs == nil {
+		refs := refsFromRegistry(a.toolState.SkillRegistry())
+		if refs == nil {
+			refs = []sysprompt.SkillRef{}
+		}
+		a.skillRefs = refs
 	}
 
 	// Auto-load the LSP config and install the Manager on ToolState.
@@ -361,23 +387,35 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	a.autoLoadMcp(lgr)
 	a.foldMcpIntoProfile()
 
+	// An explicitly injected skill registry (WithSkillRegistry — swarm members) must
+	// also drive the INITIAL prompt's # Skills section, not just later re-resolves.
+	// pkg/agent.New resolved the profile BEFORE this option was applied (skills=nil →
+	// cfg-global fallback), so re-render now with the injected refs (RP-10-2). When
+	// MCP was discovered, foldMcpIntoProfile already re-rendered with a.skillRefs, so
+	// skip the duplicate. Scoped to explicit injection so evva's path is untouched.
+	if injectedSkills && a.profile.Type == MAIN && len(a.mcpDiscoveredNames()) == 0 {
+		persona := a.activePersona
+		if persona == "" {
+			persona = "evva"
+		}
+		if aug, perr := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, persona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.profile.LLMProvider, a.profile.LLMModel, nil); perr == nil {
+			a.profile.SystemPrompt = aug.SystemPrompt
+			a.profile.LLMOptions = aug.LLMOptions
+		} else {
+			lgr.Warn("agent: re-render prompt for injected skills", "err", perr)
+		}
+	}
+
 	// Register any custom tools the caller staged via WithCustomTool, and
 	// extend the profile's active list so they show up to the LLM. Duplicate
 	// registrations are silently absorbed — agents constructed back-to-back
 	// against the same custom catalog re-use the first registration.
-	activeNames := profile.ActiveTools
-	if len(a.customTools) > 0 {
-		reg := pubtoolset.DefaultRegistry()
-		extra := make([]tools.ToolName, 0, len(a.customTools))
-		for _, ct := range a.customTools {
-			if !reg.Has(ct.name) {
-				if regErr := reg.Register(ct.name, ct.factory); regErr != nil {
-					return nil, fmt.Errorf("agent: register custom tool %q: %w", ct.name, regErr)
-				}
-			}
-			extra = append(extra, ct.name)
-		}
-		activeNames = append(append([]tools.ToolName{}, profile.ActiveTools...), extra...)
+	// Custom tools (WithCustomTool) extend the profile's active list. The same
+	// merge runs on every active-set rebuild via activeToolNames, so a reload
+	// never drops downstream-injected tools.
+	activeNames, err := a.activeToolNames(profile.ActiveTools)
+	if err != nil {
+		return nil, err
 	}
 
 	// Expose tools to the llm api call, also init at first.
@@ -590,6 +628,30 @@ func (a *Agent) SetLLMTopP(v *float64) error {
 	return nil
 }
 
+// activeToolNames returns base (a profile's ActiveTools) extended with every
+// WithCustomTool name, (re-)ensuring each custom factory is registered on the
+// pkg/toolset DefaultRegistry. New builds the initial active set through it, and
+// every active-set REBUILD (SwitchProfile, ResumeSnapshot, SwitchWorkdir) MUST
+// too: a rebuild that uses profile.ActiveTools alone silently drops downstream-
+// injected tools — e.g. a swarm member losing its task_*/send_message tools
+// after a restart-resume, leaving it deadlocked with only its profile tools.
+func (a *Agent) activeToolNames(base []tools.ToolName) ([]tools.ToolName, error) {
+	if len(a.customTools) == 0 {
+		return base, nil
+	}
+	reg := pubtoolset.DefaultRegistry()
+	out := append([]tools.ToolName{}, base...)
+	for _, ct := range a.customTools {
+		if !reg.Has(ct.name) {
+			if err := reg.Register(ct.name, ct.factory); err != nil {
+				return nil, fmt.Errorf("agent: register custom tool %q: %w", ct.name, err)
+			}
+		}
+		out = append(out, ct.name)
+	}
+	return out, nil
+}
+
 // SwitchProfile rebuilds the agent for a new persona — different system
 // prompt, different active/deferred tool lists, fresh session. Mirrors
 // SwitchLLM's running-guard discipline.
@@ -624,7 +686,12 @@ func (a *Agent) SwitchProfile(name string) error {
 
 	// Rebuild the active-tool map from the new profile. Reuses the
 	// existing toolState so observers (UI panels) keep their subscriptions.
-	exposeTools, err := toolset.Build(newProfile.ActiveTools, a.toolState)
+	// activeToolNames re-merges custom tools so the switch doesn't drop them.
+	activeNames, err := a.activeToolNames(newProfile.ActiveTools)
+	if err != nil {
+		return err
+	}
+	exposeTools, err := toolset.Build(activeNames, a.toolState)
 	if err != nil {
 		return fmt.Errorf("agent: build active tools: %w", err)
 	}
@@ -778,7 +845,13 @@ func (a *Agent) ResumeSnapshot(snap *session.Snapshot) error {
 	newProfile.LLMProvider = provider
 	newProfile.LLMModel = model
 
-	exposeTools, err := toolset.Build(newProfile.ActiveTools, a.toolState)
+	// Re-merge custom tools so a resume (e.g. swarm restart-resume) keeps the
+	// downstream-injected tools instead of collapsing to the profile's list.
+	activeNames, err := a.activeToolNames(newProfile.ActiveTools)
+	if err != nil {
+		return err
+	}
+	exposeTools, err := toolset.Build(activeNames, a.toolState)
 	if err != nil {
 		return fmt.Errorf("agent: build active tools: %w", err)
 	}
@@ -1108,8 +1181,13 @@ func (a *Agent) SwitchWorkdir(path string) error {
 
 	// Rebuild active tools so workdir-bound factories pick up the new
 	// path. The toolState (and its registered observers) is reused — UI
-	// panels stay subscribed across the switch.
-	exposeTools, err := toolset.Build(a.profile.ActiveTools, a.toolState)
+	// panels stay subscribed across the switch. activeToolNames re-merges
+	// custom tools so the switch doesn't drop them.
+	names, err := a.activeToolNames(a.profile.ActiveTools)
+	var exposeTools []tools.Tool
+	if err == nil {
+		exposeTools, err = toolset.Build(names, a.toolState)
+	}
 	if err != nil {
 		// Roll back the workdir on failure so the agent stays consistent.
 		a.workdirMu.Lock()
@@ -1144,6 +1222,39 @@ func (a *Agent) SwitchWorkdir(path string) error {
 	}
 
 	a.logger.Info("agent: workdir switched", "prev", prev, "new", path)
+	return nil
+}
+
+// ReloadSkills swaps the agent's skill catalog and re-renders the system prompt to
+// match — the runtime analogue of WithSkillRegistry. The new registry drives BOTH
+// the skill tool (SetSkillRegistry) and the prompt's # Skills section (skillRefs +
+// re-resolve); an empty registry advertises "no skills" rather than inheriting the
+// cfg-global catalog (same coercion as construction, RP-10-2). The prompt swap is a
+// KV-cache miss on the next turn — acceptable for an explicit, infrequent reload.
+//
+// MUST be called while no Run is in flight; the swarm applies it at a run boundary
+// (RP-10-4). Satisfies pkg/agent.SkillReloader.
+func (a *Agent) ReloadSkills(reg *skill.Registry) error {
+	if reg == nil {
+		reg = skill.NewRegistry()
+	}
+	a.toolState.SetSkillRegistry(reg)
+	refs := refsFromRegistry(reg)
+	if refs == nil {
+		refs = []sysprompt.SkillRef{}
+	}
+	a.skillRefs = refs
+
+	if a.cfg == nil || a.activePersona == "" {
+		return nil
+	}
+	newProfile, err := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, a.activePersona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, a.mcpDiscoveredNames())
+	if err != nil {
+		return fmt.Errorf("agent: reload skills: re-resolve prompt: %w", err)
+	}
+	a.profile.SystemPrompt = newProfile.SystemPrompt
+	a.profile.LLMOptions = newProfile.LLMOptions
+	a.llm.Apply(llm.WithSystem(newProfile.SystemPrompt))
 	return nil
 }
 
@@ -1244,6 +1355,22 @@ func (a *Agent) RespondPermission(id string, dec ui.PermissionDecision) error {
 	return a.permissionBroker.Respond(id, pd)
 }
 
+// questionAnswers folds the public response — the back-compat string Answers
+// plus the additive MultiAnswers — into the canonical multi-value map. A key in
+// MultiAnswers wins; a key only in Answers becomes a one-element slice.
+func questionAnswers(resp ui.QuestionResponse) map[string][]string {
+	out := make(map[string][]string, len(resp.Answers)+len(resp.MultiAnswers))
+	for k, v := range resp.MultiAnswers {
+		out[k] = v
+	}
+	for k, v := range resp.Answers {
+		if _, ok := out[k]; !ok {
+			out[k] = []string{v}
+		}
+	}
+	return out
+}
+
 // RespondQuestion forwards the user's answers from the TUI to the question
 // broker. id ties back to a single blocked question.Broker.Request call.
 // Implements ui.Controller.
@@ -1252,7 +1379,7 @@ func (a *Agent) RespondQuestion(id string, resp ui.QuestionResponse) error {
 		return errors.New("agent: no question broker installed")
 	}
 	r := question.Response{
-		Answers:     resp.Answers,
+		Answers:     questionAnswers(resp),
 		Annotations: make(map[string]question.Annotation, len(resp.Annotations)),
 	}
 	for k, v := range resp.Annotations {

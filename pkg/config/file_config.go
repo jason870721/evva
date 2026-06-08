@@ -39,11 +39,26 @@ type FileConfig struct {
 	FetchMaxBytes int    `yaml:"fetch_max_bytes"`
 	TavilyAPIKey  string `yaml:"tavily_api_key"`
 
-	// EnableAutoMemory gates the auto-memory subsystem (update_user_profile,
-	// update_project_memory tools + the per-session prompt section). Default
-	// true; users opt out via /config or by setting this to false. Pointer so
-	// missing-key in YAML preserves the default rather than zeroing.
+	// EnableAutoMemory gates the typed-memory subsystem (the per-session prompt
+	// guidance + MEMORY.md index, the write carve-out, and per-turn recall).
+	// Default true; users opt out via /config or by setting this to false.
+	// Pointer so a missing key in YAML preserves the default rather than zeroing.
 	EnableAutoMemory *bool `yaml:"enable_auto_memory,omitempty"`
+
+	// EnableMemoryRecall gates the per-turn relevance side-query that surfaces
+	// stored memories matching the current prompt. Default true (when auto-memory
+	// is on); the cost-sensitive escape hatch — set false to keep the MEMORY.md
+	// index but drop the extra completion per turn. Pointer to preserve the
+	// default on a missing key.
+	EnableMemoryRecall *bool `yaml:"enable_memory_recall,omitempty"`
+
+	// MemoryRecallModel optionally pins the model used for the recall side-query.
+	// Empty → a cheap model within the active provider (anthropic: sonnet,
+	// deepseek: flash, openai: gpt-5.4-mini at medium effort; ollama/other: the
+	// active model + the main agent's effort). Set a specific model here to
+	// override, e.g. a different cost lever or any model whose provider you have a
+	// key for. Unknown values are ignored (fall back to the default resolution).
+	MemoryRecallModel string `yaml:"memory_recall_model,omitempty"`
 
 	Providers map[string]FileProviderConfig `yaml:"providers"`
 
@@ -69,6 +84,7 @@ func defaultFileConfig(appName string) FileConfig {
 		appName = "evva"
 	}
 	enableAutoMem := true
+	enableMemRecall := true
 	return FileConfig{
 		MaxIterations:        30,
 		MaxTokens:            4096,
@@ -84,7 +100,8 @@ func defaultFileConfig(appName string) FileConfig {
 		FetchMaxBytes: 100000,
 		TavilyAPIKey:  "",
 
-		EnableAutoMemory: &enableAutoMem,
+		EnableAutoMemory:   &enableAutoMem,
+		EnableMemoryRecall: &enableMemRecall,
 
 		Providers: map[string]FileProviderConfig{
 			constant.ANTHROPIC.Name: {},

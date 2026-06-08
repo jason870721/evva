@@ -1,7 +1,11 @@
 package bubbletea
 
 import (
+	"errors"
+	"fmt"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/pkg/ui"
@@ -47,3 +51,24 @@ func TestRegisteredAsBubbletea(t *testing.T) {
 // unit test without spinning a goroutine. In real usage Emit is only
 // called from the agent goroutine after the host has wired
 // New → Attach → Run, so the window doesn't exist.
+
+// isCleanExit must treat a normal interrupt/kill as a clean quit — otherwise
+// cmd/evva takes its os.Exit path on quit and skips agent Shutdown, orphaning
+// MCP stdio subprocesses (a leaked docker container per launch).
+func TestIsCleanExit(t *testing.T) {
+	if !isCleanExit(nil) {
+		t.Fatal("nil should be a clean exit")
+	}
+	if !isCleanExit(tea.ErrInterrupted) {
+		t.Fatal("ErrInterrupted (SIGINT) should be a clean exit")
+	}
+	if !isCleanExit(tea.ErrProgramKilled) {
+		t.Fatal("ErrProgramKilled should be a clean exit")
+	}
+	if !isCleanExit(fmt.Errorf("wrapped: %w", tea.ErrInterrupted)) {
+		t.Fatal("a wrapped interrupt should still be a clean exit")
+	}
+	if isCleanExit(errors.New("boom")) {
+		t.Fatal("a real error must NOT be treated as a clean exit")
+	}
+}

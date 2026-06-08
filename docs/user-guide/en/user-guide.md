@@ -200,7 +200,7 @@ Switches the agent's persona — different identity, system prompt, and tool sur
 | --- | --- |
 | `as` | one of `[main]`, `[subagent]`, or `[main, subagent]`. `main` makes it appear in `/profile`; `subagent` makes it callable via the Agent tool's `subagent_type` enum |
 | `when_to_use` | one-sentence blurb the picker shows next to the name |
-| `inject_memory` | when `true`, the persona receives the `EVVA.md` + `USER_PROFILE.md` snapshot in its system prompt. Default `false` |
+| `inject_memory` | when `true`, the persona receives the `EVVA.md` + the `~/.evva/memory/` index in its system prompt (and the typed-memory guidance + recall). Default `false` |
 | `advertise_skills` | when `true`, the persona's prompt advertises the installed skill catalog. Default `false` |
 
 The picker lists every persona with `as:` containing `main`:
@@ -250,7 +250,7 @@ The picker lists the 10 most-recently-touched sessions per page, sorted by last-
 │                                                              │
 │ ▶ wire up the /resume slash command and overlay              │
 │     5m ago · evva · 42 msgs · claude-opus-4-7                │
-│   add update_user_profile + update_project_memory tools      │
+│   port the typed-memory directory + relevance recall         │
 │     2h ago · evva · 87 msgs · claude-opus-4-7                │
 │   verify the multi-platform release workflow                 │
 │     1d ago · evva · 18 msgs · deepseek-v4-pro                │
@@ -803,6 +803,11 @@ permission_mode: default     # default | accept_edits | plan | bypass
 fetch_max_bytes: 100000
 tavily_api_key: ""
 
+# Memory (typed-memory directory at ~/.evva/memory/)
+enable_auto_memory: true     # memory guidance + MEMORY.md index + write carve-out + recall
+enable_memory_recall: true   # per-turn relevance side-query (cost lever; false keeps the index only)
+memory_recall_model: ""      # empty = cheap model in the active provider (anthropic→sonnet, deepseek→flash, openai→gpt-5.4-mini @ medium; ollama→active model+effort)
+
 # Per-provider credentials. Empty api_url falls back to the constant's default.
 providers:
   anthropic: { api_key: "", api_url: "" }
@@ -810,6 +815,34 @@ providers:
   openai:    { api_key: "", api_url: "" }
   ollama:    { api_url: "" }
 ```
+
+### Memory
+
+evva keeps a single global, file-based memory at `~/.evva/memory/`. Each memory
+is one Markdown file with `name` / `description` / `type` frontmatter — the four
+types are `user`, `feedback`, `project`, and `reference` — and a `MEMORY.md`
+index in that directory lists them. The agent writes and updates these files
+itself with its normal file tools; writes confined to the memory directory are
+auto-approved, so it won't prompt you for each note.
+
+- **Always loaded:** only the `MEMORY.md` index (a table of contents), so the
+  prompt stays small.
+- **Relevance recall:** at the start of each turn a cheap side-query pulls in the
+  few individual memories relevant to your message; they appear as a
+  `<system-reminder>` in the transcript/logs. Set `enable_memory_recall: false`
+  to keep the index but skip the extra call. By default the side-query uses a
+  cheap model within your active provider — Anthropic → Sonnet, DeepSeek →
+  v4-flash, OpenAI → gpt-5.4-mini (all at medium effort); Ollama uses your active
+  model and effort — and you can pin a specific one with `memory_recall_model`.
+- **Freshness:** a recalled memory older than a day is prefixed with its age and
+  a caveat to verify against current code before trusting it.
+- **Turning it off:** `enable_auto_memory: false` (or `EVVA_AUTO_MEMORY=0`)
+  disables the whole subsystem — no directory, no recall, no prompt section.
+
+> The previous two-file model (`USER_PROFILE.md` + per-project
+> `projects/<key>/MEMORY.md`) and the `update_user_profile` /
+> `update_project_memory` tools have been removed. Old files are left on disk
+> untouched but no longer read — copy anything worth keeping into a new memory.
 
 ### .env (optional)
 
@@ -877,7 +910,7 @@ One declarative `agent.Config` plus a couple of options gives you the
 complete experience — the bundled terminal UI, persona `/profile`
 switching, permission prompts, `/resume`, and `/compact`. `agent.New`
 absorbs the bootstrap: it resolves the persona (falling back to `evva`),
-auto-loads `EVVA.md` / `USER_PROFILE.md` memory and the skill catalog,
+auto-loads `EVVA.md` + the `~/.evva/memory/` directory and the skill catalog,
 loads the permission store, and installs the approval/question brokers.
 
 ```go

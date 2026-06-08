@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="neon-tokyo">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>evva · swarm</title>
+    <script>
+      // No-FOUC theme boot (FE-1 §5): set data-theme on <html> BEFORE the app
+      // mounts, so the first paint already uses the persisted theme. The Pinia
+      // uiStore takes over as the source of truth once Vue is up.
+      ;(function () {
+        try {
+          var saved = localStorage.getItem('evva-theme')
+          // Both shipped themes are dark; neon-tokyo is the flagship default.
+          document.documentElement.dataset.theme = saved || 'neon-tokyo'
+        } catch (e) {
+          /* localStorage blocked — fall back to the static attribute above. */
+        }
+      })()
+    </script>
+    <script type="module" crossorigin src="./assets/index.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>

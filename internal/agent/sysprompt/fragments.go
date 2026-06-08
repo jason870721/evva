@@ -147,18 +147,25 @@ func environmentSection(ctx PromptContext) string {
 	workdir := defaultIfBlank(ctx.WorkDir, "(unknown)")
 	evvaHome := defaultIfBlank(ctx.EvvaHome, "(unset)")
 
-	today := ctx.Today
-	if today.IsZero() {
-		today = time.Now()
-	}
-
 	parts := []string{
 		"# Environment",
 		fmt.Sprintf("- OS / shell: %s / %s", osLabel, shellLabel),
-		fmt.Sprintf("- Today: %s", today.Format("Monday January 2 2006")),
+	}
+	// A long-running persona (swarm member) omits the date: it drifts on every
+	// rebuild and would bust the prompt-cache prefix for a swarm that runs for
+	// weeks. Such personas get their time from wake/run prompts, not the static
+	// system prompt (RP-5). Ordinary agents (OmitDate false) keep "- Today:".
+	if !ctx.OmitDate {
+		today := ctx.Today
+		if today.IsZero() {
+			today = time.Now()
+		}
+		parts = append(parts, fmt.Sprintf("- Today: %s", today.Format("Monday January 2 2006")))
+	}
+	parts = append(parts,
 		fmt.Sprintf("- Working directory: %s", workdir),
 		fmt.Sprintf("- AAP_HOME (global: config, skills, memory): %s", evvaHome),
-	}
+	)
 
 	return strings.Join(parts, "\n")
 }
@@ -206,7 +213,7 @@ func summarizeToolResultsSection() string {
 // Skills are listed in the order the caller provides — the sysprompt
 // package does not re-sort, since the registry already returns a stable
 // order. An empty slice produces an empty string and the caller skips it.
-func skillsSection(skills []SkillRef) string {
+func skillsSection(skills []SkillRef, omitAuthoring bool) string {
 	if len(skills) == 0 {
 		return ""
 	}
@@ -225,8 +232,15 @@ func skillsSection(skills []SkillRef) string {
 			fmt.Fprintf(&b, "- %s: %s\n", name, desc)
 		}
 	}
-	b.WriteString("You can load skills if you think you may need them to help you process current work better.\n")
-	b.WriteString("How to create a skill: locate EvvaHome dir (global skills) or workdir/.evva (workdir skills), create skills/{skill-name}/SKILL.md, the first line in SKILL.md is description (e.g # commit ...), other line is body.")
+	b.WriteString("You can load skills if you think you may need them to help you process current work better.")
+	// omitAuthoring drops the "how to create a skill" guidance for long-running
+	// swarm members (RP-10-3): they have write/bash, so that line would invite them
+	// to author SKILL.md mid-run and erode a stable swarm's quality. Skills are
+	// User-authored via the web; the skill tool is load-only. evva (omitAuthoring
+	// false) keeps the guidance.
+	if !omitAuthoring {
+		b.WriteString("\nHow to create a skill: locate EvvaHome dir (global skills) or workdir/.evva (workdir skills), create skills/{skill-name}/SKILL.md, the first line in SKILL.md is description (e.g # commit ...), other line is body.")
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -259,19 +273,23 @@ func devFeedbackSection() string {
 // Those would conflict with the persona's own definition; the persona
 // supplies its own conduct rules in body.
 func ComposeDiskMainPrompt(body string, ctx PromptContext, def AgentDefinition) string {
-	var memProject, memUser, skillsList string
+	var memProject, memGuidance, memIndex, skillsList string
 	if !def.OmitMemory {
 		memProject = memorySection("Project memory (from EVVA.md)", ctx.WorkdirMemory)
-		memUser = memorySection("User profile (from USER_PROFILE.md)", ctx.UserProfile)
+		memGuidance = autoMemoryGuidanceSection(ctx)
+		memIndex = memoryIndexSection(ctx)
 	}
 	if def.AdvertiseSkills {
-		skillsList = skillsSection(ctx.Skills)
+		// Long-running swarm members get the slim skills section (no authoring
+		// guidance, RP-10-3); ordinary disk personas keep the full one.
+		skillsList = skillsSection(ctx.Skills, def.LongRunning)
 	}
 	return joinSections(
 		identitySection(ctx),
 		environmentSection(ctx),
 		memProject,
-		memUser,
+		memGuidance,
+		memIndex,
 		body,
 		skillsList,
 		devSectionIfEnabled(ctx),

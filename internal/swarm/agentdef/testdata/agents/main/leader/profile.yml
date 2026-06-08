@@ -1,0 +1,5 @@
+model: claude-sonnet-4-6
+effort: high
+when_to_use: "The team lead — owns planning, task assignment, and verification."
+inject_memory: true
+advertise_skills: true

@@ -130,12 +130,23 @@ type Config struct {
 	// UI
 	DisplayThinking bool
 
-	// Auto-memory subsystem. When true (default), update_user_profile +
-	// update_project_memory tools are registered on Main and the system
-	// prompt carries the auto-memory guidance + project-memory index.
-	// /config (or hand-edit) flips this; EVVA_AUTO_MEMORY=0 forces off at
-	// boot regardless of the YAML.
+	// Auto-memory subsystem. When true (default), the system prompt carries the
+	// typed-memory guidance + the MEMORY.md index, the permission write carve-out
+	// is active, and per-turn recall runs. The model writes memory files itself
+	// with write/edit (no dedicated tool). /config (or hand-edit) flips this;
+	// EVVA_AUTO_MEMORY=0 forces off at boot regardless of the YAML.
 	EnableAutoMemory bool
+
+	// EnableMemoryRecall gates the per-turn relevance side-query (only meaningful
+	// when EnableAutoMemory is true). Default true; the cost-sensitive escape
+	// hatch keeps the index but drops the extra completion per turn.
+	EnableMemoryRecall bool
+
+	// MemoryRecallModel optionally pins the recall side-query model id. Empty →
+	// a cheap model within the active provider (anthropic: sonnet, deepseek:
+	// flash, openai: gpt-5.4-mini at medium effort; ollama/other: the active
+	// model + the main agent's effort). See internal/agent recall wiring.
+	MemoryRecallModel string
 
 	// Web tools
 	TavilyAPIKey  string // empty → web_search reports "not configured"
@@ -214,6 +225,8 @@ func (c *Config) Clone() *Config {
 		DefaultMaxTokens:     c.DefaultMaxTokens,
 		DisplayThinking:      c.DisplayThinking,
 		EnableAutoMemory:     c.EnableAutoMemory,
+		EnableMemoryRecall:   c.EnableMemoryRecall,
+		MemoryRecallModel:    c.MemoryRecallModel,
 		TavilyAPIKey:         c.TavilyAPIKey,
 		FetchMaxBytes:        c.FetchMaxBytes,
 		LLMParamsTemperature: c.LLMParamsTemperature,
@@ -317,6 +330,40 @@ func (c *Config) GetEnableAutoMemory() bool {
 func (c *Config) SetEnableAutoMemory(v bool) error {
 	c.mu.Lock()
 	c.EnableAutoMemory = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetEnableMemoryRecall returns the per-turn recall flag under the read lock.
+// Read by the agent loop each user turn to decide whether to run the relevance
+// side-query.
+func (c *Config) GetEnableMemoryRecall() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EnableMemoryRecall
+}
+
+// SetEnableMemoryRecall toggles the per-turn recall side-query and persists.
+func (c *Config) SetEnableMemoryRecall(v bool) error {
+	c.mu.Lock()
+	c.EnableMemoryRecall = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetMemoryRecallModel returns the pinned recall-model id ("" → default
+// resolution) under the read lock.
+func (c *Config) GetMemoryRecallModel() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.MemoryRecallModel
+}
+
+// SetMemoryRecallModel pins (or clears, with "") the recall side-query model
+// and persists.
+func (c *Config) SetMemoryRecallModel(v string) error {
+	c.mu.Lock()
+	c.MemoryRecallModel = v
 	c.mu.Unlock()
 	return c.SaveFile()
 }
@@ -649,6 +696,7 @@ func (c *Config) SaveFile() error {
 		}
 	}
 	enableAutoMem := c.EnableAutoMemory
+	enableMemRecall := c.EnableMemoryRecall
 	var customCopy map[string]any
 	if len(c.CustomConfig) > 0 {
 		customCopy = make(map[string]any, len(c.CustomConfig))
@@ -669,6 +717,8 @@ func (c *Config) SaveFile() error {
 		FetchMaxBytes:        c.FetchMaxBytes,
 		TavilyAPIKey:         c.TavilyAPIKey,
 		EnableAutoMemory:     &enableAutoMem,
+		EnableMemoryRecall:   &enableMemRecall,
+		MemoryRecallModel:    c.MemoryRecallModel,
 		Providers:            providers,
 		Custom:               customCopy,
 	}

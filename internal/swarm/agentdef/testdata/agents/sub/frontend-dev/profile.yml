@@ -1,0 +1,5 @@
+# No model override (inherits the parent's model) and no effort — exercises the
+# optional-field defaults. Standing-duty interval schedule.
+when_to_use: "Frontend implementation: components, state, styling."
+schedule:
+  every: "30s"

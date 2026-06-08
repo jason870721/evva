@@ -57,6 +57,20 @@ func main() {
 		return
 	}
 
+	// Veronica swarm subsystem (additive subcommands; the bare `evva` TUI path
+	// below is unchanged). These own their own arg handling and exit before the
+	// single-agent bootstrap runs.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "service":
+			runService(os.Args[2:])
+			return
+		case "swarm":
+			runSwarm(os.Args[2:])
+			return
+		}
+	}
+
 	_ = godotenv.Load()
 	cfg := config.Get()
 
@@ -68,14 +82,15 @@ func main() {
 	permModeFlag := flag.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
 	flag.Parse()
 
-	// First-session notice for auto-memory: no USER_PROFILE.md yet. Quiet
-	// thereafter — once the file exists the user has seen it (or opted in by
-	// their own writes). agent.New auto-loads EVVA.md / USER_PROFILE.md into
-	// the prompt itself and logs any load warnings, so the host no longer
-	// reads the memory files directly.
+	// First-session notice for auto-memory: no MEMORY.md index yet. Quiet
+	// thereafter — once the index exists the user has seen it (or opted in by
+	// their own writes). agent.New ensures the memory dir, loads EVVA.md + the
+	// index into the prompt itself, and logs any load warnings, so the host no
+	// longer reads the memory files directly.
 	if cfg.GetEnableAutoMemory() {
-		if _, err := os.Stat(filepath.Join(cfg.AppHome, "USER_PROFILE.md")); errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintln(os.Stderr, "evva: auto-memory is enabled — the agent will save persistent notes to USER_PROFILE.md and projects/<key>/MEMORY.md. Disable with /config.")
+		memDir := filepath.Join(cfg.AppHome, "memory")
+		if _, err := os.Stat(filepath.Join(memDir, "MEMORY.md")); errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "evva: auto-memory is enabled — the agent saves persistent, typed notes under %s and maintains a MEMORY.md index there. Disable with /config.\n", memDir)
 		}
 	}
 
@@ -131,6 +146,12 @@ func runTUI(ctx context.Context, acfg agent.Config, evvaHome, tuiName string) {
 	defer ag.Shutdown()
 	tui.Attach(ag.Controller())
 	if err := tui.Run(ctx); err != nil {
+		// exitf calls os.Exit, which does NOT run the deferred Shutdown — so
+		// close MCP sessions / background tasks explicitly first. Without this
+		// a UI that returns an error (e.g. an interrupt surfaced as
+		// tea.ErrInterrupted) orphans every stdio MCP subprocess, leaking a
+		// container per launch for docker-based servers. Shutdown is idempotent.
+		ag.Shutdown()
 		exitf(1, "evva: %v", err)
 	}
 }
@@ -173,6 +194,10 @@ func runCLI(ctx context.Context, acfg agent.Config) {
 		resp, err = ag.Continue(ctx)
 	}
 	if err != nil {
+		// Both exits below are os.Exit, which skips the deferred Shutdown —
+		// run it explicitly so MCP sessions / background tasks tear down
+		// (idempotent; the success path still relies on the defer).
+		ag.Shutdown()
 		if errors.Is(err, llm.ErrInterrupted) {
 			fmt.Fprintln(os.Stderr, "\ninterrupted")
 			os.Exit(130)

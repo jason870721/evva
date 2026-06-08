@@ -1,0 +1,52 @@
+/* Semantic layer — the ONLY colour layer components are allowed to read. Each
+   name states a ROLE (accent, danger, the swarm phase vocabulary, the 5 task
+   states) and maps onto the active theme's primitives. Phase/status colours are
+   aligned 1:1 with the evva TUI so a state reads as the SAME colour in TUI and
+   web (FE-1 §2.4). */
+:root {
+  /* Surfaces & text */
+  --color-bg: var(--neon-bg);
+  --color-surface: var(--neon-surface);
+  --color-surface-2: color-mix(in srgb, var(--neon-surface) 65%, var(--neon-bg));
+  --color-line: color-mix(in srgb, var(--neon-fg) 14%, transparent);
+  --color-line-strong: color-mix(in srgb, var(--neon-fg) 28%, transparent);
+  --color-text: var(--neon-fg);
+  --color-text-muted: var(--neon-muted);
+  --color-text-faint: var(--neon-think);
+
+  /* Accents */
+  --color-accent: var(--neon-cyan);
+  --color-accent-2: var(--neon-violet);
+  --color-info: var(--neon-blue);
+  --color-danger: var(--neon-red);
+  --color-success: var(--neon-green);
+  --color-warning: var(--neon-yellow);
+  --color-flourish: var(--neon-magenta);
+  --color-cursor: var(--neon-cyan);
+
+  /* Run-phase vocabulary (RP-3; consumed by phaseClass + EvPill) */
+  --phase-thinking: var(--neon-light-blue);
+  --phase-executing: var(--neon-copper);
+  --phase-waiting: var(--neon-violet); /* needs the operator — loudest */
+  --phase-error: var(--neon-red);
+  --phase-paused: var(--neon-yellow);
+  --phase-idle: var(--neon-muted);
+  --color-tool-result: var(--neon-sky);
+
+  /* 5-state task board (aligned with TUI status colours) */
+  --status-pending: var(--neon-muted);
+  --status-running: var(--neon-cyan);
+  --status-suspended: var(--neon-yellow);
+  --status-verifying: var(--neon-violet);
+  --status-completed: var(--neon-green);
+
+  /* Diff (TUI M2 look: white text on solid green/red blocks) */
+  --diff-add-bg: var(--neon-diff-add-bg);
+  --diff-del-bg: var(--neon-diff-del-bg);
+  --diff-fg: var(--neon-white);
+
+  /* Tints for soft backgrounds/borders derived from roles */
+  --tint-accent: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  --tint-danger: color-mix(in srgb, var(--color-danger) 16%, transparent);
+  --tint-waiting: color-mix(in srgb, var(--phase-waiting) 18%, transparent);
+}

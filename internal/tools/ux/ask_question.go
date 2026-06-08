@@ -56,10 +56,13 @@ type questionOpt struct {
 	Preview     string `json:"preview,omitempty"`
 }
 
-// questionOutput is what the tool returns to the LLM.
+// questionOutput is what the tool returns to the LLM. Answers maps question text
+// → the chosen option labels (one entry per selection; single-select yields a
+// one-element slice; "Other" carries the typed text) — the native multi-select
+// form.
 type questionOutput struct {
 	Questions   []questionItem            `json:"questions"`
-	Answers     map[string]string         `json:"answers"`
+	Answers     map[string][]string       `json:"answers"`
 	Annotations map[string]annotationItem `json:"annotations,omitempty"`
 }
 
@@ -214,8 +217,8 @@ const askQuestionSchema = `{
 		},
 		"answers": {
 			"type": "object",
-			"additionalProperties": {"type": "string"},
-			"description": "User answers collected by the permission component (populated by runtime)."
+			"additionalProperties": {"type": "array", "items": {"type": "string"}},
+			"description": "User answers collected by the runtime: question text → chosen option labels (one entry per selection; a single-select question yields a one-element array)."
 		},
 		"annotations": {
 			"type": "object",

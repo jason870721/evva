@@ -44,16 +44,9 @@ const (
 	// flip statuses and add/remove entries. One in_progress entry at a time.
 	TODO_WRITE ToolName = "todo_write"
 
-	// UPDATE_USER_PROFILE — merge sections into <APP_HOME>/USER_PROFILE.md.
-	// Persistent across sessions; auto-memory feature. Section keys are fixed:
-	// "Preferences", "Working style", "Recurring topics".
-	UPDATE_USER_PROFILE ToolName = "update_user_profile"
-
-	// UPDATE_PROJECT_MEMORY — merge sections into
-	// <APP_HOME>/projects/<slug>/MEMORY.md keyed by slugified workdir path.
-	// Section keys are fixed: "Project facts", "Decisions", "Open issues",
-	// "References".
-	UPDATE_PROJECT_MEMORY ToolName = "update_project_memory"
+	// Auto-memory has no dedicated tool: the model writes typed memory files
+	// directly with write/edit, auto-allowed inside <APP_HOME>/memory/ by the
+	// permission carve-out (pkg/permission.IsAutoMemPath). See internal/memdir.
 )
 
 // Deferred tools — name-only until loaded with TOOL_SEARCH. ================

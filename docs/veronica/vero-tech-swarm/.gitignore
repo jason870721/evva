@@ -1,0 +1,5 @@
+# Runtime + anything the team generates while working — not part of the example.
+.vero/
+# The team writes the actual product into this folder when you run it; ignore the
+# generated source/PRD/design/QA artifacts so they don't get committed back here.
+workspace/

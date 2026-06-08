@@ -205,7 +205,7 @@ display_thinking 設定是什麼？」「把 auto-memory 關掉」「將 max_ite
 | --- | --- |
 | `as` | `[main]`、`[subagent]` 或 `[main, subagent]` 之一。`main` 讓人格出現在 `/profile`；`subagent` 讓人格可透過 Agent 工具的 `subagent_type` 列舉呼叫 |
 | `when_to_use` | 在選單中顯示於名稱旁邊的一句簡述 |
-| `inject_memory` | 為 `true` 時，人格的系統提示詞會收到 `EVVA.md` + `USER_PROFILE.md` 快照。預設 `false` |
+| `inject_memory` | 為 `true` 時，人格的系統提示詞會收到 `EVVA.md` + `~/.evva/memory/` 索引（以及型別化記憶指引與召回）。預設 `false` |
 | `advertise_skills` | 為 `true` 時，人格的提示詞會列出已安裝的技能目錄。預設 `false` |
 
 選單會列出所有 `as:` 包含 `main` 的人格：
@@ -254,7 +254,7 @@ display_thinking 設定是什麼？」「把 auto-memory 關掉」「將 max_ite
 │                                                              │
 │ ▶ 串接 /resume slash 指令與 overlay                          │
 │     5m ago · evva · 42 msgs · claude-opus-4-7                │
-│   新增 update_user_profile + update_project_memory 工具      │
+│   移植型別化記憶目錄 + 相關性召回                            │
 │     2h ago · evva · 87 msgs · claude-opus-4-7                │
 │   驗證跨平台 release 工作流                                  │
 │     1d ago · evva · 18 msgs · deepseek-v4-pro                │
@@ -807,6 +807,11 @@ permission_mode: default     # default | accept_edits | plan | bypass
 fetch_max_bytes: 100000
 tavily_api_key: ""
 
+# 記憶（位於 ~/.evva/memory/ 的型別化記憶目錄）
+enable_auto_memory: true     # 記憶指引 + MEMORY.md 索引 + 寫入豁免 + 召回
+enable_memory_recall: true   # 每回合相關性側查詢（成本開關；設為 false 只保留索引）
+memory_recall_model: ""      # 留空 = 當前供應商中較便宜的模型（anthropic→sonnet、deepseek→flash、openai→gpt-5.4-mini @ medium；ollama→當前模型+effort）
+
 # Per-provider credentials. Empty api_url falls back to the constant's default.
 providers:
   anthropic: { api_key: "", api_url: "" }
@@ -814,6 +819,29 @@ providers:
   openai:    { api_key: "", api_url: "" }
   ollama:    { api_url: "" }
 ```
+
+### 記憶
+
+evva 在 `~/.evva/memory/` 維護單一全域、以檔案為基礎的記憶。每則記憶是一個帶有
+`name` / `description` / `type` frontmatter 的 Markdown 檔（四種型別為 `user`、
+`feedback`、`project`、`reference`），目錄中的 `MEMORY.md` 為其索引。代理會用它
+平常的檔案工具自行寫入與更新這些檔案；寫入限定在記憶目錄內者會自動核准，因此不會
+為每則筆記提示你。
+
+- **永遠載入的內容**：僅 `MEMORY.md` 索引（一份目錄），讓提示詞保持精簡。
+- **相關性召回**：每回合開始時，一次廉價的側查詢會拉入與你訊息相關的少數記憶，
+  它們會以 `<system-reminder>` 出現在對話紀錄／日誌中。設定
+  `enable_memory_recall: false` 可只保留索引而略過此額外呼叫。預設使用當前供應商中
+  較便宜的模型——Anthropic → Sonnet、DeepSeek → v4-flash、OpenAI → gpt-5.4-mini
+  （皆為 medium effort）；Ollama 則沿用當前模型與 effort——亦可用 `memory_recall_model` 指定特定模型。
+- **新鮮度**：召回時超過一天的記憶會在前面附上其年齡與「在當作事實前先對照現有
+  程式碼驗證」的提醒。
+- **關閉方式**：`enable_auto_memory: false`（或 `EVVA_AUTO_MEMORY=0`）會停用整個
+  子系統——不建立目錄、不召回、提示詞中也沒有記憶區段。
+
+> 舊的雙檔模型（`USER_PROFILE.md` + 各專案的 `projects/<key>/MEMORY.md`）以及
+> `update_user_profile` / `update_project_memory` 工具已移除。舊檔仍保留在磁碟上但
+> 不再讀取——若有值得保留的內容，請複製到新的記憶中。
 
 ### .env（選用）
 
@@ -1068,7 +1096,7 @@ go get github.com/johnny1110/evva@v1.0.0
 
 ### 快速開始 — 約 40 行的完整宿主程式
 
-一個宣告式的 `agent.Config` 搭配幾個選項，就能得到完整體驗 — 內建終端機 UI、人格 `/profile` 切換、權限提示、`/resume` 與 `/compact`。`agent.New` 會吸收整個啟動流程：解析人格（找不到時退回 `evva`）、自動載入 `EVVA.md` / `USER_PROFILE.md` 記憶與技能目錄、載入權限規則庫，並安裝核准／提問 broker。
+一個宣告式的 `agent.Config` 搭配幾個選項，就能得到完整體驗 — 內建終端機 UI、人格 `/profile` 切換、權限提示、`/resume` 與 `/compact`。`agent.New` 會吸收整個啟動流程：解析人格（找不到時退回 `evva`）、自動載入 `EVVA.md` 與 `~/.evva/memory/` 目錄及技能目錄、載入權限規則庫，並安裝核准／提問 broker。
 
 ```go
 package main

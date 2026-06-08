@@ -12,6 +12,181 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.4.3] — 2026-06-07
+
+First stable release since v0.2.0. Swarm web workstation context-aware UI
+(EvContextBar, event/timeline/color libraries), MCP server config fix, and
+bubbletea/lp UI context propagation.
+
+### Added
+
+- **Swarm FE v2 — EvContextBar.** New situational-awareness bar component
+  showing agent context across the workstation views.
+- **Swarm FE v2 — events, timeline, and colors libraries.** TypeScript utility
+  libs with tests for event routing, timeline state, and theme-aware color
+  generation.
+- **`pkg/mcp` config fix.** `pkg/mcp/config.go` gains proper config loading
+  with tests, fixing MCP server configuration that was silently dropped.
+
+### Changed
+
+- **bubbletea and lp UIs** propagate context through the component tree.
+- **CLI `cmd/evva/main.go`** updated for the new UI context wiring.
+- **Swarm `internal/swarm/service` and `webapi`** updated for the
+  context-aware FE.
+- **FE v2 web2 dist rebuilt** with EvContextBar, updated MailboxList,
+  and member stream context.
+
+## [v1.4.2-beta.1] — 2026-06-07
+
+Patch beta on v1.4.1. Swarm per-member model pinning, Node 24 web2 rebuild,
+and FE v2 workstation UX updates (inspector panels, timeline, multi-select).
+
+### Added
+
+- **Per-member model/effort pin in swarm.** `agentdef.Member` gains `Model`
+  and `Effort` fields, set at creation from `profile.yml` or the add-agent
+  form. Fixed at member-construction time via the member's own config clone,
+  so the normal `ResolveMainProfile` / `agent.New` path honors them without
+  extra plumbing. A member can pin any provider's model — a deepseek member
+  can sit next to anthropic ones.
+- **`constant.ProviderOfModel(Model) (LLMProvider, bool)`** — resolve a model
+  id to its owning provider. Supports the per-member model pin: a swarm
+  holding only a model string can derive the correct provider to route
+  through.
+
+### Fixed
+
+- **web2 dist rebuilt with Node 24** and `.nvmrc` pinned to match CI,
+  fixing a build mismatch where local Node versions produced incompatible
+  bundles.
+
+### Changed
+
+- **FE v2 workstation UX updates.** New inspector panels (mailbox,
+  member, task), enhanced timeline view with situational-awareness
+  layout, multi-select support in the add-agent form, and the model
+  picker fed from `SelectableModels()`. Operational only — no `pkg/*`
+  surface change.
+
+## [v1.4.1-beta.1] — 2026-06-07
+
+Patch beta on v1.4.0. Native multi-select question answers (an additive,
+non-breaking SDK change) plus the swarm web workstation rebuilt as FE v2.
+
+### Added
+
+- **Native multi-select question answers.** `pkg/ui.QuestionResponse` and
+  `pkg/agent.QuestionResponse` gain an additive `MultiAnswers map[string][]string`
+  field — the chosen option labels per question (single-select is a one-element
+  slice; "Other" is the typed text). `Answers map[string]string` is retained
+  (comma-joined) for back-compat, so this is **additive only — no Stable break**.
+  The `ask_user_question` tool now returns answers as arrays; the canonical
+  internal shape (`question.Response.Answers`) is `map[string][]string`, and the
+  swarm web wire (`RespondQuestion` / `wsCommand.Answers`) carries the arrays.
+
+### Changed
+
+- **Swarm web workstation → FE v2 (`web2/`).** `evva service` now embeds and
+  serves a rebuilt Vue 3 + TypeScript + Pinia SPA: NEON TOKYO themes aligned with
+  the TUI (switchable, token-based), an agent stream console, situational-awareness
+  board/timeline/attention, modal/tray approval gates, and roster + member /
+  schedule / skills composition, with a11y + responsive layout. The v1 SPA
+  (`web/`) is retained but no longer embedded. Operational only — no `pkg/*`
+  surface change.
+
+## [v1.4.0-beta.1] — 2026-06-07
+
+Second beta since v1.1.0. This release ships the typed memory directory
+(rewriting evva's persistent memory model), a pluggable inbox-drainer
+seam for multi-agent hosts, the bundled `build-agent` skill, and the
+Veronica swarm subsystem (multi-agent orchestration with a Vue.js web
+workstation).
+
+### Inbox drainer — pluggable mid-run message folding (`pkg/agent`)
+
+New **additive, Experimental** seam on `pkg/agent`: `WithInboxDrainer(Drainer)`,
+where `Drainer.Drain(ctx) (msg string, ok bool)` is polled at every loop
+iteration boundary and any returned message is folded into the run as a
+synthetic user turn before the next LLM call. It generalises the built-in
+background-task / monitor drains so a host (e.g. a multi-agent supervisor) can
+deliver an out-of-band message to a **busy** agent mid-run instead of only
+between runs. A nil drainer is a no-op — single-agent behaviour is unchanged.
+
+#### Added
+
+- **`pkg/agent.Drainer`** interface + **`agent.WithInboxDrainer`** option
+  (re-exported from `internal/agent`). Non-blocking contract; called at most
+  once per boundary on the loop goroutine.
+- **`event.KindDrainInbox`** + `DrainInboxPayload{Count}` — emitted when the
+  loop folds a drained message, mirroring `KindDrainBackgroundTask`.
+- Loop call site in `internal/agent/loop.go` at the same iteration boundary as
+  the existing wakeup / user-prompt / daemon-signal drains.
+- Separate-module compile proof in `examples/full-host` and a `pkg/agent`
+  unit test (nil no-op regression + a fake drainer folded mid-run).
+
+This is purely additive (no Stable surface change); it lands in the next minor.
+
+### Typed memory directory
+
+Replaces the fixed-section, two-store auto-memory model with a single global
+directory of typed, individually-addressable memory files plus a model-maintained
+`MEMORY.md` index. The model writes memory files itself with the standard
+`write`/`edit` tools (no dedicated tool); a permission carve-out auto-allows
+writes confined to the memory dir. The always-loaded index seeds the prompt; the
+few memories relevant to each turn are pulled in on demand by a cheap relevance
+side-query and carry freshness caveats when stale. **This is a clean break — no
+migration.**
+
+#### Added
+
+- **`internal/memdir` typed-file read layer** — frontmatter parser, `MemoryType`
+  taxonomy (`user` / `feedback` / `project` / `reference`), age/freshness helpers,
+  recursive `ScanMemoryFiles` (newest-first, caps at 200, excludes `MEMORY.md`),
+  `ReadIndex` (200-line / 25 KB truncation), and the global-dir path helpers
+  (`MemoryDir`, `MemoryIndexPath`, `EnsureMemoryDir`, `IsInMemoryDir`). Stdlib-only.
+- **`internal/memdir/recall`** — `FindRelevant`, a per-turn LLM side-query that
+  selects ≤5 relevant memories by name/description; returns `nil` on any failure
+  so a recall hiccup never breaks a turn. The model + effort default per active
+  provider (anthropic: sonnet, deepseek: v4-flash, openai: gpt-5.4-mini at medium
+  effort; ollama/other: the active model + the main agent's effort); override with
+  `memory_recall_model`.
+- **`pkg/permission.IsAutoMemPath`** + an `isAutoMemWrite` carve-out in `Decide`
+  (new `memDir` param): a `write`/`edit` confined to `<APP_HOME>/memory/`
+  auto-allows in default + accept-edits modes (plan mode still denies).
+- **Config**: `enable_memory_recall` (default on) and `memory_recall_model`
+  settings — YAML, the `config` tool registry, and the `/config` overlay.
+- **Prompt**: a typed-memory guidance block (ported from ref `buildMemoryLines` +
+  the INDIVIDUAL taxonomy) and a `# Memory index` section rendering `MEMORY.md`.
+
+#### Changed
+
+- **The model maintains memory itself** via `write`/`edit` (file + `MEMORY.md`
+  index line), replacing the `update_*` tools. `Decide` gains a `memDir` parameter.
+- **Single global store** at `<APP_HOME>/memory/` — the cross-project /
+  per-repo scope split is gone.
+
+#### Removed
+
+- **`update_user_profile` and `update_project_memory` tools** (and the
+  `UPDATE_USER_PROFILE` / `UPDATE_PROJECT_MEMORY` tool-name constants,
+  `MemoryDiff`, the fixed-section parser, and the profile/project write helpers).
+- **`USER_PROFILE.md` and per-project `projects/<key>/MEMORY.md`** are no longer
+  read or written. **No migration** — old files are left untouched on disk; copy
+  anything worth keeping into a new memory and let the model file it.
+
+### Bundled `build-agent` skill
+
+#### Added
+
+- **Bundled `build-agent` skill** (`internal/skills/bundled/content/build-agent/`)
+  — walks the user through scaffolding a downstream Go host on the evva-sdk
+  (`pkg/agent`): a constructor decision tree (`agent.New(Config)` vs
+  `NewWithProfile`), per-extension-point wiring, the two `examples/` host
+  templates, the headless `WithHeadlessBypass()` requirement, and `go doc` as
+  the version-accurate API source. Lowest-precedence tier (`skill.SourceBundled`)
+  — a user disk skill of the same name silently overrides it.
+
 ## [v1.3.0-beta.1] — 2026-05-29
 
 First beta since v1.1.0. `main` jumps straight from 1.1.0 to 1.3.0, so
@@ -830,7 +1005,11 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.3.0-beta.1...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.3...HEAD
+[v1.4.3]: https://github.com/johnny1110/evva/compare/v1.4.2-beta.1...v1.4.3
+[v1.4.2-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.1-beta.1...v1.4.2-beta.1
+[v1.4.1-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.0-beta.1...v1.4.1-beta.1
+[v1.4.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.3.0-beta.1...v1.4.0-beta.1
 [v1.3.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.1.0...v1.3.0-beta.1
 [v1.1.0]: https://github.com/johnny1110/evva/compare/v1.0.0...v1.1.0
 [v1.0.0]: https://github.com/johnny1110/evva/compare/v0.2.8-alpha.6...v1.0.0

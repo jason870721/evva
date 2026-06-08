@@ -206,6 +206,11 @@ func Load(opts LoadOptions) (*Config, error) {
 		}
 	}
 
+	enableMemRecall := true
+	if fileCfg.EnableMemoryRecall != nil {
+		enableMemRecall = *fileCfg.EnableMemoryRecall
+	}
+
 	cfg := &Config{
 		AppName:    appName,
 		AppVersion: appVersion,
@@ -229,6 +234,8 @@ func Load(opts LoadOptions) (*Config, error) {
 		AutoCompactThreshold: fileCfg.AutoCompactThreshold,
 		DisplayThinking:      fileCfg.DisplayThinking,
 		EnableAutoMemory:     enableAutoMem,
+		EnableMemoryRecall:   enableMemRecall,
+		MemoryRecallModel:    fileCfg.MemoryRecallModel,
 		TavilyAPIKey:         fileCfg.TavilyAPIKey,
 		FetchMaxBytes:        fileCfg.FetchMaxBytes,
 		DefaultProvider:      defProvider,

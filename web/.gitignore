@@ -1,0 +1,10 @@
+# node toolchain
+node_modules/
+
+# local env overrides
+*.local
+
+# NOTE: dist/ is intentionally NOT ignored — the built SPA is vendored into
+# the repo so the single `evva` binary embeds a working UI without a node
+# build step at install/release time (go install + release.yml run `go build`
+# only). Rebuild with `npm run build` and commit dist/ after frontend changes.

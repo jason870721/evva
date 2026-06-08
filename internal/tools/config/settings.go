@@ -119,7 +119,7 @@ var SUPPORTED_SETTINGS = map[string]SettingConfig{
 	},
 	"enable_auto_memory": {
 		Type:        TypeBool,
-		Description: "Enable update_user_profile + update_project_memory tools and the prompt's memory section (next boot)",
+		Description: "Enable the typed-memory directory: the prompt's memory guidance + MEMORY.md index, the write carve-out, and per-turn recall (next boot)",
 		Get:         func(c *config.Config) any { return c.GetEnableAutoMemory() },
 		Set: func(c *config.Config, v any) error {
 			b, err := coerceBool(v)
@@ -128,6 +128,24 @@ var SUPPORTED_SETTINGS = map[string]SettingConfig{
 			}
 			return c.SetEnableAutoMemory(b)
 		},
+	},
+	"enable_memory_recall": {
+		Type:        TypeBool,
+		Description: "Run the per-turn relevance side-query that surfaces stored memories (cost lever; turn off to keep the index but drop the extra completion per turn)",
+		Get:         func(c *config.Config) any { return c.GetEnableMemoryRecall() },
+		Set: func(c *config.Config, v any) error {
+			b, err := coerceBool(v)
+			if err != nil {
+				return err
+			}
+			return c.SetEnableMemoryRecall(b)
+		},
+	},
+	"memory_recall_model": {
+		Type:        TypeString,
+		Description: "Model id for the recall side-query; empty = a cheap model within the active provider (anthropic: sonnet, deepseek: flash, openai: gpt-5.4-mini at medium effort; ollama/other: the active model + effort)",
+		Get:         func(c *config.Config) any { return c.GetMemoryRecallModel() },
+		Set:         func(c *config.Config, v any) error { return c.SetMemoryRecallModel(toString(v)) },
 	},
 	"fetch_max_bytes": {
 		Type:        TypeInt,

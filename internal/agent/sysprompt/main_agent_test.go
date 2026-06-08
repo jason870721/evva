@@ -150,39 +150,50 @@ func TestMainAgent_OmitsProjectMemoryWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestMainAgent_RendersUserProfileWhenPresent(t *testing.T) {
+func TestMainAgent_RendersMemoryIndexWhenPresent(t *testing.T) {
 	ctx := mainCtx()
-	ctx.UserProfile = "Preferences: terse output, no summaries."
+	ctx.EnableAutoMemory = true
+	ctx.MemoryIndex = "- [role](user/role.md) — senior Go dev"
 	got := buildMainPrompt(ctx)
 
-	if !strings.Contains(got, "# User profile (from USER_PROFILE.md)") {
-		t.Error("user profile heading missing when UserProfile set")
+	if !strings.Contains(got, "# Memory index (from /tmp/.evva/memory/MEMORY.md)") {
+		t.Error("memory index heading missing when MemoryIndex set")
 	}
-	if !strings.Contains(got, "Preferences: terse output") {
-		t.Error("user profile body missing")
+	if !strings.Contains(got, "- [role](user/role.md) — senior Go dev") {
+		t.Error("memory index body missing")
 	}
-}
-
-func TestMainAgent_OmitsUserProfileWhenEmpty(t *testing.T) {
-	got := buildMainPrompt(mainCtx())
-	if strings.Contains(got, "User profile") {
-		t.Errorf("user profile heading should be absent when empty")
+	// The typed-memory guidance block renders alongside the index.
+	if !strings.Contains(got, "# Memory") || !strings.Contains(got, "## Types of memory") {
+		t.Error("typed-memory guidance block missing when auto-memory on")
 	}
 }
 
-func TestMainAgent_BothMemorySectionsWhenBothPresent(t *testing.T) {
+func TestMainAgent_OmitsMemorySectionsWhenAutoMemoryOff(t *testing.T) {
+	ctx := mainCtx() // EnableAutoMemory defaults false
+	ctx.MemoryIndex = "- [x](x.md) — hook"
+	got := buildMainPrompt(ctx)
+	if strings.Contains(got, "# Memory index") {
+		t.Errorf("memory index should be absent when auto-memory is off")
+	}
+	if strings.Contains(got, "## Types of memory") {
+		t.Errorf("typed-memory guidance should be absent when auto-memory is off")
+	}
+}
+
+func TestMainAgent_ProjectMemoryBeforeMemoryIndex(t *testing.T) {
 	ctx := mainCtx()
+	ctx.EnableAutoMemory = true
 	ctx.WorkdirMemory = "proj"
-	ctx.UserProfile = "user"
+	ctx.MemoryIndex = "idx"
 	got := buildMainPrompt(ctx)
 
 	idxProj := strings.Index(got, "# Project memory")
-	idxUser := strings.Index(got, "# User profile")
-	if idxProj < 0 || idxUser < 0 {
-		t.Fatalf("both memory headings should be present; project=%d user=%d", idxProj, idxUser)
+	idxMem := strings.Index(got, "# Memory index")
+	if idxProj < 0 || idxMem < 0 {
+		t.Fatalf("both headings should be present; project=%d index=%d", idxProj, idxMem)
 	}
-	if idxProj >= idxUser {
-		t.Errorf("project memory should appear before user profile (proj=%d user=%d)", idxProj, idxUser)
+	if idxProj >= idxMem {
+		t.Errorf("EVVA.md project memory should appear before the memory index (proj=%d index=%d)", idxProj, idxMem)
 	}
 }
 
@@ -240,6 +251,33 @@ func TestMainAgent_SkillsSection_EmptyDescriptionFallback(t *testing.T) {
 	}
 	if strings.Contains(got, "- solo:") {
 		t.Errorf("trailing colon should be omitted when description is empty")
+	}
+}
+
+// TestSkillsSection_OmitAuthoring (RP-10-3): the slim mode (omitAuthoring=true, used
+// by long-running swarm members) drops the "how to create a skill" guidance while
+// keeping the list + the load instruction; the full mode (evva) keeps the guidance.
+func TestSkillsSection_OmitAuthoring(t *testing.T) {
+	refs := []SkillRef{{Name: "commit", Description: "make a commit"}}
+
+	full := skillsSection(refs, false)
+	if !strings.Contains(full, "How to create a skill") {
+		t.Errorf("full skills section should include authoring guidance; got:\n%s", full)
+	}
+
+	slim := skillsSection(refs, true)
+	if strings.Contains(slim, "How to create a skill") {
+		t.Errorf("slim skills section (omitAuthoring) must drop authoring guidance; got:\n%s", slim)
+	}
+
+	// Both still list the skill and tell the model to load it with the skill tool.
+	for label, s := range map[string]string{"full": full, "slim": slim} {
+		if !strings.Contains(s, "- commit: make a commit") {
+			t.Errorf("%s section missing the skill list item; got:\n%s", label, s)
+		}
+		if !strings.Contains(s, "Invoke a skill with the `skill` tool") {
+			t.Errorf("%s section missing the load instruction; got:\n%s", label, s)
+		}
 	}
 }
 

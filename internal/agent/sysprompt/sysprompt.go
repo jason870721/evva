@@ -7,10 +7,10 @@
 // hand-written string mirroring ref/src/tools/AgentTool/built-in/*Agent.ts.
 //
 // The package is dependency-light on purpose: it imports only stdlib. The
-// caller (cmd/evva/main.go via agent.Main) reads memory files through the
-// memdir package and threads them into PromptContext.ProjectMemory /
-// .UserProfile. The skill registry is similarly flattened by the caller into
-// []SkillRef so sysprompt does not depend on pkg/skill.
+// caller (cmd/evva/main.go via agent.Main) reads memory through the memdir
+// package and threads it into PromptContext.WorkdirMemory / .MemoryIndex. The
+// skill registry is similarly flattened by the caller into []SkillRef so
+// sysprompt does not depend on pkg/skill.
 //
 // Tool names interpolated into prompts live in toolnames.go and are
 // drift-checked against internal/tools/name.go by toolnames_link_test.go.
@@ -50,6 +50,13 @@ type PromptContext struct {
 	AgentName string    // e.g. "evva" — the name the main agent introduces itself as.
 	Today     time.Time // anchors the model in absolute time; zero = use time.Now() at render.
 
+	// OmitDate drops the "- Today:" line from the environment section. Long-
+	// running personas (swarm members) set it so the system-prompt prefix stays
+	// bit-stable across rebuilds — a drifting date would bust the prompt cache for
+	// a swarm that runs for weeks. The time they need arrives in wake/run prompts,
+	// never in the static system prompt (RP-5). Driven by AgentDefinition.LongRunning.
+	OmitDate bool
+
 	// Environment
 	OS       string // runtime.GOOS — "darwin", "linux", "windows".
 	Shell    string // basename of $SHELL — "zsh", "bash", ...
@@ -63,13 +70,12 @@ type PromptContext struct {
 	DeferredTools  []DeferredToolSpec // deferred-tool catalog; rendered as a <functions> block in the main prompt. Empty = skip the section.
 
 	// Memory (loaded by internal/memdir)
-	WorkdirMemory      string // contents of <workdir>/EVVA.md (user-authored); "" = skip.
-	UserProfile        string // contents of <appHome>/USER_PROFILE.md (auto); "" = skip.
-	ProjectMemoryIndex string // compact heading-only summary of <appHome>/projects/<key>/MEMORY.md; "" = skip.
+	WorkdirMemory string // contents of <workdir>/EVVA.md (user-authored); "" = skip.
+	MemoryIndex   string // <appHome>/memory/MEMORY.md body (truncated, inject-ready); "" = skip.
 
-	// EnableAutoMemory gates the auto-memory guidance + project-memory
-	// index sections in the main prompt. false → both sections are
-	// suppressed so the model isn't told about tools that aren't loaded.
+	// EnableAutoMemory gates the typed-memory guidance + the MEMORY.md index
+	// sections in the main prompt. false → both sections are suppressed so the
+	// model isn't told about a memory system it can't use this session.
 	EnableAutoMemory bool
 }
 

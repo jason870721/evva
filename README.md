@@ -119,6 +119,59 @@ Full usage documentation covering the TUI interface, slash commands, keybindings
 - [English](docs/user-guide/en/user-guide.md)
 - [正體中文](docs/user-guide/zh-tw/user-guide.md)
 
+### Swarm & service (multi-agent workstation)
+
+Run a team of collaborating agents with `evva service` + `evva swarm`. A 0→hero
+walkthrough — concepts, building a swarm from scratch, the web workstation,
+day-2 ops, restart-resume:
+
+- [English](docs/veronica/user-guide-en.md)
+- [简体中文](docs/veronica/user-guide-zh.md)
+
+Or just try the ready-to-run [example swarm](docs/veronica/example-swarm/) — copy
+it out, `evva swarm .`, and watch a 3-agent team build a small site.
+
+**CLI quick reference** (`evva swarm help` for the full list). Spaces are
+Docker-style: a stable id plus a unique **name**, and every `<ref>` below accepts
+either:
+
+| Command | What it does |
+| --- | --- |
+| `evva swarm . [--name <n>]` | register `./evva-swarm.yml` as a new space (name: `--name` → manifest `name:` → generated) |
+| `evva swarm ls` | list spaces — running and stopped (like `docker ps -a`) |
+| `evva swarm run <ref>` | (re)start a stopped space, under its same id / URL |
+| `evva swarm stop <ref>` | stop a space but keep it (restart with `run`) |
+| `evva swarm rm <ref>` | forget a space entirely (its workdir data is left intact) |
+| `evva swarm reset <ref>` | wipe a space — fresh ledger + cleared agent context, same id |
+| `evva swarm add <ref> <m>` | hot-load member `<m>` into a space |
+
+**External-event webhook.** An outside app can drive a swarm's leader by POSTing
+an event — a webhook is just a message dropped on the leader's mailbox, so the
+leader wakes (or folds it into its current run) and decides what to do. The
+endpoint is **unauthenticated** (the service binds loopback only; this is for
+local integrations in the current phase):
+
+```
+POST http://127.0.0.1:8888/api/swarm/<ref>/event
+Body: { "title"?, "body" (required), "source"?, "data"?, "to"? (default leader), "idempotency_key"? }
+→ 202 { "messageId": "<id>" }   (200 if the idempotency_key was already seen)
+```
+
+```python
+# in your engine — one function is all you need
+import requests
+EVVA = "http://127.0.0.1:8888/api/swarm/trader/event"
+def notify(title, body, data=None):
+    requests.post(EVVA, json={"title": title, "body": body, "data": data}, timeout=2)
+
+notify("BTC volatility spike", "BTC 1m vol > 3σ; 64210→66800 in 4m", {"symbol": "BTC", "z": 3.4})
+```
+
+```bash
+curl -XPOST http://127.0.0.1:8888/api/swarm/trader/event \
+  -d '{"title":"BTC volatility spike","body":"vol>3σ","data":{"symbol":"BTC","z":3.4}}'
+```
+
 ---
 
 ## How to integrate EVVA agent in your Go project?

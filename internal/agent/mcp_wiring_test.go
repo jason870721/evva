@@ -20,9 +20,9 @@ func (b fakeBroker) Request(_ context.Context, req question.Request) (question.R
 	if b.err != nil {
 		return question.Response{}, b.err
 	}
-	answers := map[string]string{}
+	answers := map[string][]string{}
 	if len(req.Questions) > 0 {
-		answers[req.Questions[0].Question] = b.answer
+		answers[req.Questions[0].Question] = []string{b.answer}
 	}
 	return question.Response{Answers: answers}, nil
 }

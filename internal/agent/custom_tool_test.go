@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -70,6 +71,56 @@ func TestWithCustomTool_RegistersAndExposes(t *testing.T) {
 	}
 	if !strings.HasPrefix(res.Content, "echo: ") {
 		t.Errorf("unexpected echo result: %q", res.Content)
+	}
+}
+
+// TestActiveSetRebuild_PreservesCustomTools is the regression guard for the
+// Veronica swarm bug where a restart-resume (or any active-set rebuild) silently
+// revoked every WithCustomTool-injected tool. The leader created tasks fine, then
+// after an approval timeout + reload, task_assign/send_message/etc. all returned
+// "not in active set or deferred allowlist" — only the profile's static tools
+// survived. SwitchProfile/ResumeSnapshot/SwitchWorkdir all rebuild through the
+// shared activeToolNames helper, so exercising one (SwitchProfile) proves the
+// custom tools are re-merged on every rebuild.
+func TestActiveSetRebuild_PreservesCustomTools(t *testing.T) {
+	seedDeepseek(t)
+	cfg := config.Get()
+
+	reg, _ := BuildAgentRegistry("")
+	prof, err := ResolveMainProfile(cfg, reg, "evva", nil, memdir.Snapshot{}, nil)
+	if err != nil {
+		t.Fatalf("ResolveMainProfile(evva): %v", err)
+	}
+
+	name := tools.ToolName("test_echo_" + t.Name())
+	a, err := New(nil, prof,
+		WithName("test"),
+		WithAgentRegistry(reg),
+		WithPersona("evva"),
+		WithCustomTool(name, func(s tools.State) (tools.Tool, error) {
+			return echoTool{name: string(name)}, nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("agent.New: %v", err)
+	}
+
+	// Present before the rebuild (the New() merge path).
+	if _, err := a.ResolveTool(name); err != nil {
+		t.Fatalf("custom tool not resolvable pre-rebuild: %v", err)
+	}
+
+	prevDefault := cfg.DefaultProfile
+	t.Cleanup(func() { _ = cfg.SetDefaultProfile(prevDefault) })
+
+	// A profile switch rebuilds the active set. Before the fix this dropped
+	// every custom tool; now activeToolNames re-merges them.
+	if err := a.SwitchProfile("evva"); err != nil {
+		t.Fatalf("SwitchProfile: %v", err)
+	}
+
+	if _, err := a.ResolveTool(name); err != nil {
+		t.Fatalf("custom tool revoked after active-set rebuild (regression): %v; active=%v", err, mapKeys(a.active))
 	}
 }
 

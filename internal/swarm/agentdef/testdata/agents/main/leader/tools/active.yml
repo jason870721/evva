@@ -1,0 +1,6 @@
+# Active tools eagerly exposed to the leader.
+- task_create
+- task_assign
+- task_verify
+- list_members
+- send_message

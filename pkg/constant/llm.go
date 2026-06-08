@@ -1,5 +1,7 @@
 package constant
 
+import "slices"
+
 type LLMProvider struct {
 	Name   string
 	ApiUrl string
@@ -60,6 +62,18 @@ func GetModel(name string) (Model, bool) {
 		}
 	}
 	return Model(""), false
+}
+
+// ProviderOfModel returns the provider that lists m in its Models. Lets a
+// caller holding only a model id (e.g. a per-member `model:` pin in a swarm
+// profile.yml) derive the provider to route through.
+func ProviderOfModel(m Model) (LLMProvider, bool) {
+	for _, p := range GetAllProviders() {
+		if slices.Contains(p.Models, m) {
+			return p, true
+		}
+	}
+	return LLMProvider{}, false
 }
 
 // ModelForLevel returns the model to use at a given capability tier:

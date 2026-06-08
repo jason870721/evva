@@ -144,6 +144,57 @@ func (s jsonSink) Emit(e event.Event) {
 ag, _ := agent.NewWithProfile(prof, agent.WithSink(jsonSink{enc: json.NewEncoder(os.Stdout)}))
 ```
 
+### Inbox drainer — folding out-of-band messages mid-run
+
+By default an agent only takes new input between runs. A long, multi-iteration
+run (lots of tool calls) is otherwise deaf to anything that arrives while it is
+working. `agent.WithInboxDrainer` opens a seam for exactly that: at every loop
+iteration boundary the agent polls a `Drainer` you supply and folds any returned
+message in as a synthetic user turn, *before the next LLM call* — so a busy
+agent can react to an urgent message in the same run instead of after it ends.
+
+```go
+type Drainer interface {
+    Drain(ctx context.Context) (msg string, ok bool)
+}
+```
+
+Contract:
+
+- Called **at most once per iteration boundary**, on the loop goroutine, with
+  the run's context.
+- **Must be non-blocking** — return `ok=false` immediately when there's nothing
+  to fold (an empty-inbox poll should cost ~nothing).
+- When `ok` is true, `msg` is appended verbatim as a `RoleUser` turn; the loop
+  emits `event.KindDrainInbox`.
+- A **nil drainer is a no-op** — agents without one behave exactly as before, so
+  this is purely additive.
+
+```go
+// Deliver one queued message per boundary; the durable store is the source of
+// truth, the channel only a hint.
+type mailDrainer struct{ inbox <-chan string; store *Store }
+
+func (d mailDrainer) Drain(context.Context) (string, bool) {
+    select {
+    case id := <-d.inbox:
+        m, err := d.store.Get(id)
+        if err != nil || m.Read { return "", false }
+        d.store.MarkRead(id)
+        return "Message from " + m.From + ": " + m.Body, true
+    default:
+        return "", false // empty inbox — cheap no-op
+    }
+}
+
+ag, _ := agent.New(cfg, agent.WithInboxDrainer(mailDrainer{inbox: ch, store: st}))
+```
+
+This is the seam evva's own swarm subsystem uses to deliver inter-agent messages
+to a busy member mid-run (its supervisor clears the run-start batch's stale
+hints first, so a message folded at run start isn't re-folded by the drainer).
+`Drainer` is **Experimental** — the contract may evolve in a minor release.
+
 ### Custom UI
 
 `pkg/ui.UI` is the surface a custom UI satisfies. Implement `Emit`,
@@ -171,9 +222,9 @@ constructor below.
 pass. `New(Config, ...Option)` is the batteries-included one — it absorbs
 the whole bootstrap a host used to hand-wire, driven by a declarative
 `Config` plus a few options. From `Config` alone it resolves the persona
-(with an `evva` fallback), auto-loads `EVVA.md` / `USER_PROFILE.md` memory
-and the skill catalog, loads the permission store, resolves the mode, and
-installs the approval + question brokers.
+(with an `evva` fallback), auto-loads `EVVA.md` + the global typed-memory
+directory (`<APP_HOME>/memory/`) and the skill catalog, loads the permission
+store, resolves the mode, and installs the approval + question brokers.
 
 ```go
 cfg := config.Get() // or config.Load(LoadOptions{...})
@@ -304,8 +355,9 @@ registry suppresses both the SKILL tool's dispatch list and the system
 prompt's `# Skills` section.
 
 **Bundled skills.** evva ships its own first-party SKILL.md catalog
-(`commit`, `review`, `security-review`, `simplify`, `setup-hooks` — see the
-v1.4.0 `CHANGELOG.md` entry), overlaid onto the disk catalog automatically by
+(`commit`, `review`, `security-review`, `simplify`, `setup-hooks`, `setup-mcp`,
+and `build-agent` — the last scaffolds a downstream Go host on the public
+`pkg/*` surface), overlaid onto the disk catalog automatically by
 the one-call `agent.New`. Bundled is the **lowest-precedence** tier
 (`skill.SourceBundled`): a user disk skill with the same name silently
 overrides the bundled body — no shadowing warning. Hosts that construct their
