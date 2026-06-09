@@ -180,15 +180,16 @@ Before tagging, verify:
 1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 beta 版號（例如 `v1.4.4-beta.1`）。
 2. `CHANGELOG.md` 中的 `[Unreleased]` 已改名為對應的 beta 版號（`[v1.4.4-beta.1]`），版號與內容一致，並在頂部補上新的 `[Unreleased]`。
 
-Commit the version + changelog bump, then tag and publish as a pre-release:
+Commit the version + changelog bump, then tag and push:
 
 ```
 git add pkg/version/version.go CHANGELOG.md
 git commit -m "chore: changelog and version bump for v<X>.<Y>.<Z>-beta.<N>"
 git tag -a v<X>.<Y>.<Z>-beta.<N> -m "v<X>.<Y>.<Z>-beta.<N> — <summary>"
 git push origin pre-release v<X>.<Y>.<Z>-beta.<N>
-gh release create v<X>.<Y>.<Z>-beta.<N> --target pre-release --prerelease --title "v<X>.<Y>.<Z>-beta.<N> — <summary>"
 ```
+
+Pushing the tag triggers `.github/workflows/release.yml`, which cross-compiles the binaries and publishes the GitHub release automatically. The workflow flags any tag containing `-` (so every `-beta.N`) as a **pre-release**, so the beta never takes the Latest badge — no manual `gh release create` needed.
 
 **Step 2 — Stable release (pre-release → main)**
 
@@ -204,15 +205,16 @@ Before tagging, verify:
 1. `pkg/version/version.go` 中的 `Version` 常數已去掉 `-beta.N` 後綴（例如 `v1.4.4-beta.1` → `v1.4.4`）。
 2. `CHANGELOG.md` 中的 `[v<X>.<Y>.<Z>-beta.<N>]` 已改名為 `[v<X>.<Y>.<Z>]`，並更新底部的比較連結。
 
-Commit the promotion, then tag and publish as the Latest release:
+Commit the promotion, then tag and push:
 
 ```
 git add pkg/version/version.go CHANGELOG.md
 git commit -m "chore: promote v<X>.<Y>.<Z>-beta.<N> to stable v<X>.<Y>.<Z>"
 git tag -a v<X>.<Y>.<Z> -m "v<X>.<Y>.<Z> — <summary>"
 git push origin main v<X>.<Y>.<Z>
-gh release create v<X>.<Y>.<Z> --target main --latest --title "v<X>.<Y>.<Z> — <summary>"
 ```
+
+The same workflow publishes the stable tag. With no `-` suffix it is published as the **Latest** release (`make_latest: true`), so `evva update` and GitHub's Latest badge both move to it.
 
 **Important:** `go install ...@latest` ignores pre-release tags (`-beta.N`). A stable tag on `main` is needed for `@latest` to resolve to the current version. Without one, `@latest` falls back to the last stable tag (e.g. `v0.2.0`).
 
@@ -246,7 +248,7 @@ At **stable** promotion, rename `## [v<X>.<Y>.<Z>-beta.<N>]` → `## [v<X>.<Y>.<
 - `pkg/version/version.go` stores the *current* version constant.
 - Each branch owns one tier: `main` → stable (`vX.Y.Z`, `--latest`), `pre-release` → beta (`vX.Y.Z-beta.N`, `--prerelease`). No alpha tier.
 - Always ask before pushing tags or releases — pushing is a shared-state operation.
-- `gh release create` targets `pre-release` (with `--prerelease`) for betas, `main` (with `--latest`) for stable.
+- Releases are published by `.github/workflows/release.yml` on tag push (builds the binaries, attaches them, generates notes). It keys off the tag: a `-` suffix → `--prerelease` (never Latest); a bare `vX.Y.Z` → Latest. No manual `gh release create`.
 
 ---
 
