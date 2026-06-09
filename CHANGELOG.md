@@ -12,6 +12,32 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.4.4-beta.1] — 2026-06-09
+
+Swarm HTTP tooling and comms refinements, plus a reworked self-update flow and
+a simplified two-tier release model (stable on `main`, beta on `pre-release`).
+
+### Added
+
+- **`http_request` tool (`pkg/tools/web`).** A generic HTTP tool for agents
+  (swarm members included), with method-gated permissions. Permission rules
+  match `http_request` by **method + URL** so a lever can scope, e.g., `GET`
+  to one host without granting `POST`.
+- **`evva update <version>`.** `evva update` (or `evva update latest`) resolves
+  GitHub's Latest release — the newest stable on `main`. Passing an explicit
+  tag (e.g. `evva update v1.4.4-beta.1`) pins to that exact build, opting into
+  a beta or downgrading. Backed by the new `update.CheckTag` in `pkg/update`.
+
+### Changed
+
+- **Swarm leader closes the advice loop** — the leader now replies its
+  decisions back to the requesting teammates instead of dropping them.
+- **Swarm refine (RP11 / PR12)** — scoped-lever refinements to the swarm
+  permission and comms paths.
+- **Release flow** — `main` ships stable tags (GitHub Latest); `pre-release`
+  ships beta tags (`--prerelease`). The alpha tier is removed. The Release
+  workflow now flags `-`-suffixed tags as pre-releases. See CLAUDE.md.
+
 ## [v1.4.3] — 2026-06-07
 
 First stable release since v0.2.0. Swarm web workstation context-aware UI
@@ -994,7 +1020,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.4-beta.1...HEAD
+[v1.4.4-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.3...v1.4.4-beta.1
 [v1.4.3]: https://github.com/johnny1110/evva/compare/v1.4.2-beta.1...v1.4.3
 [v1.4.3-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.2-beta.1...v1.4.3-beta.1
 [v1.4.2-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.1-beta.1...v1.4.2-beta.1
