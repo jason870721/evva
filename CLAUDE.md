@@ -1,7 +1,5 @@
 # evva — Project Vision and Roadmap
 
----
-
 ## Vision
 
 `evva` is a ReAct coding agent for the terminal, written in Go. The architecture follows Claude Code in spirit but keeps the moving parts small on purpose: one narrow `llm.Client` interface bridging multiple providers (Anthropic, DeepSeek, OpenAI, Ollama), one `tools.Tool` interface, one observable store fanning state to any UI implementation, one agent loop.
@@ -15,59 +13,7 @@ The unifying idea is **one runtime, many personas, swappable UI**:
 
 `evva` is **not** trying to be a drop-in Claude Code. It borrows the harness shape because that shape is what current frontier models behave best under, and it ports tool descriptions verbatim where reasonable so the model sees prompts close to what it was trained on. Where Go semantics, terminal constraints, or evva's narrower scope justify divergence, it diverges intentionally.
 
-The reference TypeScript source lives at `evva/ref/src/`. Treat it as the source of truth for tool descriptions, harness structure, and agent definitions — port from it, don't reinvent.
-
----
-
-## Important
-
-`v1.0.0` is cut: the SDK v2 arc is complete and the Stable-tier surface
-promise in `docs/sdk-stability.md` is in force — breaking changes to Stable
-`pkg/*` packages now require a major bump. Experimental-tier packages
-(`pkg/ui/bubbletea`, `pkg/tools/lsp`, `pkg/observable`, `pkg/tools/kits`)
-may still change in minor versions.
-
----
-
-## Core direction (post-v1.0.0): Veronica — the swarm subsystem
-
-**As of 2026-06-02, evva's single core development goal is Veronica** — an
-in-repo subsystem that grows evva from a single-agent runtime into a
-multi-agent **swarm workstation**. `evva service start` runs a background
-`:8888` web service (vue.js); `evva swarm .` registers a cluster of
-long-lived agents that collaborate through a message bus + a shared SQLite
-ledger, coordinated by a Leader agent. **All other roadmap items (the v1.x
-feature phases below) are paused** until Veronica's first two phases land.
-This is a long-term, carefully-planned arc — **quality over speed**, not a
-sprint.
-
-Two phases:
-
-1. **Phase 1 — the swarm itself.** The infrastructure: supervisor /
-   scheduler / roster, message bus + mailboxes, the `.vero/` SQLite task
-   ledger + 5-state machine, the `:8888` service + vue.js UI. Built on the
-   public `pkg/*` surface only, so it doubles as evva's **multi-agent
-   completeness oracle** (if evva's own swarm can be built on `pkg/*`
-   alone, a third party's can too).
-2. **Phase 2 — the trader-team validation.** A crypto trading-strategy
-   swarm (friday / trader / analyst / risk-monitor / reviewer) that proves
-   the swarm is practical on a real, continuous, multi-role workload.
-
-The framing inverts: **evva exists to serve Veronica.** The swarm consumes
-only public `pkg/*`; the single runtime change it needs — a loop-level
-*inbox-drainer* seam so a busy agent folds incoming messages mid-run —
-lands as a public, additive `pkg/agent` extension (it generalizes the
-existing `KindDrainBackgroundTask` mechanism). The "one runtime, many
-personas" Vision still holds — each swarm member *is* a persona — Veronica
-is its extension into the multi-agent dimension, and where new work goes
-first.
-
-**Authoritative docs (read in this order):**
-
-- Design / architecture: `docs/veronica/veronica-design-v1.md`
-- Roadmap (both phases, milestone gates): `docs/veronica/roadmap.md`
-- Phase 1 PRD (swarm): `docs/veronica/prd-phase1-swarm.md`
-- Phase 2 PRD (trader-team): `docs/veronica/prd-phase2-trader-team.md`
+The reference TypeScript source lives at `ref/src/`. Treat it as the source of truth for tool descriptions, harness structure, and agent definitions — port from it, don't reinvent.
 
 ---
 
@@ -92,221 +38,105 @@ The `as:` field controls where an agent shows up:
 | `[subagent]` | Agent tool's `subagent_type` list only |
 | `[main, subagent]` | Both — used for personas that other personas can delegate to (the `evva → nono` pattern) |
 
-One schema, one loader, two visibility surfaces. This is also the seam Phase 6 (profile switch) uses to enumerate personas.
+One schema, one loader, two visibility surfaces. This is also the seam that profile switching uses to enumerate personas.
 
 ---
 
-## Roadmap (post-v1.0.0)
+## Public SDK (`pkg/`)
 
-> **⏸ PAUSED (2026-06-02)** — superseded as the *active* priority by the
-> Veronica swarm subsystem (see "Core direction" above). The v1.x feature
-> phases below stay as the record of intent and resume after Veronica's
-> Phase 1–2 land. Some may already have shipped since this list was
-> written — verify against `docs/extending.md` and the `pkg/` tree before
-> resuming any of them.
+`pkg/` is the stable public API surface. Downstream projects can embed evva as a library by importing `pkg/agent`, implementing `pkg/ui.UI`, and wiring in their own event sink. The SDK is intentionally narrow — each package exposes a minimal interface and a constructor.
 
-`v1.0.0` shipped a complete agent harness and a Stable SDK surface. The
-post-v1 roadmap is ordered by one principle, not by dependency:
-**finish before expand, integrity before power.** Earlier phases matter
-more — a half-wired feature the system prompt *already advertises* is a
-worse liability than any missing net-new capability, so finishing those
-comes first. Every phase below is additive to the Stable surface, so each
-lands as a **minor** release (`v1.1`, `v1.2`, …) under the semver promise
-now in force.
-
-### State of v1.0.0 — the evidence base for the order
-
-**Solid / Stable** — agent loop + profiles + subagent spawn; `fs`,
-`shell`, `web`, `notebook`, `util` tools; `todo`, `cron`, `daemon`
-(background tasks) + `monitor`; plan mode + git `worktree`;
-`ask_user_question`; memory (auto-load `EVVA.md` / `USER_PROFILE.md` +
-`update_*` tools); pluggable `pkg/permission`; session store + snapshot +
-`/compact` + `/resume`; the skill framework (`pkg/skill`); the full SDK v2
-surface (one-call `agent.New`, separate-module host proof).
-
-**Experimental** — `pkg/tools/lsp` (~9k LOC + 8 test files — the most
-mature), `pkg/ui/bubbletea`, `pkg/observable`, `pkg/tools/kits`.
-
-**Half-built / dangling — these set the priority order below:**
-
-- **Hooks** (`internal/hooks`, ~1185 LOC, 9 files): a complete six-event
-  lifecycle engine — SessionStart, UserPromptSubmit, PreToolUse,
-  PostToolUse, Stop, Notification; shell + HTTP backends; designed to
-  compose with permissions — that **nothing imports**, so it never fires.
-  Yet `sysprompt/fragments.go` already tells the model hooks work. 0 tests,
-  private. The worst kind of debt: an advertised promise the runtime
-  silently breaks.
-- **OpenAI provider**: `pkg/constant/llm.go` declares the `OPENAI`
-  provider and a model, but there is **no `pkg/llm/openai`** and
-  `pkg/llm/builtins` never registers it — selecting OpenAI fails at
-  factory lookup. The Vision lists OpenAI as a first-class provider.
-- **MCP**: ✅ shipped (v1.3). Lives in `pkg/mcp` (client, `settings.json`
-  `mcpServers` config, stdio + Streamable-HTTP transports, OAuth, the four
-  MCP tools) and is auto-loaded by the agent at boot via
-  `internal/agent/mcp_wiring.go`. Configured servers connect on every
-  launch; stdio servers spawn a subprocess per connect (note: a
-  `docker run` server needs `--rm` or it leaks a container per launch).
-- **Bundled skills**: only `/commit` ships; `/review`, `/security-review`,
-  `/simplify` (named in the old Phase 3) do not — the framework is done,
-  only the content is missing.
-
-### v1.1 — Finish the hooks system  *(integrity: deliver an advertised feature)*
-
-The system prompt promises hooks; the engine exists; the only thing
-missing is the wiring. Highest priority because every session ships a
-prompt that lies to the model today.
-
-- Dispatch from the agent loop: **PreToolUse** *before* the permission
-  gate (may return allow/deny/ask to override the gate, or `updatedInput`
-  to mutate args first); **PostToolUse** after a tool result (append
-  `additionalContext` for the next turn); **SessionStart**,
-  **UserPromptSubmit**, **Stop**, **Notification** at their points.
-- Load hook config from settings via `pkg/config` (the `hooks:` block:
-  matcher → command/http entries).
-- Compose with `pkg/permission` (PreToolUse decision precedes the gate).
-- Promote `internal/hooks` → **`pkg/hooks`** — it composes with the now-
-  public permission store, so downstream hosts need it public.
-- Tests: the package has **0** today — add matcher / dispatcher-precedence
-  / subprocess / http unit tests plus a loop integration test.
-
-**Acceptance:** a configured PreToolUse `command` hook blocks a `bash`
-call before the permission gate; a PostToolUse hook injects context the
-model sees next turn; the prompt's hooks promise is finally true; tests green.
-
-### v1.2 — OpenAI provider  *(integrity: complete the Vision's provider matrix)*
-
-Small, cheap, and it removes a crash path. The constant already promises
-OpenAI; this makes the promise real.
-
-- New `pkg/llm/openai`: `ProviderName`, `Factory`, and a `Client`
-  implementing all six `llm.Client` methods incl. `SupportsDeferLoading()`
-  (OpenAI lacks Anthropic's `defer_loading` → return `false`, keeping the
-  tools array stable for caching). `pkg/llm/deepseek` is the closest
-  template (OpenAI-compatible chat/tools/streaming).
-- Register in `pkg/llm/builtins`; reconcile the placeholder model ids in
-  `pkg/constant/llm.go` with real ones.
-
-**Acceptance:** `evva` runs a full ReAct turn against OpenAI; provider
-parity tests pass; no constant promises an unimplemented provider.
-
-### v1.3 — MCP client support  *(power: the headline net-new capability)*
-
-The last major Claude Code parity gap and the biggest single lever on
-"powerful." Framework only — bundled vendor servers stay out (see below).
-
-- MCP server config in `pkg/config` (`mcpServers: {name: …}`), stdio +
-  SSE/HTTP transports.
-- A client that connects, runs `initialize`, and lists tools + resources.
-- **Dynamic registration**: discovered tools register as **deferred**
-  tools under the `mcp__server__tool` naming the search layer already
-  scores, so `tool_search` surfaces them on demand and prompt caching is
-  preserved.
-- Port the four tools from `ref/src/tools/`: `MCPTool` (invoke),
-  `McpAuthTool` (OAuth/token), `ListMcpResourcesTool`, `ReadMcpResourceTool`.
-
-**Acceptance:** configure a real MCP server (e.g. a filesystem server);
-its tools appear via `tool_search` and execute; list/read resources work.
-
-### v1.4 — Bundled skills  *(cheap daily value; framework already exists)*
-
-- Port `/review`, `/security-review`, `/simplify` (`/commit` already
-  ships) as on-disk `SKILL.md` under the bundled-skills dir, drawing from
-  `ref/src/skills/bundled/` and Claude Code's review skills. No framework
-  changes — `pkg/skill` already loads them.
-
-**Acceptance:** all four bundled skills are invocable in the TUI.
-
-### v1.5 — ConfigTool  *(power: give the model a typed handle on its own settings)*
-
-Today the model can only change evva's settings by asking the user to
-open `/config` or hand-edit `evva-config.yml`. ConfigTool is the
-model-facing analogue of that overlay: one tool, `{setting, value?}`,
-that reads when `value` is omitted and writes when it is set. The
-permission posture mirrors `ref/src/tools/ConfigTool/`: auto-allow on
-read, ask on write.
-
-- New `internal/tools/config/`: a `SUPPORTED_SETTINGS` registry that wraps
-  every typed `Set*` accessor on `*pkg/config.Config` (`SetMaxIterations`,
-  `SetDisplayThinking`, `SetEnableAutoMemory`, `SetFetchMaxBytes`,
-  `SetTavilyAPIKey`, `SetProviderAPIKey/URL`, `SetDefaultEffort`, etc.)
-  plus per-setting metadata (`type`, `description`, `options`, optional
-  `validate`) cribbed from `ref/src/tools/ConfigTool/supportedSettings.ts`.
-- New `tools.CONFIG` constant in `pkg/tools/name.go`; factory in
-  `internal/toolset/builtins.go`; added to the Main profile's
-  `ActiveTools` (concurrency-safe; read is `isReadOnly`).
-- Permission gate: read (`value` omitted) → auto-allow; write → `ask`
-  with a "Set `<key>` to `<value>`" message.
-- Prompt generated dynamically from the registry (the "Configurable
-  settings list" block in `ref/src/tools/ConfigTool/prompt.ts`) so the
-  source of truth is one Go map, not duplicated documentation.
-
-**Acceptance:** the model can ask for and change every setting the
-`/config` overlay exposes; reads land without a prompt; writes go
-through the permission broker; unknown settings return a clean error;
-options-validated settings reject out-of-range values.
-
-### v1.6 — (open slot)
-
-Reserved for the next phase the team prioritises. Candidates: harden
-Experimental→Stable per-package review (the deferred v1.0-era item);
-a `/dream` / background-consolidation memory phase; provider rate-limit
-& retry middleware; whatever surfaces from v1.1–v1.5 usage.
-
-### v1.7 — BriefTool  *(integrity: a dedicated, visible reply channel)*
-
-evva today emits assistant text as plain `Content` on each turn. The TUI
-renders it, but the model has no way to **mark** a turn as "the answer
-the user should read" vs. "interstitial work I'm narrating". Port
-`ref/src/tools/BriefTool/` as evva's `send_user_message` tool so the
-model has one explicit channel for messages the user must see — with
-a `status` flag (`normal` | `proactive`) downstream code can route on,
-and an `attachments` list for inline file references.
-
-- New `pkg/tools/brief/` (Stable-candidate; downstream agents will want
-  this surface): `BriefTool` with the input shape
-  `{message, status, attachments?}` ported from
-  `ref/src/tools/BriefTool/BriefTool.ts`.
-- New `tools.SEND_USER_MESSAGE` constant in `pkg/tools/name.go`;
-  factory in `internal/toolset/builtins.go`; tool is **read-only,
-  concurrency-safe**, and enabled by default on the Main profile.
-- The tool emits a new `event.KindUserMessage` (or repurposes an
-  existing assistant-text event) so the TUI can render Brief messages
-  with their `status` and attachments visible, distinct from plain
-  narration.
-- System-prompt fragment lifted from
-  `ref/src/tools/BriefTool/prompt.ts:BRIEF_PROACTIVE_SECTION` (the
-  "Talking to the user" guidance) so the model learns when to use the
-  channel.
-- Attachment resolution (file path → metadata blob) ports from
-  `ref/src/tools/BriefTool/attachments.ts`, scoped to the local
-  filesystem (no Claude.ai upload — out of scope; see below).
-
-**Acceptance:** the model uses `send_user_message` for every reply the
-user is expected to read; `status:"proactive"` messages are visibly
-distinct in the TUI; attachments resolve to relative paths the user
-can click; plain assistant text outside the tool still renders but is
-deprioritised in the UI.
+| Package | Role | Key exports |
+|---|---|---|
+| `pkg/agent` | Agent constructor + controller interface | `New(Config) (Agent, error)`, `Agent` interface (~20 methods matching `ui.Controller`) |
+| `pkg/llm` | LLM provider abstraction | `Client` interface, `Registry`, `Message`, `Response`, `Chunk`, `ChunkSink` |
+| `pkg/llm/builtins` | Provider registration | `init()` registers Anthropic, DeepSeek, OpenAI, Ollama factories |
+| `pkg/llm/claude` | Anthropic Messages API | Implements `Client` |
+| `pkg/llm/deepseek` | DeepSeek API (OpenAI-compatible) | Implements `Client` |
+| `pkg/llm/openai` | OpenAI Chat Completions API | Implements `Client` |
+| `pkg/llm/ollama` | Ollama local API | Implements `Client` |
+| `pkg/tools` | Tool interface + shared types | `Tool` interface, `Result`, `Call`, `Descriptor`, `State`, `ToolName` constants |
+| `pkg/tools/fs` | Filesystem tools | `read`, `write`, `edit`, `glob` (+ `diff`, `notebook_edit`, PDF reading) |
+| `pkg/tools/shell` | Shell tools | `bash` (sync + background), `grep`, `tree` |
+| `pkg/tools/web` | Web tools | `web_search` (Tavily), `web_fetch` |
+| `pkg/tools/lsp` | Language Server Protocol | `lsp_request` (go-to-definition, references, hover, symbols) |
+| `pkg/tools/repl` | Python/JS scratch REPL | `repl` tool |
+| `pkg/tools/daemon` | Long-running unit abstraction | `Daemon` interface, `DaemonState`, `DaemonKind` constants |
+| `pkg/tools/monitor` | Per-line stream watcher | `monitor` tool |
+| `pkg/tools/cron` | Scheduled prompts | `cron_create`, `cron_list`, `cron_delete` |
+| `pkg/tools/todo` | Task list | `todo_write` |
+| `pkg/tools/notebook` | Jupyter notebook editing | `notebook_edit` |
+| `pkg/tools/util` | Utility tools | `json_query`, `calc` |
+| `pkg/tools/kits` | Tool kit bundling | Groups related tools for profile construction |
+| `pkg/toolset` | Tool registry + catalog | `Registry` (name→factory), `Tags`, `Hints` |
+| `pkg/event` | Event envelope + sink contract | `Event`, `Kind`, `Sink` interface, `Multi`, `Discard`, `BubbleUp` |
+| `pkg/observable` | Pub/sub mixin for backing stores | `Observable` embedded in stores; auto-fans changes to UI |
+| `pkg/config` | Configuration loading | `Load(LoadOptions) (*Config, error)`, YAML + `.env` |
+| `pkg/constant` | Enums and sentinels | `AgentStatus`, `LLMProvider`, `Model` |
+| `pkg/ui` | UI plugin contract | `UI` interface, `Controller` interface |
+| `pkg/ui/bubbletea` | Reference Bubble Tea TUI | `New(evvaHome)` terminal UI implementation |
+| `pkg/ui/lp` | Low-profile terminal UI | Compact line-based UI |
+| `pkg/permission` | Permission gate | Rule store, broker, matcher |
+| `pkg/skill` | User-installed skills | Markdown-based skill loader |
+| `pkg/hooks` | Lifecycle hooks | Shell + HTTP backends for 6 event types |
+| `pkg/mcp` | MCP client | Server config, stdio + Streamable-HTTP transports, OAuth |
+| `pkg/banner` | Startup branding | ASCII art banner rendering |
+| `pkg/version` | Build version | `Version` constant (semver, no leading `v`) |
+| `pkg/update` | Self-update mechanism | `Check()` / `Apply()` |
+| `pkg/common` | Shared utilities | Small helpers used across packages |
 
 ---
 
-## Out of scope (revisit after v1.x)
+## Internal packages (`internal/`)
 
-Listed so contributors don't propose them as phase additions.
+`internal/` contains implementations that are specific to evva's runtime and are not part of the stable public API. Downstream embedders should not import these directly.
 
-- **Cross-machine Teams / SendMessage bridge** — *in-process* multi-agent
-  swarms are now in scope via Veronica (one process, in-memory bus; see
-  "Core direction"). What stays out of scope is the *cross-machine* bridge
-  layer (UDS sockets, remote control, JWT, cross-machine session
-  forwarding); Veronica v1 deliberately stays single-process to avoid it
-  (the process-model "C" evolution in the design doc revisits this).
-- **Bundled vendor MCP integrations** (Atlassian, Figma, IDE diagnostics)
-  — v1.3 ships the MCP *framework*; specific servers are user-configured,
-  not bundled, until there's demand.
-- **Cross-platform shell** (Windows PowerShell, `ref/src/tools/PowerShellTool`)
-  — evva is bash-first; revisit if Windows demand appears.
-- **Minor ref tools** — `REPLTool` only (Python/JS scratch REPL): no
-  current demand; port if a use case shows up. (`ConfigTool` and
-  `BriefTool` were promoted to v1.5 and v1.7 respectively.)
+| Package | Role |
+|---|---|
+| `internal/agent` | Agent struct, main loop, subagent spawn, profile definitions, session persistence |
+| `internal/agent/sysprompt` | System prompt builders per agent type |
+| `internal/agent/loader` | Disk agent definition loader (merges Go + YAML) |
+| `internal/agent/attachments` | Plan-mode per-turn reminders |
+| `internal/tools` | evva-runtime-specific tool families |
+| `internal/tools/meta` | `agent` (subagent spawn), `tool_search`, `schedule_wakeup` |
+| `internal/tools/mode` | `enter_plan_mode`, `exit_plan_mode`, `enter_worktree`, `exit_worktree` |
+| `internal/tools/ux` | `ask_user_question`, `push_notification` |
+| `internal/tools/config` | `config` tool (read/write evva settings) |
+| `internal/tools/dev` | `feedback` (dev-mode only) |
+| `internal/toolset` | `ToolState` implementation, `Build()`, `Describe()`, builtin registration |
+| `internal/ui` | Bubble Tea v2 TUI implementation (terminal UI) |
+| `internal/session` | LLM message history + cumulative usage tracking + compaction |
+| `internal/hooks` | User-authored lifecycle hooks (shell commands / HTTP webhooks) |
+| `internal/permission` | Permission gate implementation (store, broker, matcher) |
+| `internal/question` | Question broker for `ask_user_question` |
+| `internal/memdir` | Typed memory directory loader (user/feedback/project/reference) |
+| `internal/swarm` | Veronica multi-agent swarm subsystem (service, webapi, agentdef, space) |
+| `internal/skills` | Bundled skill content (embedded via go:embed) |
+| `internal/logger` | Structured `slog` wrapper + pretty console formatter |
+| `internal/update` | Self-update mechanism |
+
+---
+
+## Project conventions
+
+- **Public vs. private:** Reusable abstractions live in `pkg/`. evva-runtime-specific implementations live in `internal/`. If a package is useful to downstream embedders, it belongs in `pkg/`.
+- **One package per tool family.** Examples: `pkg/tools/fs/`, `pkg/tools/shell/`, `internal/tools/meta/`. A new tool either goes in an existing family or starts a new family package.
+- **One package per LLM provider.** `pkg/llm/claude/`, `pkg/llm/deepseek/`, `pkg/llm/ollama/`. Each implements the `llm.Client` interface from `pkg/llm/`. New providers register via `init()` in `pkg/llm/builtins/`.
+- **Tests live next to the code they cover** (`*_test.go`). No parallel `tests/` tree.
+- **No comments that restate the code.** Only comment WHY when the WHY is non-obvious.
+- **Port tool descriptions from `ref/src/tools/*/prompt.ts` verbatim** when reasonable. Diverge only with a clear reason.
+- **Minimize external dependencies.** Non-stdlib dependencies: `golang.org/x/sync` (singleflight), the Bubble Tea TUI stack, and `github.com/modelcontextprotocol/go-sdk` (MCP client, added in v1.3.0). Protocol implementations (JSON-RPC, LSP types) are hand-written to avoid dependency chains.
+
+---
+
+Key boundaries:
+
+- `agent` knows about `event.Sink`, never about a concrete UI.
+- `pkg/tools/*` and `internal/tools/*` packages produce `tools.Result` (text + opaque `Metadata`); the UI type-asserts on `Metadata` to render structured payloads.
+- `pkg/observable` has no dependencies on agent or UI — it's a pure pub/sub mixin.
+- `pkg/ui` defines narrow interfaces (`UI`, `Controller`); implementations live under `internal/ui/`.
+- `pkg/llm` defines the `Client` interface; each provider is a separate package implementing it.
+- Downstream embedders import `pkg/agent`, implement `pkg/ui.UI`, and never touch `internal/`.
 
 ---
 
@@ -314,116 +144,112 @@ Listed so contributors don't propose them as phase additions.
 
 ### Branch strategy
 
+Each release branch owns exactly one tag tier: **`main` ships stable tags, `pre-release` ships beta tags.** There is no alpha tier.
+
 ```
-main  ← production (beta = latest; no stable release yet)
-  ↑ Sat fast-forward merge
-pre-release  ← staging (weekly feature accumulation, alpha tag)
+main  ← production (stable tags only: vX.Y.Z; GitHub "Latest")
+  ↑ Sat merge (pre-release → main; if diverged, use --no-ff)
+pre-release  ← staging (beta tags only: vX.Y.Z-beta.N; GitHub pre-release)
   ↑ Sat merge
 dev  ← integration
   ↑ feature PR, squash/merge after review
 feature/*  ← topic branches (cut from dev)
 ```
 
+This is the seam the `evva update` command rides on: `evva update` resolves GitHub's **Latest** release — the newest stable on `main` — while `evva update v<X>.<Y>.<Z>-beta.<N>` pins to a beta published from `pre-release` (see `pkg/update`).
+
 ### Daily development
 
-1. Branch off `dev`: `git checkout -b feature/<ticket-or-name>`.
-2. Commit with conventional prefixes (`feat`, `fix`, `chore`, `docs`, `refactor`, `test`).
-3. Push, open a PR targeting `dev`, wait for merge review.
+1. Branch off `dev`: `git checkout -b feature/<ticket-or-name>` (e.g. `feature/PRD-11`, `feature/bundle-skill`).
+2. Commit changes with conventional commit prefixes: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`.
+3. Push to GitHub, open a PR targeting `dev`, wait for merge review.
 
-### Weekly release (Saturday morning)
+### Weekly release (every Saturday morning)
 
-Currently early-stage — all releases are beta (latest), alpha tags are pre-release only.
+The project publishes a **beta** (pre-release, on `pre-release`) and then promotes it to **stable** (Latest, on `main`). Betas are flagged `--prerelease` on GitHub so they never steal the Latest badge from a stable; the stable tag is flagged `--latest`.
 
-**Beta (pre-release → main):**
-
-```bash
-git checkout main && git merge pre-release --ff-only
-```
-Before tagging, verify `pkg/version/version.go` has the correct beta version and `CHANGELOG.md` is updated with the matching version.
-```bash
-git tag -a v<X>.<Y>.<Z>-beta.<N> -m "..."
-git push origin v<X>.<Y>.<Z>-beta.<N>
-gh release create v<X>.<Y>.<Z>-beta.<N> --target main --title "..."
-```
-
-**Alpha (dev → pre-release):**
+**Step 1 — Beta release (dev → pre-release)**
 
 ```bash
-git checkout pre-release && git merge dev
+git checkout pre-release
+git merge dev               # if diverged, this is a merge commit; --no-ff is fine
 ```
-Before tagging, verify `pkg/version/version.go` has the correct alpha version. Alpha releases do not get a separate CHANGELOG entry, but the version should reflect the scope accumulated on dev.
+
+Before tagging, verify:
+
+1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 beta 版號（例如 `v1.4.4-beta.1`）。
+2. `CHANGELOG.md` 中的 `[Unreleased]` 已改名為對應的 beta 版號（`[v1.4.4-beta.1]`），版號與內容一致，並在頂部補上新的 `[Unreleased]`。
+
+Commit the version + changelog bump, then tag and push:
+
+```
+git add pkg/version/version.go CHANGELOG.md
+git commit -m "chore: changelog and version bump for v<X>.<Y>.<Z>-beta.<N>"
+git tag -a v<X>.<Y>.<Z>-beta.<N> -m "v<X>.<Y>.<Z>-beta.<N> — <summary>"
+git push origin pre-release v<X>.<Y>.<Z>-beta.<N>
+```
+
+Pushing the tag triggers `.github/workflows/release.yml`, which cross-compiles the binaries and publishes the GitHub release automatically. The workflow flags any tag containing `-` (so every `-beta.N`) as a **pre-release**, so the beta never takes the Latest badge — no manual `gh release create` needed.
+
+**Step 2 — Stable release (pre-release → main)**
+
+When the beta has settled, promote it to stable:
+
 ```bash
-git tag -a v<X>.<Y>.<Z>-alpha.<N> -m "..."
-git push origin v<X>.<Y>.<Z>-alpha.<N>
-gh release create v<X>.<Y>.<Z>-alpha.<N> --target pre-release --prerelease --title "..."
+git checkout main
+git merge pre-release --ff-only   # if diverged (e.g. prior changelog commits on main), use --no-ff merge instead
 ```
+
+Before tagging, verify:
+
+1. `pkg/version/version.go` 中的 `Version` 常數已去掉 `-beta.N` 後綴（例如 `v1.4.4-beta.1` → `v1.4.4`）。
+2. `CHANGELOG.md` 中的 `[v<X>.<Y>.<Z>-beta.<N>]` 已改名為 `[v<X>.<Y>.<Z>]`，並更新底部的比較連結。
+
+Commit the promotion, then tag and push:
+
+```
+git add pkg/version/version.go CHANGELOG.md
+git commit -m "chore: promote v<X>.<Y>.<Z>-beta.<N> to stable v<X>.<Y>.<Z>"
+git tag -a v<X>.<Y>.<Z> -m "v<X>.<Y>.<Z> — <summary>"
+git push origin main v<X>.<Y>.<Z>
+```
+
+The same workflow publishes the stable tag. With no `-` suffix it is published as the **Latest** release (`make_latest: true`), so `evva update` and GitHub's Latest badge both move to it.
+
+**Important:** `go install ...@latest` ignores pre-release tags (`-beta.N`). A stable tag on `main` is needed for `@latest` to resolve to the current version. Without one, `@latest` falls back to the last stable tag (e.g. `v0.2.0`).
 
 ### Version numbering
 
-`vX.Y.Z`: X = major (new direction), Y = minor (features), Z = patch (bug fixes + small adjustments).
+`vX.Y.Z` where:
 
-Pre-release suffix: `-beta.<N>` on main, `-alpha.<N>` on pre-release. N starts at 1 per base version.
+| Component | Meaning |
+|---|---|
+| **X** (major) | Breaking changes, new direction |
+| **Y** (minor) | Feature updates |
+| **Z** (patch) | Bug fixes + small adjustments |
+
+Pre-release suffix: `-beta.<N>` (on `pre-release` only). N starts at 1 per base version. Stable tags on `main` carry no suffix.
 
 ### CHANGELOG
 
-Only beta releases get a changelog entry. Bump `## [Unreleased]` → `## [vX.Y.Z-beta.N]`, add a new `[Unreleased]` section, summarize under `### Added / Fixed / Changed / Breaking`, update comparison URLs.
+Both the beta (on `pre-release`) and the stable promotion (on `main`) are user-facing, so the changelog entry is written once at beta time and renamed at promotion. Each entry summarizes the features and fixes accumulated since the last release.
+
+At **beta** time, edit `CHANGELOG.md`:
+
+1. Rename `## [Unreleased]` → `## [v<X>.<Y>.<Z>-beta.<N>]`.
+2. Insert a fresh `## [Unreleased]` section at the top.
+3. Add a summary under `### Added`, `### Fixed`, `### Changed`, `### Breaking`.
+4. Update the comparison URLs at the bottom of the file.
+
+At **stable** promotion, rename `## [v<X>.<Y>.<Z>-beta.<N>]` → `## [v<X>.<Y>.<Z>]` and refresh the comparison URLs (this lands in the promotion commit from Step 2).
 
 ### Key rules
 
-- `pkg/version/version.go` stores the current version constant; bump in a separate commit before tagging.
-- Always ask before pushing tags or releases.
-- `gh release create` targets `main` for beta, `pre-release` for alpha.
+- `pkg/version/version.go` stores the *current* version constant.
+- Each branch owns one tier: `main` → stable (`vX.Y.Z`, `--latest`), `pre-release` → beta (`vX.Y.Z-beta.N`, `--prerelease`). No alpha tier.
+- Always ask before pushing tags or releases — pushing is a shared-state operation.
+- Releases are published by `.github/workflows/release.yml` on tag push (builds the binaries, attaches them, generates notes). It keys off the tag: a `-` suffix → `--prerelease` (never Latest); a bare `vX.Y.Z` → Latest. No manual `gh release create`.
 
 ---
 
-## Project conventions
-
-- All source under `internal/` is private. Public extension points live in `pkg/`.
-- One package per tool family (`fs`, `shell`, `meta`, etc.). A new tool either goes in an existing family or starts a new family package. Phase 13c moves the broadly-reusable families (`fs`, `shell`, `web`, `util`, `notebook`, `monitor`, `cron`, `todo`) under `pkg/tools/`; evva-runtime-specific families (`meta`, `mode`, `skill`, `ux`, `dev`) stay under `internal/tools/`.
-- One package per LLM provider. After Phase 13b they live at `pkg/llm/{claude,deepseek,ollama}/` and register into `pkg/llm.DefaultRegistry()`. The `llm.Client` interface remains the only public seam.
-- Tests live next to the code they cover (`*_test.go`). No parallel `tests/` tree.
-- No comments that restate the code. Only comment WHY when the WHY is non-obvious.
-- Port tool descriptions from `ref/src/tools/*/prompt.ts` verbatim when reasonable. Diverge only with a clear reason.
-
----
-
-## Project structure
-
-```
-evva/
-├── cmd/evva/                  # CLI entry point — wires agent + UI
-├── configs/                   # config loading (.env + YAML)
-├── docs/                      # design notes, tool docs, system prompts
-├── internal/
-│   ├── agent/                 # agent loop, profiles, spawn
-│   │   ├── event/             # event types + sink contract
-│   │   └── sysprompt/         # system prompt builder
-│   ├── constant/              # provider / model / status enums
-│   ├── llm/                   # llm.Client interface + shared params
-│   │   ├── claude/  deepseek/  ollama/  ...
-│   ├── llmfactory/            # provider factory keyed by constant
-│   ├── logger/                # structured slog wrapper + pretty fmt
-│   ├── observable/            # pub/sub framework for stores
-│   ├── session/               # conversation history + cumulative usage
-│   ├── tools/                 # tool interface (Name/Schema/Execute)
-│   │   ├── cron/  dev/  fs/  meta/  mode/  monitor/  notebook/
-│   │   ├── shell/  skill/  task/  util/  ux/  web/
-│   ├── toolset/               # tool catalog + ToolState registry
-│   └── ui/                    # UI plugin contract
-│       ├── bubbletea/         # reference TUI implementation — prototype
-│       ├── bubbletea_v2/      # reference TUI implementation v2 — refactor v1
-│       └── ...                # downstream-customized layouts
-├── ref/src/                   # Claude Code reference source (read-only)
-├── log/                       # per-agent runtime logs (gitignored)
-├── pkg/common/                # small shared utilities
-└── scripts/                   # demo / dev scripts
-```
-
-Key boundaries:
-
-- `agent` knows about `event.Sink`, never about a concrete UI.
-- `tools/*` packages produce `tools.Result` (text + opaque `Metadata`); the UI type-asserts on `Metadata` to render structured payloads.
-- `observable` has no dependencies on agent or UI.
-- `ui` defines narrow interfaces; implementations live under it.
-
-User-facing documentation (install, TUI keybindings, config file shape, log paths) lives in `README.md`. This file is for project vision and the development roadmap.
+User-facing documentation (install, TUI keybindings, config file shape, log paths) lives in `README.md` and `docs/user-guide/`. This file is for project vision, architecture, and the development roadmap.

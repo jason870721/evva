@@ -18,7 +18,7 @@
 
 | v1 職責 | 證據 | 去處 |
 | --- | --- | --- |
-| WS 開連＋reconnect backoff | [`ws.js:10-61`](../../../../web/src/ws.js) | `lib/ws.ts` ＋ `connectionStore` |
+| WS 開連＋reconnect backoff | [`ws.js:10-61`](../../../../../web/src/ws.js) | `lib/ws.ts` ＋ `connectionStore` |
 | 事件 → 相位/聊天 reduce | `SpaceView.vue:225-249`、`events.js` | `streamStore` ingest |
 | 2.5s REST 對帳 | `SpaceView.vue:206-223, 410` | `spaceStore.poll` |
 | live phase 疊加 polled roster | `SpaceView.vue:180-185`（`mergedRoster`） | `spaceStore.mergedRoster` getter |

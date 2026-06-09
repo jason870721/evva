@@ -119,3 +119,39 @@ func TestSaveRoundtrip(t *testing.T) {
 		t.Errorf("expected 2 rules after reload; got %d", n)
 	}
 }
+
+// TestLoadMember (RP-11) proves the per-member scoped lever: a member-scoped
+// permissions.json grants a narrow http_request lever into ONLY the returned
+// store — a plain Load (any other member) does not get it, and POST to a
+// different url still asks. This is the isolation the swarm relies on.
+func TestLoadMember(t *testing.T) {
+	dir := t.TempDir()
+	memberPath := filepath.Join(dir, "permissions.json")
+	writeFile(t, memberPath, `{"permissions":{"allow":["http_request(POST http://127.0.0.1:7777/halt)"]}}`)
+
+	halt := ToolCall{Name: "http_request", Input: []byte(`{"method":"POST","url":"http://127.0.0.1:7777/halt"}`)}
+	strat := ToolCall{Name: "http_request", Input: []byte(`{"method":"POST","url":"http://127.0.0.1:7777/strategy"}`)}
+
+	store, warns := LoadMember("", "", memberPath)
+	if len(warns) != 0 {
+		t.Fatalf("unexpected warnings: %v", warns)
+	}
+	if d := Decide(halt, ModeDefault, store, Hint{}, "", ""); d.Behavior != BehaviorAllow {
+		t.Errorf("scoped halt lever: got %v, want allow", d.Behavior)
+	}
+	if d := Decide(strat, ModeDefault, store, Hint{}, "", ""); d.Behavior != BehaviorAsk {
+		t.Errorf("unscoped strategy lever: got %v, want ask", d.Behavior)
+	}
+
+	// The grant is isolated: a store without the member file (any other member)
+	// does NOT inherit it.
+	shared, _ := Load("", "")
+	if d := Decide(halt, ModeDefault, shared, Hint{}, "", ""); d.Behavior != BehaviorAsk {
+		t.Errorf("non-member store should not hold the grant: got %v, want ask", d.Behavior)
+	}
+
+	// A missing member file is silent (identical to Load).
+	if _, w := LoadMember("", "", filepath.Join(dir, "nope.json")); len(w) != 0 {
+		t.Errorf("missing member file should be silent, got %v", w)
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/pkg/llm"
+	"github.com/johnny1110/evva/pkg/permission"
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
 )
@@ -242,12 +243,24 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 	}
 	opts = append(opts, sp.ts.For(name, ld.Role, sp)...)
 
+	// Per-member permission store (RP-11): shared project/user rules PLUS this
+	// member's own <agentDir>/permissions.json, loaded into ONLY this member's
+	// store. That is what scopes a narrow lever to one non-leader — e.g.
+	// risk-monitor may "http_request(POST .../halt)" while every other member (and
+	// POST .../strategy) still asks. Without this explicit store, agent.New would
+	// load the shared files alone (the prior behavior, which this preserves when a
+	// member has no permissions.json). Warnings are non-fatal — the member starts
+	// without the grant — mirroring agent.New's own discard of Load warnings.
+	permStore, _ := permission.LoadMember(acfg.WorkDir, acfg.AppHome,
+		agentdef.PermissionsPath(sp.Workdir, ld.Role, name))
+
 	ag, err := agent.New(agent.Config{
-		AppConfig:      acfg,
-		Persona:        name,
-		Personas:       sp.reg,
-		PermissionMode: sp.settings.PermissionMode,
-		MaxIters:       sp.settings.MaxIterations,
+		AppConfig:       acfg,
+		Persona:         name,
+		Personas:        sp.reg,
+		PermissionMode:  sp.settings.PermissionMode,
+		MaxIters:        sp.settings.MaxIterations,
+		PermissionStore: permStore,
 	}, opts...)
 	if err != nil {
 		return fmt.Errorf("construct agent %q: %w", name, err)

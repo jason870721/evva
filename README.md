@@ -61,10 +61,13 @@ make uninstall
 To update evva to the latest version without Go:
 
 ```bash
-evva update
+evva update                  # newest stable release (GitHub "Latest")
+evva update latest           # same as above
+evva update v1.4.3           # pin to an exact stable version
+evva update v1.4.3-beta.1    # opt into a specific beta (pre-release)
 ```
 
-This checks GitHub Releases for a newer version, downloads the pre-built binary for your OS/arch, and replaces the current one atomically. No Go toolchain required.
+With no argument (or `latest`) this resolves GitHub's Latest release — the newest **stable** build on `main`. Passing a tag pins to that exact build, including a `-beta.N` pre-release or an older version to downgrade. In every case it downloads the pre-built binary for your OS/arch and replaces the current one atomically. No Go toolchain required.
 
 You can also check for updates from inside the TUI with `/update`.
 
@@ -125,10 +128,10 @@ Run a team of collaborating agents with `evva service` + `evva swarm`. A 0→her
 walkthrough — concepts, building a swarm from scratch, the web workstation,
 day-2 ops, restart-resume:
 
-- [English](docs/veronica/user-guide-en.md)
-- [简体中文](docs/veronica/user-guide-zh.md)
+- [English](docs/roadmap/veronica/user-guide-en.md)
+- [简体中文](docs/roadmap/veronica/user-guide-zh.md)
 
-Or just try the ready-to-run [example swarm](docs/veronica/example-swarm/) — copy
+Or just try the ready-to-run [example swarm](docs/roadmap/veronica/example-swarm/) — copy
 it out, `evva swarm .`, and watch a 3-agent team build a small site.
 
 **CLI quick reference** (`evva swarm help` for the full list). Spaces are
@@ -237,7 +240,8 @@ USER_PROFILE=user_profile.md
 ```bash
 evva                                # interactive TUI (when stdout is a TTY)
 evva -version                       # print version, commit, and build date
-evva update                         # self-update from GitHub Releases (no Go required)
+evva update                         # self-update to newest stable (no Go required)
+evva update v1.4.3-beta.1           # self-update to a specific tag (stable or beta)
 evva -temp 0.7                      # sampling temperature (default unset)
 evva -max-tokens 2048               # per-completion output cap (overrides YAML)
 evva -max-iters 40                  # loop iteration cap (overrides YAML)

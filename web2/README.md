@@ -2,7 +2,7 @@
 
 Vue 3 + TypeScript + Pinia + vue-router SPA for the `evva service` swarm
 workstation (Veronica). This is the **FE v2** app (PRDs:
-[`docs/veronica/refine-plan/fe-v2/`](../docs/veronica/refine-plan/fe-v2/README.md)).
+[`docs/veronica/refine-plan/fe-v2/`](../docs/roadmap/veronica/refine-plan/fe-v2/README.md)).
 The built output (`dist/`) is embedded into the `evva` binary via
 [`embed.go`](embed.go) (package `web2`) and served by `internal/swarm/service`
 (`service.go` embeds `web2.Dist`).

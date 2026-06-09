@@ -12,7 +12,7 @@
 
 1. **專案骨架**：`web2/`，Vue 3 + TypeScript + Pinia + Vite，自帶 `embed.go`。
 2. **設計 token 系統**：三層（primitive → semantic → component）CSS 變數架構。
-3. **NEON TOKYO 旗艦主題**：移植 TUI [`palette.go`](../../../../pkg/ui/bubbletea/theme/palette.go)；＋第二主題證明可切換 seam。
+3. **NEON TOKYO 旗艦主題**：移植 TUI [`palette.go`](../../../../../pkg/ui/bubbletea/theme/palette.go)；＋第二主題證明可切換 seam。
 4. **純邏輯層 port**：把 v1 已測、與框架無關的 `events.js` / `colors.js`（＋ `api.js` / `ws.js`）移植成型別化 `.ts`，沿用 `node --test`。
 5. **型別契約**：一個 `types/` 模組，鏡射後端 `webapi` 的 `*Info` 與 `pkg/event` 的 `Kind`。
 6. **基礎元件原子**：Button / Icon / Badge / Pill / Panel / Dialog 等 design-system atoms。
@@ -62,7 +62,7 @@ web2/
         └── base.css                          # typography / spacing / radius / motion scale
 ```
 
-> 沿用 v1 的「**dist 入庫、un-hashed 資產名**」策略（[`web/vite.config.js:9-24`](../../../../web/vite.config.js)、[`web/README.md`](../../../../web/README.md)），讓 `go build` 無 node step 也能 embed 一份可用 UI。
+> 沿用 v1 的「**dist 入庫、un-hashed 資產名**」策略（[`web/vite.config.js:9-24`](../../../../../web/vite.config.js)、[`web/README.md`](../../../../../web/README.md)），讓 `go build` 無 node step 也能 embed 一份可用 UI。
 
 ---
 
@@ -194,10 +194,10 @@ export const useUiStore = defineStore('ui', {
 
 | v1 | → web2 | 內容 |
 | --- | --- | --- |
-| [`web/src/events.js`](../../../../web/src/events.js) | `lib/events.ts` | `reduceChat` / `reducePhase` / `phaseFor` / `displayPhase` / `phaseClass` / `attentionItems` / `relTime` / `elapsed` / `mailState` …（**這是與 Go `phaseDeriver` 對齊的 JS 雙生子，務必逐函式保形**） |
-| [`web/src/colors.js`](../../../../web/src/colors.js) | `lib/colors.ts` | `agentColor`（FNV-1a 穩定 per-agent 色）；PALETTE 重新針對 `#0A0A14` 微調對比（FE-4 驗證） |
-| [`web/src/api.js`](../../../../web/src/api.js) | `lib/api.ts` | REST client，回傳型別化 `types/wire.ts` |
-| [`web/src/ws.js`](../../../../web/src/ws.js) | `lib/ws.ts` | WS bridge，`onEvent` 帶 `WireEvent` 型別 |
+| [`web/src/events.js`](../../../../../web/src/events.js) | `lib/events.ts` | `reduceChat` / `reducePhase` / `phaseFor` / `displayPhase` / `phaseClass` / `attentionItems` / `relTime` / `elapsed` / `mailState` …（**這是與 Go `phaseDeriver` 對齊的 JS 雙生子，務必逐函式保形**） |
+| [`web/src/colors.js`](../../../../../web/src/colors.js) | `lib/colors.ts` | `agentColor`（FNV-1a 穩定 per-agent 色）；PALETTE 重新針對 `#0A0A14` 微調對比（FE-4 驗證） |
+| [`web/src/api.js`](../../../../../web/src/api.js) | `lib/api.ts` | REST client，回傳型別化 `types/wire.ts` |
+| [`web/src/ws.js`](../../../../../web/src/ws.js) | `lib/ws.ts` | WS bridge，`onEvent` 帶 `WireEvent` 型別 |
 
 > `events.test.js` / `colors.test.js` 一起 port（`node --test` 對 `.ts` 用 `--experimental-strip-types` 或先 build）。**移植驗收 = 兩份測試全綠**，確保語意零漂移。
 
@@ -205,7 +205,7 @@ export const useUiStore = defineStore('ui', {
 
 ## 7. 型別契約（單一真相）
 
-`types/wire.ts` 逐欄鏡射 [`internal/swarm/webapi/api.go`](../../../../internal/swarm/webapi/api.go) 的 `*Info`：
+`types/wire.ts` 逐欄鏡射 [`internal/swarm/webapi/api.go`](../../../../../internal/swarm/webapi/api.go) 的 `*Info`：
 
 ```ts
 // types/wire.ts — 鏡射 webapi.MemberInfo (api.go:127-143) 等
@@ -223,7 +223,7 @@ export interface SkillInfo { name: string; description: string }
 export interface SpaceInfo { id: string; name: string; workdir: string; status: 'running' | 'stopped'; members: number }
 ```
 
-`types/events.ts` 鏡射 [`pkg/event/event.go:34-155`](../../../../pkg/event/event.go) 的 `Kind` 為 union：
+`types/events.ts` 鏡射 [`pkg/event/event.go:34-155`](../../../../../pkg/event/event.go) 的 `Kind` 為 union：
 
 ```ts
 export type EventKind =

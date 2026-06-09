@@ -14,6 +14,13 @@ import (
 // tool itself.
 const configToolName = "config"
 
+// httpRequestToolName is the wire name of the http_request tool (pkg/tools/web).
+// Like config and bash, its risk depends on its input: a GET/HEAD is read-only and
+// auto-allows; a mutating method (POST/PUT/PATCH/DELETE) falls through to ask. Decide
+// special-cases it by name, since the permission package classifies tools by name
+// rather than via a method on the tool itself.
+const httpRequestToolName = "http_request"
+
 // Decide runs the permission pipeline for a single tool call and returns
 // the resolved Behavior + Reason. An Ask outcome is escalated to the
 // broker by the caller (state_machine.go).
@@ -92,6 +99,11 @@ func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir, memDir s
 	if call.Name == configToolName && configIsRead(call.Input) {
 		return Decision{Behavior: BehaviorAllow, Reason: "config: read-only get"}
 	}
+	// http_request GET/HEAD is read-only (morally identical to web_fetch) — allow
+	// in every mode, including plan. Mutating methods fall through to ask.
+	if call.Name == httpRequestToolName && httpRequestIsRead(call.Input) {
+		return Decision{Behavior: BehaviorAllow, Reason: "http_request: read-only GET/HEAD"}
+	}
 
 	if mode == ModePlan {
 		if isPlanFileWrite(call, workdir) {
@@ -162,6 +174,25 @@ func configIsRead(raw []byte) bool {
 	}
 	v, ok := m["value"]
 	return !ok || len(v) == 0
+}
+
+// httpRequestIsRead reports whether an http_request call uses a read-only method
+// (GET/HEAD, or an unset method which defaults to GET — matching the tool). Any
+// other method, or a parse failure, is treated as mutating (the safe default:
+// fall through to ask).
+func httpRequestIsRead(raw []byte) bool {
+	var m struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return false
+	}
+	switch strings.ToUpper(strings.TrimSpace(m.Method)) {
+	case "", "GET", "HEAD":
+		return true
+	default:
+		return false
+	}
 }
 
 // configSetMessage renders the approval prompt for a config write as

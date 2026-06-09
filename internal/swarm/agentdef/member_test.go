@@ -168,3 +168,16 @@ func TestManifestWriteRoundTripAndWorkerEdits(t *testing.T) {
 		t.Errorf("RemoveWorker left %d workers", len(got.Workers))
 	}
 }
+
+// TestPermissionsPath (RP-11): a member's scoped-permission file sits at
+// <agentDir>/permissions.json — agents/main/ for the leader, agents/sub/ for a worker.
+func TestPermissionsPath(t *testing.T) {
+	if got, want := PermissionsPath("/wd", RoleLeader, "friday"),
+		filepath.Join("/wd", "agents", "main", "friday", "permissions.json"); got != want {
+		t.Errorf("leader: got %s, want %s", got, want)
+	}
+	if got, want := PermissionsPath("/wd", RoleWorker, "risk-monitor"),
+		filepath.Join("/wd", "agents", "sub", "risk-monitor", "permissions.json"); got != want {
+		t.Errorf("worker: got %s, want %s", got, want)
+	}
+}

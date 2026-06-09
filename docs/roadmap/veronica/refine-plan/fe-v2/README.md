@@ -14,7 +14,7 @@
 - **做什麼**：不再補丁式改 v1，而是**平行新建一套 Web UI 2.0**（Vue 3 + TypeScript + Pinia），達到功能 parity 後**汰換 v1**。
 - **北極星**：沿用 RP-4 的重定義——**swarm operations console（監看＋介入）**，但這次用一套**設計系統＋型別化狀態層**從地基做對，而不是再分階段補。
 - **三個招牌差異**：
-  1. **NEON TOKYO 設計語言**——對齊 evva TUI 配色（[`pkg/ui/bubbletea/theme/palette.go`](../../../../pkg/ui/bubbletea/theme/palette.go)）＋**可切換主題**＋三層 token 化 CSS（未來擴充一個主題 = 新增一個 css 檔，零元件改動）。
+  1. **NEON TOKYO 設計語言**——對齊 evva TUI 配色（[`pkg/ui/bubbletea/theme/palette.go`](../../../../../pkg/ui/bubbletea/theme/palette.go)）＋**可切換主題**＋三層 token 化 CSS（未來擴充一個主題 = 新增一個 css 檔，零元件改動）。
   2. **agent stream 交互重設計**——多 agent 並發串流、thinking / tool-call / diff / 結果的可讀呈現，把「看一支正在工作的團隊」做成第一公民。
   3. **正式狀態層**——Pinia store + TS 型別，收掉目前 662 行的 `SpaceView` god-component。
 
@@ -26,7 +26,7 @@ v1 現況盤點（附 file:line 證據，延續 RP 系列的紀律）：
 
 | 證據 | 位置 | 問題 |
 | --- | --- | --- |
-| `SpaceView.vue` **662 行** god-component | [`web/src/components/SpaceView.vue`](../../../../web/src/components/SpaceView.vue) | 一支元件同時扛：WS ingest、15 個子元件協調、11 種 REST command、gate 佇列、confirm、schedule、skills、reset/halt…難以再加功能而不增複雜度。 |
+| `SpaceView.vue` **662 行** god-component | [`web/src/components/SpaceView.vue`](../../../../../web/src/components/SpaceView.vue) | 一支元件同時扛：WS ingest、15 個子元件協調、11 種 REST command、gate 佇列、confirm、schedule、skills、reset/halt…難以再加功能而不增複雜度。 |
 | 配色散落、半套 token | `App.vue:84-99`（`:root` 只定義了 `--bg/--accent/--fs-*`）+ 各元件寫死 `#22c55e/#f59e0b/#a855f7`（`Roster.vue:188-198`、`TeamBoard.vue:107-111`） | 沒有設計系統；RP-4 UX-4 只導入了 type-scale 子集。**完全不是 TUI 的 neon 配色**（v1 bg = `#0e1116`，TUI bg = `#0A0A14`）。 |
 | 純 JS、無型別 | `web/src/events.js`、`api.js` | 與 Go 事件/REST 契約的對齊**只靠註解**維持（`events.js:6-10`）；契約一漂移就靜默壞掉。 |
 | 主題不可切換 | 全 app | 使用者明確要的「可切換主題色、未來擴充 css 方便」——v1 沒有這個 seam。 |
@@ -53,7 +53,7 @@ Component（元件級，選用）      --console-bg ; --card-border ; --pill-wai
 
 **鐵律**：元件 CSS **只引用 semantic / component token**——永不寫死 hex、永不直接引用 primitive。換主題 = 換掉 primitive→semantic 那張對照表，元件零改動。
 
-### 2.2 NEON TOKYO（旗艦主題，移植自 TUI [`palette.go:15-60`](../../../../pkg/ui/bubbletea/theme/palette.go)）
+### 2.2 NEON TOKYO（旗艦主題，移植自 TUI [`palette.go:15-60`](../../../../../pkg/ui/bubbletea/theme/palette.go)）
 
 | 語意 token | 取自 TUI | hex | 用途 |
 | --- | --- | --- | --- |
@@ -91,7 +91,7 @@ Component（元件級，選用）      --console-bg ; --card-border ; --pill-wai
 | 落地 | **平行新建（`web2/`）→ parity 後汰換 v1** | 「全新 2.0」不打斷正在運行的 v1；移植已測純邏輯層，達功能對等再 cutover。 |
 | 廣度 | **完整 8 份 arc** | 覆蓋所有現有 swarm 功能的 v2 重設計，每份含 wireframe ＋驗收。 |
 
-> `go:embed` 路徑不能用 `..`（見 [`web/embed.go:5-9`](../../../../web/embed.go)），故 `web2/` 需自帶 `web2/embed.go`（新 package `web2`）；**cutover = service 改 import `web2` ＋刪舊 `web/`**（細節見 [FE-8](FE-8-a11y-rwd-and-migration.md)）。
+> `go:embed` 路徑不能用 `..`（見 [`web/embed.go:5-9`](../../../../../web/embed.go)），故 `web2/` 需自帶 `web2/embed.go`（新 package `web2`）；**cutover = service 改 import `web2` ＋刪舊 `web/`**（細節見 [FE-8](FE-8-a11y-rwd-and-migration.md)）。
 
 ---
 

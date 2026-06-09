@@ -3,9 +3,11 @@ package update
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -47,9 +49,23 @@ type ghAsset struct {
 }
 
 func fetchLatestRelease(ctx context.Context, owner, repo string) (*Release, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
+	return fetchRelease(ctx, endpoint, fmt.Sprintf("no releases found for %s/%s — publish a release first", owner, repo))
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// fetchReleaseByTag resolves a single release by its exact tag (e.g. "v1.4.3"
+// or "v1.4.3-beta.1"). Unlike the latest endpoint, this resolves pre-release
+// tags too, so it backs `evva update <version>` for pinning to a beta.
+func fetchReleaseByTag(ctx context.Context, owner, repo, tag string) (*Release, error) {
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/tags/%s", owner, repo, url.PathEscape(tag))
+	return fetchRelease(ctx, endpoint, fmt.Sprintf("release %s not found for %s/%s", tag, owner, repo))
+}
+
+// fetchRelease performs the GitHub Releases API GET shared by the latest and
+// by-tag lookups. notFoundMsg is surfaced verbatim on a 404 so each caller can
+// phrase the miss in its own terms.
+func fetchRelease(ctx context.Context, endpoint, notFoundMsg string) (*Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +80,7 @@ func fetchLatestRelease(ctx context.Context, owner, repo string) (*Release, erro
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("no releases found for %s/%s — publish a release first", owner, repo)
+		return nil, errors.New(notFoundMsg)
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))

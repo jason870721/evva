@@ -49,6 +49,14 @@ func TestInjectTeamProtocol_RoleSpecific(t *testing.T) {
 		}
 	}
 
+	// RP-C: the leader closes the advice loop back to teammates (leader-only).
+	if !strings.Contains(leader, "Close the loop") {
+		t.Error("leader protocol should instruct closing the advice loop")
+	}
+	if strings.Contains(worker, "Close the loop") {
+		t.Error("advice-loop closure is leader-only")
+	}
+
 	// Worker gets the worker protocol + its read-only task tools.
 	if !strings.Contains(worker, "Your role: a worker") {
 		t.Error("worker protocol missing")

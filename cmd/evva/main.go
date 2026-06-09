@@ -51,9 +51,9 @@ func main() {
 		}
 	}
 
-	// "evva update" — self-update from GitHub Releases, no Go required.
+	// "evva update [version]" — self-update from GitHub Releases, no Go required.
 	if len(os.Args) > 1 && os.Args[1] == "update" {
-		runUpdate()
+		runUpdate(os.Args[2:])
 		return
 	}
 
@@ -432,13 +432,34 @@ func exitf(code int, format string, args ...any) {
 
 // --- self-update -----------------------------------------------------------
 
-func runUpdate() {
+// runUpdate handles `evva update [version]`. With no argument (or "latest") it
+// resolves GitHub's Latest release — the newest stable on main. Given an
+// explicit tag (e.g. "v1.4.3" or "v1.4.3-beta.1") it pins to that exact build,
+// so users can opt into a beta or pin/downgrade to a known-good version.
+func runUpdate(args []string) {
 	ctx := context.Background()
 	current := update.CurrentVersion()
 
-	fmt.Printf("evva %s — checking for updates...\n", current)
+	target := "latest"
+	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
+		target = strings.TrimSpace(args[0])
+	}
 
-	release, err := update.Check(ctx, update.DefaultOwner, update.DefaultRepo)
+	var (
+		release *update.Release
+		err     error
+	)
+	if strings.EqualFold(target, "latest") {
+		fmt.Printf("evva %s — checking for the latest release...\n", current)
+		release, err = update.Check(ctx, update.DefaultOwner, update.DefaultRepo)
+	} else {
+		tag := target
+		if !strings.HasPrefix(tag, "v") {
+			tag = "v" + tag
+		}
+		fmt.Printf("evva %s — fetching release %s...\n", current, tag)
+		release, err = update.CheckTag(ctx, update.DefaultOwner, update.DefaultRepo, tag)
+	}
 	if err != nil {
 		exitf(1, "evva: update check failed: %v", err)
 	}
@@ -447,17 +468,14 @@ func runUpdate() {
 		exitf(1, "evva: no release found on GitHub")
 	}
 
-	latest := strings.TrimPrefix(release.Version, "v")
-	cur := strings.TrimPrefix(current, "v")
-
-	if latest == cur {
-		fmt.Printf("evva is already up-to-date (%s)\n", current)
+	if strings.TrimPrefix(release.Version, "v") == strings.TrimPrefix(current, "v") {
+		fmt.Printf("evva is already on %s\n", release.Version)
 		return
 	}
 
-	fmt.Printf("New version available: %s → %s\n", current, release.Version)
+	fmt.Printf("%s → %s\n", current, release.Version)
 	fmt.Printf("Release: %s\n", release.URL)
-	fmt.Print("Update now? [y/N] ")
+	fmt.Print("Proceed? [y/N] ")
 
 	var answer string
 	fmt.Scanln(&answer)

@@ -67,3 +67,10 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+          # Tags with a pre-release suffix (e.g. v1.4.4-beta.1) publish as a
+          # GitHub pre-release so they never take the "Latest" badge; bare
+          # stable tags (vX.Y.Z) publish as Latest. This is what keeps
+          # `evva update` (which resolves /releases/latest) on the newest
+          # stable while `evva update <tag>` can still pin a beta.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}

@@ -45,8 +45,9 @@ var toolTags = map[tools.ToolName][]string{
 	tools.CRON_DELETE:    {"schedule", "cron", "delete", "cancel"},
 	tools.REMOTE_TRIGGER: {"remote", "trigger", "webhook", "api", "external"},
 
-	tools.WEB_FETCH:  {"http", "url", "web", "fetch", "scrape", "html"},
-	tools.WEB_SEARCH: {"web", "search", "google", "internet", "lookup", "query"},
+	tools.WEB_FETCH:    {"http", "url", "web", "fetch", "scrape", "html"},
+	tools.WEB_SEARCH:   {"web", "search", "google", "internet", "lookup", "query"},
+	tools.HTTP_REQUEST: {"http", "request", "api", "rest", "json", "curl", "get", "post", "webhook", "client"},
 
 	tools.ASK_USER_QUESTION: {"ask", "user", "question", "prompt", "interact", "clarify"},
 	tools.PUSH_NOTIFICATION: {"notify", "notification", "alert", "ping", "remind"},
@@ -111,8 +112,9 @@ var toolHints = map[tools.ToolName]string{
 	tools.REMOTE_TRIGGER: "Trigger a remote agent run via webhook.",
 
 	// web
-	tools.WEB_FETCH:  "Fetch and extract readable text from a URL.",
-	tools.WEB_SEARCH: "Search the public web via Tavily for up-to-date information.",
+	tools.WEB_FETCH:    "Fetch and extract readable text from a URL.",
+	tools.WEB_SEARCH:   "Search the public web via Tavily for up-to-date information.",
+	tools.HTTP_REQUEST: "Call an HTTP/JSON API (method, url, headers, body) and read the status + parsed body — the structured alternative to curl.",
 
 	// ux
 	tools.ASK_USER_QUESTION: "Ask the user a multiple-choice or free-text question during execution.",

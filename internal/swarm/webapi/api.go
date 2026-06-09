@@ -59,7 +59,7 @@ type Backend interface {
 	// sender "user" (or broadcasts when to == "all"). It rides the same bus +
 	// drain path as inter-agent mail, so an idle member is woken and a busy one
 	// folds it mid-run — flat operator↔member comms without disturbing the
-	// workflow. See docs/veronica/direction-flat-comms.md.
+	// workflow. See docs/roadmap/veronica/direction-flat-comms.md.
 	SendUserMessage(spaceID, to, subject, body string) error
 
 	// Inbound commands. Run is asynchronous — it kicks off a turn whose events

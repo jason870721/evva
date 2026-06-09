@@ -97,6 +97,16 @@ func SkillsDir(workdir string, role Role, name string) string {
 	return filepath.Join(agentDir(workdir, role, name), "skills")
 }
 
+// PermissionsPath is a member's on-disk scoped-permission file
+// (<agentDir>/permissions.json). It loads into ONLY that member's permission
+// store at construction (RP-11), so a non-leader can be granted a narrow lever —
+// e.g. risk-monitor may "http_request(POST .../halt)" — without widening any
+// other member's authority. Same {permissions:{allow,deny,ask}} shape as the
+// project/user permissions.json (Claude Code-compatible).
+func PermissionsPath(workdir string, role Role, name string) string {
+	return filepath.Join(agentDir(workdir, role, name), "permissions.json")
+}
+
 // MemberDirExists reports whether a worker's on-disk definition already exists.
 // CreateMember uses it to tell "author a new member" (no dir) from "mount an
 // existing dir by name" (the CLI add-member path).

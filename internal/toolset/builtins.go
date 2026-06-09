@@ -164,6 +164,9 @@ func init() {
 	r.MustRegister(tools.WEB_SEARCH, func(s tools.State) (tools.Tool, error) {
 		return web.NewSearch(s.Config()), nil
 	})
+	r.MustRegister(tools.HTTP_REQUEST, func(s tools.State) (tools.Tool, error) {
+		return web.NewHTTPRequest(s.Config()), nil
+	})
 
 	// --- ux ---
 	// AskUserQuestion is late-bound: the question broker is installed on

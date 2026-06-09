@@ -18,7 +18,7 @@
 
 | 現況 | 證據 | 缺口 |
 | --- | --- | --- |
-| tool 只渲染名稱＋status＋result `<pre>` | [`MemberConsole.vue:63-68`](../../../../web/src/components/MemberConsole.vue) | 無 diff、無依工具家族分型、無 input 展開 |
+| tool 只渲染名稱＋status＋result `<pre>` | [`MemberConsole.vue:63-68`](../../../../../web/src/components/MemberConsole.vue) | 無 diff、無依工具家族分型、無 input 展開 |
 | thinking 僅 italic 變灰 | `MemberConsole.vue:160-163` | 不可收合、串流中無指示 |
 | autoscroll 無條件捲底 | `MemberConsole.vue:34-40` | 往上翻歷史會被拉回，無「跟隨/跳到最新」 |
 | 只有單成員 console | `SpaceView.vue:491-499` | 無團隊 firehose（全員一條流） |

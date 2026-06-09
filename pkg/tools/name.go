@@ -111,8 +111,9 @@ const (
 
 // Web.
 const (
-	WEB_FETCH  ToolName = "web_fetch"
-	WEB_SEARCH ToolName = "web_search"
+	WEB_FETCH    ToolName = "web_fetch"
+	WEB_SEARCH   ToolName = "web_search"
+	HTTP_REQUEST ToolName = "http_request"
 )
 
 // MCP resource tools — deferred meta tools that work across any configured

@@ -5,12 +5,38 @@ here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
 Stability tiers are defined in [`docs/sdk-stability.md`](docs/sdk-stability.md).
 
-Only beta releases on `main` get changelog entries; alpha releases on
-`pre-release` are staging-only and do not get separate entries (see
-CLAUDE.md). The v1.2.0–v1.6.0 work that was documented ahead of release
+Each release gets one entry: it is written when the beta is cut on `pre-release`
+(`[vX.Y.Z-beta.N]`) and renamed to `[vX.Y.Z]` when promoted to stable on `main`
+(see CLAUDE.md). The v1.2.0–v1.6.0 work that was documented ahead of release
 was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
+
+## [v1.4.4] — 2026-06-09
+
+Swarm HTTP tooling and comms refinements, plus a reworked self-update flow and
+a simplified two-tier release model (stable on `main`, beta on `pre-release`).
+
+### Added
+
+- **`http_request` tool (`pkg/tools/web`).** A generic HTTP tool for agents
+  (swarm members included), with method-gated permissions. Permission rules
+  match `http_request` by **method + URL** so a lever can scope, e.g., `GET`
+  to one host without granting `POST`.
+- **`evva update <version>`.** `evva update` (or `evva update latest`) resolves
+  GitHub's Latest release — the newest stable on `main`. Passing an explicit
+  tag (e.g. `evva update v1.4.4-beta.1`) pins to that exact build, opting into
+  a beta or downgrading. Backed by the new `update.CheckTag` in `pkg/update`.
+
+### Changed
+
+- **Swarm leader closes the advice loop** — the leader now replies its
+  decisions back to the requesting teammates instead of dropping them.
+- **Swarm refine (RP11 / PR12)** — scoped-lever refinements to the swarm
+  permission and comms paths.
+- **Release flow** — `main` ships stable tags (GitHub Latest); `pre-release`
+  ships beta tags (`--prerelease`). The alpha tier is removed. The Release
+  workflow now flags `-`-suffixed tags as pre-releases. See CLAUDE.md.
 
 ## [v1.4.3] — 2026-06-07
 
@@ -44,30 +70,19 @@ and FE v2 workstation UX updates (inspector panels, timeline, multi-select).
 
 ### Added
 
-- **Per-member model/effort pin in swarm.** `agentdef.Member` gains `Model`
-  and `Effort` fields, set at creation from `profile.yml` or the add-agent
-  form. Fixed at member-construction time via the member's own config clone,
-  so the normal `ResolveMainProfile` / `agent.New` path honors them without
-  extra plumbing. A member can pin any provider's model — a deepseek member
-  can sit next to anthropic ones.
-- **`constant.ProviderOfModel(Model) (LLMProvider, bool)`** — resolve a model
-  id to its owning provider. Supports the per-member model pin: a swarm
-  holding only a model string can derive the correct provider to route
-  through.
-
-### Fixed
-
-- **web2 dist rebuilt with Node 24** and `.nvmrc` pinned to match CI,
-  fixing a build mismatch where local Node versions produced incompatible
-  bundles.
+- **Swarm per-member model pinning.** Each swarm member can now carry its own
+  model preference via `meta.yml`, overriding the cluster default. Added
+  `Constant.GPT_5_4_MINI` model entry.
+- **`internal/agent/workdir_prompt_test.go`** — test coverage for working
+  directory injection in system prompts.
 
 ### Changed
 
-- **FE v2 workstation UX updates.** New inspector panels (mailbox,
-  member, task), enhanced timeline view with situational-awareness
-  layout, multi-select support in the add-agent form, and the model
-  picker fed from `SelectableModels()`. Operational only — no `pkg/*`
-  surface change.
+- **FE v2 web2 dist rebuilt** with Node 24, inspector component updates
+  (MemberInspector, TaskInspector, MailboxList), timeline improvements,
+  and AddAgentDialog enhancements.
+- **Swarm `internal/swarm/service` and `webapi`** updated for the
+  per-member model pinning and FE v2 rebuild.
 
 ## [v1.4.1-beta.1] — 2026-06-07
 
@@ -1002,11 +1017,14 @@ needed one-line call-site updates when they bumped to alpha.2 (see
 ## [v0.2.4-alpha.1] — 2026-05-22
 
 Initial published tag — Phase 13 SDK split + Phase 14 session storage +
-Phase 15 friday proof of concept. See `CLAUDE.md` for the per-phase
+Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.4...HEAD
+[v1.4.4]: https://github.com/johnny1110/evva/compare/v1.4.3...v1.4.4
+[v1.4.4-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.3...v1.4.4-beta.1
 [v1.4.3]: https://github.com/johnny1110/evva/compare/v1.4.2-beta.1...v1.4.3
+[v1.4.3-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.2-beta.1...v1.4.3-beta.1
 [v1.4.2-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.1-beta.1...v1.4.2-beta.1
 [v1.4.1-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.0-beta.1...v1.4.1-beta.1
 [v1.4.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.3.0-beta.1...v1.4.0-beta.1

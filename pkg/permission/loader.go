@@ -43,22 +43,36 @@ type fileShape struct {
 // The returned Store is populated and ready to use; callers can add
 // session rules at runtime via Store.AddSessionRule.
 func Load(workdir, evvaHome string) (*Store, []Warning) {
+	return LoadMember(workdir, evvaHome, "")
+}
+
+// LoadMember is Load plus an optional member-scoped file: a per-member
+// permissions.json whose rules load into ONLY the returned store (RP-11). This
+// is how a swarm grants one non-leader a narrow lever — e.g. risk-monitor's
+// store gets "http_request(POST .../halt)" while every other member's store
+// (and POST .../strategy) still asks — without a shared file widening everyone.
+// memberPath == "" makes it identical to Load. Member rules carry project-source
+// semantics (a persistent configured grant, not a transient session approval).
+func LoadMember(workdir, evvaHome, memberPath string) (*Store, []Warning) {
 	store := NewStore()
 	var warns []Warning
 	var rules []Rule
+	add := func(path string, src Source) {
+		if path == "" {
+			return
+		}
+		got, w := loadFile(path, src)
+		rules = append(rules, got...)
+		warns = append(warns, w...)
+	}
 
 	if workdir != "" {
-		projectPath := filepath.Join(workdir, ".evva", "permissions.json")
-		got, w := loadFile(projectPath, SourceProject)
-		rules = append(rules, got...)
-		warns = append(warns, w...)
+		add(filepath.Join(workdir, ".evva", "permissions.json"), SourceProject)
 	}
 	if evvaHome != "" {
-		userPath := filepath.Join(evvaHome, "permissions.json")
-		got, w := loadFile(userPath, SourceUser)
-		rules = append(rules, got...)
-		warns = append(warns, w...)
+		add(filepath.Join(evvaHome, "permissions.json"), SourceUser)
 	}
+	add(memberPath, SourceProject)
 
 	store.ReplaceAll(rules)
 	return store, warns

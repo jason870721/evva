@@ -108,6 +108,13 @@ Run the loop:
    with a note to send it back to ` + "`running`" + ` for rework.
 4. **Report.** When the goal is met, summarise the outcome for the operator.
 
+**Close the loop with your team.** When a teammate's advice or report informs a
+decision — whether you act on it or not — reply briefly with what you decided and
+why ("adopted — switching to mean_reversion"; "holding off, because the breakout
+isn't confirmed"). A teammate who can't see whether their input landed can't
+calibrate or improve, and the operator loses the reasoning trail from advice to
+action.
+
 The state machine is enforced (illegal moves are rejected): ` + "`pending → running`" + `;
 ` + "`running → suspended | verifying`" + `; ` + "`suspended → running`" + `;
 ` + "`verifying → completed | running`" + `. Use ` + "`task_update_status`" + ` to suspend/resume.`

@@ -33,8 +33,20 @@ func CurrentVersion() string {
 // Check fetches the latest release from GitHub for owner/repo and returns it.
 // If the latest tag matches currentVersion, the release is still returned so
 // the caller can decide what "up-to-date" means (exact match vs newer).
+//
+// "Latest" follows GitHub's own designation: stable releases on main carry the
+// Latest badge, while beta releases on pre-release are published as
+// pre-releases and are excluded — so `evva update` lands on the newest stable.
 func Check(ctx context.Context, owner, repo string) (*Release, error) {
 	return fetchLatestRelease(ctx, owner, repo)
+}
+
+// CheckTag fetches a specific release by its exact tag (e.g. "v1.4.3" or
+// "v1.4.3-beta.1") for owner/repo. It backs `evva update <version>`, letting a
+// caller pin to an exact build — including a pre-release beta — rather than the
+// latest stable. The returned release is fed to Apply unchanged.
+func CheckTag(ctx context.Context, owner, repo, tag string) (*Release, error) {
+	return fetchReleaseByTag(ctx, owner, repo, tag)
 }
 
 // Apply downloads the appropriate asset for the current OS/arch from the

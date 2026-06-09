@@ -56,7 +56,7 @@ const DefaultAddr = "127.0.0.1:8888"
 // of copy-pasting a freshly minted UUID every restart. This is a deliberate
 // test-convenience tradeoff, safe because the host binds 127.0.0.1 (DefaultAddr).
 // TODO(security): before any non-loopback exposure, replace with a minted
-// per-start secret (or real auth) — see docs/veronica/veronica-design-v1.md §8.3.
+// per-start secret (or real auth) — see docs/roadmap/veronica/veronica-design-v1.md §8.3.
 const DefaultToken = "root"
 
 // manifestFile is the per-workdir swarm declaration `evva swarm .` reads.

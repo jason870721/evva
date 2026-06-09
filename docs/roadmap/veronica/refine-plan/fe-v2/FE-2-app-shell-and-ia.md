@@ -74,7 +74,7 @@
 - **Token gate**：保留（service 印出的 session token，`App.vue:50-63`）；維持 `root` 預設（RP-4 §6 範圍外）。做成 `EvDialog` 而非整頁，連線後進 landing。
 - **Space picker（landing）**：沿用 `SpacePicker.vue` 的卡片＋空狀態指引（`evva swarm .`），但卡片加「members / phase 摘要 / workdir」；running 可進、stopped 給 run 指令提示。
 - **Space 快切**：TopBar 下拉列出所有 running space，點即 router 切換，不回 landing。
-- **生命週期動作**（`run / stop / remove / reset / halt`，API 見 [`api.js:75-83`](../../../../web/src/api.js)）：全部收進 `⚙ space menu`，**破壞性者一律走 FE-6 的分級確認**（halt all＝二次確認）。
+- **生命週期動作**（`run / stop / remove / reset / halt`，API 見 [`api.js:75-83`](../../../../../web/src/api.js)）：全部收進 `⚙ space menu`，**破壞性者一律走 FE-6 的分級確認**（halt all＝二次確認）。
 
 ---
 

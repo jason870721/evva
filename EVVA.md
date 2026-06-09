@@ -50,14 +50,17 @@ One schema, one loader, two visibility surfaces. This is also the seam that prof
 |---|---|---|
 | `pkg/agent` | Agent constructor + controller interface | `New(Config) (Agent, error)`, `Agent` interface (~20 methods matching `ui.Controller`) |
 | `pkg/llm` | LLM provider abstraction | `Client` interface, `Registry`, `Message`, `Response`, `Chunk`, `ChunkSink` |
-| `pkg/llm/builtins` | Provider registration | `init()` registers Anthropic, DeepSeek, Ollama factories |
+| `pkg/llm/builtins` | Provider registration | `init()` registers Anthropic, DeepSeek, OpenAI, Ollama factories |
 | `pkg/llm/claude` | Anthropic Messages API | Implements `Client` |
 | `pkg/llm/deepseek` | DeepSeek API (OpenAI-compatible) | Implements `Client` |
+| `pkg/llm/openai` | OpenAI Chat Completions API | Implements `Client` |
 | `pkg/llm/ollama` | Ollama local API | Implements `Client` |
 | `pkg/tools` | Tool interface + shared types | `Tool` interface, `Result`, `Call`, `Descriptor`, `State`, `ToolName` constants |
 | `pkg/tools/fs` | Filesystem tools | `read`, `write`, `edit`, `glob` (+ `diff`, `notebook_edit`, PDF reading) |
 | `pkg/tools/shell` | Shell tools | `bash` (sync + background), `grep`, `tree` |
 | `pkg/tools/web` | Web tools | `web_search` (Tavily), `web_fetch` |
+| `pkg/tools/lsp` | Language Server Protocol | `lsp_request` (go-to-definition, references, hover, symbols) |
+| `pkg/tools/repl` | Python/JS scratch REPL | `repl` tool |
 | `pkg/tools/daemon` | Long-running unit abstraction | `Daemon` interface, `DaemonState`, `DaemonKind` constants |
 | `pkg/tools/monitor` | Per-line stream watcher | `monitor` tool |
 | `pkg/tools/cron` | Scheduled prompts | `cron_create`, `cron_list`, `cron_delete` |
@@ -71,10 +74,15 @@ One schema, one loader, two visibility surfaces. This is also the seam that prof
 | `pkg/config` | Configuration loading | `Load(LoadOptions) (*Config, error)`, YAML + `.env` |
 | `pkg/constant` | Enums and sentinels | `AgentStatus`, `LLMProvider`, `Model` |
 | `pkg/ui` | UI plugin contract | `UI` interface, `Controller` interface |
+| `pkg/ui/bubbletea` | Reference Bubble Tea TUI | `New(evvaHome)` terminal UI implementation |
+| `pkg/ui/lp` | Low-profile terminal UI | Compact line-based UI |
 | `pkg/permission` | Permission gate | Rule store, broker, matcher |
 | `pkg/skill` | User-installed skills | Markdown-based skill loader |
+| `pkg/hooks` | Lifecycle hooks | Shell + HTTP backends for 6 event types |
+| `pkg/mcp` | MCP client | Server config, stdio + Streamable-HTTP transports, OAuth |
 | `pkg/banner` | Startup branding | ASCII art banner rendering |
 | `pkg/version` | Build version | `Version` constant (semver, no leading `v`) |
+| `pkg/update` | Self-update mechanism | `Check()` / `Apply()` |
 | `pkg/common` | Shared utilities | Small helpers used across packages |
 
 ---
@@ -93,7 +101,7 @@ One schema, one loader, two visibility surfaces. This is also the seam that prof
 | `internal/tools/meta` | `agent` (subagent spawn), `tool_search`, `schedule_wakeup` |
 | `internal/tools/mode` | `enter_plan_mode`, `exit_plan_mode`, `enter_worktree`, `exit_worktree` |
 | `internal/tools/ux` | `ask_user_question`, `push_notification` |
-| `internal/tools/memory` | `update_user_profile`, `update_project_memory` |
+| `internal/tools/config` | `config` tool (read/write evva settings) |
 | `internal/tools/dev` | `feedback` (dev-mode only) |
 | `internal/toolset` | `ToolState` implementation, `Build()`, `Describe()`, builtin registration |
 | `internal/ui` | Bubble Tea v2 TUI implementation (terminal UI) |
@@ -101,7 +109,9 @@ One schema, one loader, two visibility surfaces. This is also the seam that prof
 | `internal/hooks` | User-authored lifecycle hooks (shell commands / HTTP webhooks) |
 | `internal/permission` | Permission gate implementation (store, broker, matcher) |
 | `internal/question` | Question broker for `ask_user_question` |
-| `internal/memdir` | EVVA.md / USER_PROFILE.md loader |
+| `internal/memdir` | Typed memory directory loader (user/feedback/project/reference) |
+| `internal/swarm` | Veronica multi-agent swarm subsystem (service, webapi, agentdef, space) |
+| `internal/skills` | Bundled skill content (embedded via go:embed) |
 | `internal/logger` | Structured `slog` wrapper + pretty console formatter |
 | `internal/update` | Self-update mechanism |
 
@@ -115,85 +125,9 @@ One schema, one loader, two visibility surfaces. This is also the seam that prof
 - **Tests live next to the code they cover** (`*_test.go`). No parallel `tests/` tree.
 - **No comments that restate the code.** Only comment WHY when the WHY is non-obvious.
 - **Port tool descriptions from `ref/src/tools/*/prompt.ts` verbatim** when reasonable. Diverge only with a clear reason.
-- **Minimize external dependencies.** The only non-stdlib dependencies in the critical path are `golang.org/x/sync` (singleflight) and the Bubble Tea TUI stack. Protocol implementations (JSON-RPC, LSP types) are hand-written to avoid dependency chains.
+- **Minimize external dependencies.** Non-stdlib dependencies: `golang.org/x/sync` (singleflight), the Bubble Tea TUI stack, and `github.com/modelcontextprotocol/go-sdk` (MCP client, added in v1.3.0). Protocol implementations (JSON-RPC, LSP types) are hand-written to avoid dependency chains.
 
 ---
-
-## Project structure
-
-```
-evva/
-├── cmd/evva/                  # CLI entry point — wires agent + TUI
-├── docs/                      # Design notes, user guides, SDK docs, roadmap
-│   ├── assets/                # Images and diagrams
-│   ├── claude-md-backup/      # Archived Claude Code reference docs
-│   ├── claude-tool/           # Tool porting reference
-│   ├── design/                # Architecture decision records
-│   ├── evva-sdk/              # Public SDK documentation
-│   ├── roadmap/               # Feature roadmaps (e.g., lsp.md)
-│   ├── sys-prompt/            # System prompt history and evolution
-│   ├── test-case/             # Test scenarios and QA plans
-│   └── user-guide/            # End-user documentation
-├── internal/
-│   ├── agent/                 # Agent struct, loop, spawn, profiles, persistence
-│   │   ├── attachments/       # Plan-mode per-turn reminders
-│   │   ├── loader/            # Disk agent definition loader
-│   │   └── sysprompt/         # System prompt builder
-│   ├── hooks/                 # User-authored lifecycle extension hooks
-│   ├── logger/                # Structured slog wrapper + pretty fmt
-│   ├── memdir/                # EVVA.md / USER_PROFILE.md loader
-│   ├── permission/            # Permission gate implementation
-│   ├── question/              # Question broker for ask_user_question
-│   ├── session/               # Conversation history + cumulative usage + compaction
-│   ├── tools/                 # evva-runtime-specific tool families
-│   │   ├── dev/               # feedback (dev-mode only)
-│   │   ├── memory/            # update_user_profile, update_project_memory
-│   │   ├── meta/              # agent, tool_search, schedule_wakeup
-│   │   ├── mode/              # enter/exit_plan_mode, enter/exit_worktree
-│   │   └── ux/                # ask_user_question, push_notification
-│   ├── toolset/               # ToolState, Build(), Describe(), builtins init()
-│   ├── ui/                    # Bubble Tea v2 TUI implementation
-│   │   └── bubbletea_v2/      # Components, theme, app shell, rendering
-│   └── update/                # Self-update mechanism
-├── pkg/                       # Public SDK — stable API surface
-│   ├── agent/                 # Agent constructor + controller interface
-│   ├── banner/                # Startup branding
-│   ├── common/                # Small shared utilities
-│   ├── config/                # Configuration loading (YAML + .env)
-│   ├── constant/              # Enums: AgentStatus, LLMProvider, Model
-│   ├── event/                 # Event envelope + Sink contract
-│   ├── llm/                   # Client interface, Registry, shared types
-│   │   ├── builtins/          # init() registers Anthropic, DeepSeek, Ollama
-│   │   ├── claude/            # Anthropic Messages API
-│   │   ├── deepseek/          # DeepSeek API (OpenAI-compatible)
-│   │   └── ollama/            # Ollama local API
-│   ├── observable/            # Pub/sub framework for stores
-│   ├── permission/            # Permission gate contracts
-│   ├── skill/                 # Markdown-based user skills registry
-│   ├── tools/                 # Tool interface + broadly-reusable tool families
-│   │   ├── cron/              # cron_create, cron_list, cron_delete
-│   │   ├── daemon/            # Daemon interface, DaemonState, kind constants
-│   │   ├── fs/                # read, write, edit, glob, diff, notebook, PDF
-│   │   ├── kits/              # Tool kit bundling
-│   │   ├── monitor/           # Stream stdout events from a running command
-│   │   ├── notebook/          # notebook_edit (Jupyter)
-│   │   ├── shell/             # bash (sync + background), grep, tree
-│   │   ├── todo/              # todo_write
-│   │   ├── util/              # json_query, calc
-│   │   └── web/               # web_search, web_fetch
-│   ├── toolset/               # Tool registry (name→factory), tags, hints
-│   ├── ui/                    # UI contract (UI interface + Controller interface)
-│   └── version/               # Build version constant
-├── ref/src/                   # Claude Code reference source (read-only)
-├── examples/
-│   └── minimal-host/          # Minimal downstream SDK example
-├── log/                       # Per-agent runtime logs (gitignored)
-├── scripts/                   # Demo / dev scripts
-├── go.mod
-├── go.sum
-├── CHANGELOG.md
-└── README.md
-```
 
 Key boundaries:
 
@@ -211,8 +145,8 @@ Key boundaries:
 ### Branch strategy
 
 ```
-main  ← production (beta = latest; no stable release yet)
-  ↑ Sat fast-forward merge
+main  ← production (stable + beta tags; latest = stable)
+  ↑ Sat merge (pre-release must be a descendant; if diverged, use --no-ff)
 pre-release  ← staging (weekly feature accumulation, alpha tag)
   ↑ Sat merge
 dev  ← integration
@@ -228,29 +162,9 @@ feature/*  ← topic branches (cut from dev)
 
 ### Weekly release (every Saturday morning)
 
-The project is in early-stage: all releases are beta; no stable release yet. Beta tags are marked as `latest` on GitHub; alpha tags are pre-release only.
+The project publishes both pre-release (alpha) and release (beta + stable) tags. Beta tags are marked as `latest` on GitHub when no stable tag exists; once a stable tag is cut, `latest` points to it. Alpha tags are pre-release only.
 
-**Step 1 — Beta release (pre-release → main)**
-
-```bash
-git checkout main
-git merge pre-release --ff-only   # pre-release must be a direct descendant
-```
-
-Before tagging, verify:
-
-1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 beta 版號（例如 `v1.2.0-beta.1`）。
-2. `CHANGELOG.md` 中的 `[Unreleased]` 已改名為對應的 beta 版號，版號與內容一致。
-
-Then bump the version and tag:
-
-```
-git tag -a v<X>.<Y>.<Z>-beta.<N> -m "v<X>.<Y>.<Z>-beta.<N> — <summary>"
-git push origin v<X>.<Y>.<Z>-beta.<N>
-gh release create v<X>.<Y>.<Z>-beta.<N> --target main --title "v<X>.<Y>.<Z>-beta.<N> — <summary>"
-```
-
-**Step 2 — Alpha release (dev → pre-release)**
+**Step 1 — Alpha release (dev → pre-release)**
 
 ```bash
 git checkout pre-release
@@ -259,16 +173,53 @@ git merge dev
 
 Before tagging, verify:
 
-1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 alpha 版號（例如 `v1.2.0-alpha.2`）。
+1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 alpha 版號（例如 `v1.4.3-alpha.1`）。
 2. Alpha release 不另寫 CHANGELOG，但版號應與 dev 分支累積的變更範圍一致。
 
 Then bump the version and tag:
 
 ```
 git tag -a v<X>.<Y>.<Z>-alpha.<N> -m "v<X>.<Y>.<Z>-alpha.<N> — <summary>"
-git push origin v<X>.<Y>.<Z>-alpha.<N>
+git push origin pre-release v<X>.<Y>.<Z>-alpha.<N>
 gh release create v<X>.<Y>.<Z>-alpha.<N> --target pre-release --prerelease --title "v<X>.<Y>.<Z>-alpha.<N> — <summary>"
 ```
+
+**Step 2 — Beta release (pre-release → main)**
+
+```bash
+git checkout main
+git merge pre-release --ff-only   # if diverged (e.g. changelog commits on main), use --no-ff merge instead
+```
+
+Before tagging, verify:
+
+1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 beta 版號（例如 `v1.4.3-beta.1`）。
+2. `CHANGELOG.md` 中的 `[Unreleased]` 已改名為對應的 beta 版號，版號與內容一致。
+
+Then bump the version and tag:
+
+```
+git tag -a v<X>.<Y>.<Z>-beta.<N> -m "v<X>.<Y>.<Z>-beta.<N> — <summary>"
+git push origin main v<X>.<Y>.<Z>-beta.<N>
+gh release create v<X>.<Y>.<Z>-beta.<N> --target main --title "v<X>.<Y>.<Z>-beta.<N> — <summary>"
+```
+
+**Step 3 — Stable release (optional, on main)**
+
+When the project is ready for a stable release, promote the latest beta:
+
+```bash
+git checkout main
+# Update pkg/version/version.go: drop -beta.N suffix (e.g. v1.4.3-beta.1 → v1.4.3)
+# Update CHANGELOG.md: rename [vX.Y.Z-beta.N] → [vX.Y.Z], update comparison URLs
+git add pkg/version/version.go CHANGELOG.md
+git commit -m "chore: promote v<X>.<Y>.<Z>-beta.<N> to stable v<X>.<Y>.<Z>"
+git tag -a v<X>.<Y>.<Z> -m "v<X>.<Y>.<Z> — <summary>"
+git push origin main v<X>.<Y>.<Z>
+gh release create v<X>.<Y>.<Z> --target main --title "v<X>.<Y>.<Z> — <summary>"
+```
+
+**Important:** `go install ...@latest` ignores pre-release tags (`-alpha.N`, `-beta.N`). A stable tag is needed for `@latest` to resolve to the current version. Without one, `@latest` falls back to the last stable tag (e.g. `v0.2.0`).
 
 ### Version numbering
 
@@ -284,11 +235,11 @@ Pre-release suffix: `-beta.<N>` (on main), `-alpha.<N>` (on pre-release). N star
 
 ### CHANGELOG
 
-Only beta releases get a changelog entry (they're the user-facing release). Each beta entry summarizes the features and fixes accumulated since the last beta. Alpha releases do not get separate changelog entries.
+Only beta and stable releases get changelog entries (they're the user-facing releases). Each entry summarizes the features and fixes accumulated since the last release. Alpha releases do not get separate changelog entries.
 
-When a beta is published, edit `CHANGELOG.md`:
+When a release is published, edit `CHANGELOG.md`:
 
-1. Rename `## [Unreleased]` → `## [v<X>.<Y>.<Z>-beta.<N>]`.
+1. Rename `## [Unreleased]` → `## [v<X>.<Y>.<Z>]` (or `[v<X>.<Y>.<Z>-beta.<N>]`).
 2. Insert a fresh `## [Unreleased]` section at the top.
 3. Add a summary of what this release contains under `### Added`, `### Fixed`, `### Changed`, `### Breaking`.
 4. Update the comparison URLs at the bottom of the file.
@@ -296,7 +247,7 @@ When a beta is published, edit `CHANGELOG.md`:
 Then commit:
 
 ```
-git add CHANGELOG.md && git commit -m "chore: changelog for v<X>.<Y>.<Z>-beta.<N>"
+git add CHANGELOG.md && git commit -m "chore: changelog for v<X>.<Y>.<Z>"
 ```
 
 ### Key rules
@@ -304,16 +255,8 @@ git add CHANGELOG.md && git commit -m "chore: changelog for v<X>.<Y>.<Z>-beta.<N
 - `pkg/version/version.go` stores the *current* version constant.
 - Bump the version in a separate commit before tagging.
 - Always ask before pushing tags or releases — pushing is a shared-state operation.
-- `gh release create` targets `main` for beta, `pre-release` for alpha.
+- `gh release create` targets `main` for beta/stable, `pre-release` for alpha.
 
 ---
-
-## Roadmap
-
-Active and planned feature tracks are documented under `docs/roadmap/`. Key items:
-
-- **LSP Module** (`docs/roadmap/lsp.md`) — Language Server Protocol integration for semantic code understanding (definition, references, hover, diagnostics). Feasibility analysis and phased implementation plan complete. Development not yet started.
-- **Profile switching** — Runtime persona switching via `/profile <name>`.
-- **Remote agent endpoints** — Personas registered as remote services.
 
 User-facing documentation (install, TUI keybindings, config file shape, log paths) lives in `README.md` and `docs/user-guide/`. This file is for project vision, architecture, and the development roadmap.

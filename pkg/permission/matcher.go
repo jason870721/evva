@@ -33,9 +33,56 @@ func matchToolCall(r Rule, call ToolCall) bool {
 		return matchShell(r.Content, extractBashCommand(call.Input))
 	case "read", "write", "edit", "notebook_edit":
 		return matchPath(r.Content, extractFilePath(call.Input))
+	case "http_request":
+		return matchHTTPRequest(r.Content, call.Input)
 	default:
 		return r.Content == string(call.Input)
 	}
+}
+
+// httpMethods is the set recognised as a leading method token in an http_request
+// rule pattern ("POST https://…/*").
+var httpMethods = map[string]bool{
+	"GET": true, "HEAD": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true,
+}
+
+// matchHTTPRequest matches an http_request call against a rule pattern of the
+// form "[METHOD ]<url-pattern>". An optional leading HTTP method scopes the rule
+// to that method; the url-pattern matches the call's url with the same wildcard
+// semantics as a shell rule (`*` = any chars, trailing `/*` = prefix). This is
+// what lets an operator scope a member's HTTP authority — e.g. grant a non-leader
+// a narrow lever by allowing "POST http://127.0.0.1:7777/halt" while
+// "POST .../strategy" still asks (Sunday milestone-3 RP-B, the scoped-lever case).
+func matchHTTPRequest(pattern string, raw []byte) bool {
+	method := strings.ToUpper(strings.TrimSpace(extractStringField(raw, "method")))
+	if method == "" {
+		method = "GET" // mirrors the tool's default
+	}
+	url := extractStringField(raw, "url")
+	if url == "" {
+		return false
+	}
+	pMethod, pURL := splitMethodPattern(pattern)
+	if pMethod != "" && pMethod != method {
+		return false
+	}
+	if hasUnescapedStar(pURL) {
+		return matchWildcard(pURL, url)
+	}
+	return pURL == url
+}
+
+// splitMethodPattern splits "POST https://…" into ("POST", "https://…") when the
+// first token is a known HTTP method; otherwise ("", pattern) — a method-agnostic
+// url pattern.
+func splitMethodPattern(p string) (method, urlPattern string) {
+	p = strings.TrimSpace(p)
+	if i := strings.IndexByte(p, ' '); i > 0 {
+		if head := strings.ToUpper(p[:i]); httpMethods[head] {
+			return head, strings.TrimSpace(p[i+1:])
+		}
+	}
+	return "", p
 }
 
 // matchShell matches a Bash command against a shell-style rule pattern.

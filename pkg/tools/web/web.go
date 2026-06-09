@@ -14,7 +14,7 @@ import (
 
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName {
-	return []tools.ToolName{tools.WEB_FETCH, tools.WEB_SEARCH}
+	return []tools.ToolName{tools.WEB_FETCH, tools.WEB_SEARCH, tools.HTTP_REQUEST}
 }
 
 // NewFetch builds a fetch tool bound to cfg. cfg may be nil — Execute
@@ -27,4 +27,10 @@ func NewFetch(cfg *config.Config) *FetchTool {
 // surfaces a "not configured" error when no API key is reachable.
 func NewSearch(cfg *config.Config) *SearchTool {
 	return &SearchTool{cfg: cfg}
+}
+
+// NewHTTPRequest builds an http_request tool bound to cfg. cfg may be nil —
+// Execute falls back to the default 100k body cap.
+func NewHTTPRequest(cfg *config.Config) *HTTPRequestTool {
+	return &HTTPRequestTool{cfg: cfg}
 }

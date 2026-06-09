@@ -24,7 +24,7 @@ func ExampleGeneralPurposeKit() {
 	fmt.Println("deferred:", deferredStr)
 	// Output:
 	// active: bash,calc,edit,glob,grep,json_query,read,todo_write,tool_search,tree,write
-	// deferred: web_fetch,web_search
+	// deferred: http_request,web_fetch,web_search
 }
 
 // ExampleReadOnlyKit shows the audit/explore variant — no bash, no

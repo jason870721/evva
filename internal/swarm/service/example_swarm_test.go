@@ -9,13 +9,13 @@ import (
 )
 
 // TestExampleSwarmConstructs guards the shipped example in
-// docs/veronica/example-swarm/: it must actually parse + construct through the
+// docs/roadmap/veronica/example-swarm/: it must actually parse + construct through the
 // real Register path (manifest, agent dirs, and every tool name in active.yml
 // resolving), so "copy it and run" really works. Copied to a temp dir first so
 // the test never writes a .vero/ into the repo. Uses the stub LLM provider, so
 // no network — it validates wiring, not model behaviour.
 func TestExampleSwarmConstructs(t *testing.T) {
-	src := filepath.Join("..", "..", "..", "docs", "veronica", "example-swarm")
+	src := filepath.Join("..", "..", "..", "docs", "roadmap", "veronica", "example-swarm")
 	if _, err := os.Stat(filepath.Join(src, "evva-swarm.yml")); err != nil {
 		t.Fatalf("example swarm not found at %s: %v", src, err)
 	}
@@ -57,12 +57,12 @@ func TestExampleSwarmConstructs(t *testing.T) {
 	}
 }
 
-// TestVeroTechSwarmConstructs guards docs/veronica/vero-tech-swarm/ the same way:
+// TestVeroTechSwarmConstructs guards docs/roadmap/veronica/vero-tech-swarm/ the same way:
 // the shipped 7-member engineering team must parse + construct through the real
 // Register path — manifest, all seven agent dirs, and every tool name in every
 // active.yml resolving — so "copy it and run" really works.
 func TestVeroTechSwarmConstructs(t *testing.T) {
-	src := filepath.Join("..", "..", "..", "docs", "veronica", "vero-tech-swarm")
+	src := filepath.Join("..", "..", "..", "docs", "roadmap", "veronica", "vero-tech-swarm")
 	if _, err := os.Stat(filepath.Join(src, "evva-swarm.yml")); err != nil {
 		t.Fatalf("vero-tech-swarm not found at %s: %v", src, err)
 	}
@@ -105,7 +105,7 @@ func TestVeroTechSwarmConstructs(t *testing.T) {
 // SAME id (so the operator's URL keeps working). Uses the on-disk example swarm so
 // the reset's manifest re-read has something real to load.
 func TestResetSpace(t *testing.T) {
-	src := filepath.Join("..", "..", "..", "docs", "veronica", "example-swarm")
+	src := filepath.Join("..", "..", "..", "docs", "roadmap", "veronica", "example-swarm")
 	dst := t.TempDir()
 	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
 		t.Fatalf("copy example: %v", err)

@@ -4,7 +4,7 @@
 > Scope: 把現有「bash 背景 / monitor / subagent」三個獨立 store 砍掉，全部統一在
 > 一個 `Daemon` 抽象 + 一個 `DaemonState` 之下。命名動機：對齊 ref/Claude Code 的
 > 「Task」概念，但更名為 `daemon` 把 `task_*` 命名空間留給未來的 todo-v2
-> （見 [`task-design.md`](./task-design.md)）。
+> （見 [`task-design.md`](task-design.md)）。
 >
 > 本文是 clean-sheet 設計，不保留任何舊形狀。`BgTaskStore`、`MonitorTaskStore`、
 > `SpawnGroup`、`task_list/stop/output` 都會被刪除。

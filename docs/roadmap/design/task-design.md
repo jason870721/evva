@@ -2,7 +2,7 @@
 
 > Status: deferred；todo-v1 仍可用，daemon refactor 優先。
 > 本文只記錄「為什麼要做」與「目標形狀」，不細寫實作。
-> 硬依賴：[`daemon-design.md`](./daemon-design.md) 必須先落地，把 `task_*`
+> 硬依賴：[`daemon-design.md`](daemon-design.md) 必須先落地，把 `task_*`
 > 命名空間從現有 daemon 工具收走。
 
 ---
