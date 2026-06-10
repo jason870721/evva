@@ -28,6 +28,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/alarm"
 	"github.com/johnny1110/evva/pkg/tools/cron"
+	"github.com/johnny1110/evva/pkg/tools/excel"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/fs"
 	"github.com/johnny1110/evva/pkg/tools/lsp"
@@ -179,6 +180,7 @@ func mainProfile(cfg *config.Config, provider constant.LLMProvider, model consta
 		web.Names(),
 		util.Names(),
 		repl.Names(),
+		excel.Names(),
 		mcpResourceToolNames(),
 	)
 	// Fold MCP-discovered tool names in last so they appear in both the

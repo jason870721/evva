@@ -60,6 +60,9 @@ var toolTags = map[tools.ToolName][]string{
 	tools.JSON_QUERY: {"json", "query", "filter", "extract", "parse"},
 	tools.CALC:       {"math", "calculate", "sum", "product", "average"},
 
+	// excel
+	tools.EXCEL: {"excel", "spreadsheet", "xlsx", "cell", "sheet", "table", "workbook", "formula", "chart", "pivot"},
+
 	// config
 	tools.CONFIG: {"config", "setting", "settings", "configure", "preference", "option"},
 }
@@ -137,6 +140,9 @@ var toolHints = map[tools.ToolName]string{
 
 	// config
 	tools.CONFIG: "Get or set evva configuration settings (iteration cap, memory toggle, effort, provider keys).",
+
+	// excel
+	tools.EXCEL: "Read, write, create, and manipulate Excel (.xlsx) spreadsheets — cell values, formulas, sheets, charts, pivot tables, and data validation.",
 }
 
 // HintFor returns the curated search hint for a tool name, or "" if none is

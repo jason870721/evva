@@ -11,6 +11,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/alarm"
 	"github.com/johnny1110/evva/pkg/tools/cron"
+	"github.com/johnny1110/evva/pkg/tools/excel"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/fs"
 	"github.com/johnny1110/evva/pkg/tools/lsp"
@@ -203,6 +204,11 @@ func init() {
 	// --- dev (evva developer tools, gated by config.IsDevelopment) ---
 	r.MustRegister(tools.FEEDBACK, func(s tools.State) (tools.Tool, error) {
 		return dev.NewFeedback(s.Config()), nil
+	})
+
+	// --- excel (spreadsheet manipulation via excelize) ---
+	r.MustRegister(tools.EXCEL, func(s tools.State) (tools.Tool, error) {
+		return excel.NewTool(s.Workdir()), nil
 	})
 
 	// --- config (let the model read/write evva settings) ---
