@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -43,7 +44,21 @@ type Settings struct {
 	// BudgetStayFrozen keeps a budget-frozen member frozen across the day
 	// rollover, requiring a manual unfreeze (default false = auto-unfreeze).
 	BudgetStayFrozen bool
+	// StallThreshold is the RP-14 watchdog alert line: a member busy longer
+	// than this (and not waiting on a human) raises a one-per-run stall notice
+	// to the operator and the leader. 0 = disabled; a manifest that omits the
+	// knob gets DefaultStallThreshold.
+	StallThreshold time.Duration
+	// StallHardTimeout, when set, auto-cancels a run busy longer than this —
+	// the non-clean exit unclaims the run's mail so it retries on the next
+	// wake. 0 = disabled (the default: alert-only until thresholds are tuned).
+	StallHardTimeout time.Duration
 }
+
+// DefaultStallThreshold is the alert line a manifest gets when it does not set
+// settings.stall_threshold. Long enough that legitimate tool-heavy runs don't
+// page the operator; short enough that a hung run is noticed the same hour.
+const DefaultStallThreshold = 10 * time.Minute
 
 // scheduleYml is the on-disk schedule block shared by the manifest's leader and
 // workers (and mirrored by profile.yml). Exactly one of cron/every is set.
@@ -71,7 +86,29 @@ type manifestYml struct {
 		MaxIterations     int    `yaml:"max_iterations,omitempty"`
 		DailyBudgetTokens int    `yaml:"daily_budget_tokens,omitempty"`
 		BudgetStayFrozen  bool   `yaml:"budget_stay_frozen,omitempty"`
+		StallThreshold    string `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
+		StallHardTimeout  string `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
 	} `yaml:"settings,omitempty"`
+}
+
+// parseStallDuration reads an optional duration knob: "" → def, "0" → disabled,
+// otherwise a positive time.ParseDuration value.
+func parseStallDuration(s string, def time.Duration) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return def, nil
+	}
+	if s == "0" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, err
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("must not be negative: %q", s)
+	}
+	return d, nil
 }
 
 // parseScheduleYml turns an optional on-disk schedule block into a *Schedule,
@@ -104,6 +141,14 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest leader %q schedule: %w", y.Leader.Agent, err)
 	}
+	stall, err := parseStallDuration(y.Settings.StallThreshold, DefaultStallThreshold)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.stall_threshold: %w", err)
+	}
+	hard, err := parseStallDuration(y.Settings.StallHardTimeout, 0)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.stall_hard_timeout: %w", err)
+	}
 	m := Manifest{
 		Name:    y.Name,
 		Workdir: y.Workdir,
@@ -113,6 +158,8 @@ func LoadManifest(path string) (Manifest, error) {
 			MaxIterations:     y.Settings.MaxIterations,
 			DailyBudgetTokens: y.Settings.DailyBudgetTokens,
 			BudgetStayFrozen:  y.Settings.BudgetStayFrozen,
+			StallThreshold:    stall,
+			StallHardTimeout:  hard,
 		},
 	}
 	for _, w := range y.Workers {
@@ -155,6 +202,18 @@ func WriteManifest(path string, m Manifest) error {
 	y.Settings.MaxIterations = m.Settings.MaxIterations
 	y.Settings.DailyBudgetTokens = m.Settings.DailyBudgetTokens
 	y.Settings.BudgetStayFrozen = m.Settings.BudgetStayFrozen
+	// Stall knobs round-trip losslessly: the default emits nothing (reloads as
+	// the default), an explicit off emits "0", anything else its duration.
+	switch m.Settings.StallThreshold {
+	case DefaultStallThreshold: // omit
+	case 0:
+		y.Settings.StallThreshold = "0"
+	default:
+		y.Settings.StallThreshold = m.Settings.StallThreshold.String()
+	}
+	if m.Settings.StallHardTimeout > 0 {
+		y.Settings.StallHardTimeout = m.Settings.StallHardTimeout.String()
+	}
 	b, err := yaml.Marshal(y)
 	if err != nil {
 		return fmt.Errorf("agentdef: marshal manifest: %w", err)

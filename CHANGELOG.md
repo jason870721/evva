@@ -30,6 +30,16 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Swarm stuck-run watchdog (RP-14).** A member busy past
+  `settings.stall_threshold` (default 10m; `"0"` disables) raises ONE stall
+  notice per run to the operator and the leader — members waiting on a human
+  (approval / question / paused) are exempt. An optional
+  `settings.stall_hard_timeout` auto-cancels an over-time run: its claimed
+  mail unclaims and retries on the next wake, so no work is lost. Driven by
+  the existing supervisor tick (zero new goroutines); documented with the
+  budget breaker in the swarm user guide's new "Cost & stall fuses" section
+  (zh/en), alongside the manifest's fuse knobs and the time/timezone
+  conventions.
 - **Swarm member usage metering + daily budget breaker (RP-13).** The roster
   now carries each member's cumulative token usage, last-turn input, and
   today's spend — measured by the supervisor at run boundaries (race-free) —

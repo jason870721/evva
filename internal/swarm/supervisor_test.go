@@ -121,6 +121,10 @@ func startSup(t *testing.T, sp *SwarmSpace) *Supervisor {
 	ctx, cancel := context.WithCancel(context.Background())
 	sup := NewSupervisor(sp)
 	sup.tickInterval = 5 * time.Millisecond
+	// Fast rescan too: a hard-timeout kill exits serve non-clean, so the
+	// unclaimed mail's RETRY arrives via the rescan backstop — at the default
+	// 8s a watchdog test would wait that long for its second run.
+	sup.rescanInterval = 20 * time.Millisecond
 	sup.Start(ctx)
 	t.Cleanup(func() {
 		cancel()

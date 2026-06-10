@@ -49,6 +49,14 @@ type memberRun struct {
 	// run loop installs it at the next boundary (serve) so a busy member's prompt is
 	// never swapped during an in-flight run. nil when no reload is pending.
 	pendingSkills *skill.Registry
+
+	// RP-14 stall-watchdog bookkeeping, guarded by mu: when the in-flight run
+	// claimed the slot (zero = no run in flight), and whether this run already
+	// raised its stall alert / had its hard-timeout kill notice sent — one of
+	// each per run, reset when the next run claims the slot.
+	runStartedAt  time.Time
+	stallNotified bool
+	stallKilled   bool
 }
 
 // startMemberLoop registers a member's run control (idempotent) and launches its
@@ -186,6 +194,8 @@ func (s *Supervisor) runOnce(ctx context.Context, name string, m *memberRun, pro
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	m.cancelRun = cancel
+	m.runStartedAt = time.Now()
+	m.stallNotified, m.stallKilled = false, false
 	s.sp.Roster.setRun(name, RunBusy)
 	m.mu.Unlock()
 
@@ -203,6 +213,7 @@ func (s *Supervisor) runOnce(ctx context.Context, name string, m *memberRun, pro
 
 	m.mu.Lock()
 	m.cancelRun = nil
+	m.runStartedAt = time.Time{}
 	suspended := m.suspended
 	if !suspended {
 		s.sp.Roster.setRun(name, RunIdle)
@@ -274,11 +285,107 @@ func (s *Supervisor) tripBudget(name string, total, budget int) {
 			"over budget it will re-freeze after its next run, so raise settings.daily_budget_tokens (or the member's "+
 			"budget_tokens) to give it real headroom.",
 		name, total, budget)
+	s.notifyOps(name, subject, body)
+}
 
-	if leader := s.sp.Roster.leaderName(); leader != "" && leader != name {
+// notifyOps sends one durable notice to the operator ("user" — read in the web)
+// and, when the subject member is not the leader itself, to the leader (waking
+// it so the team can react). Shared by the budget breaker and the stall
+// watchdog.
+func (s *Supervisor) notifyOps(about, subject, body string) {
+	if leader := s.sp.Roster.leaderName(); leader != "" && leader != about {
 		_, _ = s.sp.Bus.Send(store.Message{Sender: "system", Recipient: leader, Subject: subject, Body: body})
 	}
 	_, _ = s.sp.Bus.Send(store.Message{Sender: "system", Recipient: "user", Subject: subject, Body: body})
+}
+
+// sweepStalls is the RP-14 watchdog: a member whose in-flight run exceeded
+// settings.StallThreshold raises ONE stall alert per run (durable mail via
+// notifyOps), and — when settings.StallHardTimeout is set — a run past that
+// line is cancelled. The cancel is safe by construction: a non-clean runOnce
+// exit unclaims the run's mail, so the work retries on the member's next wake
+// (and alerts again if it hangs again). Members blocked on a HUMAN — waiting
+// approval or input, or paused at the iteration limit — are exempt: that wait
+// is the operator's, not a hang. Driven by the timer tick beside
+// sweepBudgetDay; zero new goroutines.
+func (s *Supervisor) sweepStalls(now time.Time) {
+	threshold := s.sp.settings.StallThreshold
+	if threshold <= 0 {
+		return
+	}
+	hard := s.sp.settings.StallHardTimeout
+
+	phases := make(map[string]RunPhase)
+	for _, mv := range s.sp.Roster.Snapshot() {
+		phases[mv.Name] = mv.Phase
+	}
+
+	s.mu.Lock()
+	type runRef struct {
+		name string
+		m    *memberRun
+	}
+	refs := make([]runRef, 0, len(s.members))
+	for name, m := range s.members {
+		refs = append(refs, runRef{name, m})
+	}
+	s.mu.Unlock()
+
+	for _, r := range refs {
+		switch phases[r.name] {
+		case PhaseWaitingApproval, PhaseWaitingInput, PhasePaused:
+			continue // waiting on a human — long is legitimate, not a hang
+		}
+
+		r.m.mu.Lock()
+		started := r.m.runStartedAt
+		inFlight := !started.IsZero()
+		elapsed := now.Sub(started)
+		alert := inFlight && elapsed >= threshold && !r.m.stallNotified
+		if alert {
+			r.m.stallNotified = true
+		}
+		kill := inFlight && hard > 0 && elapsed >= hard && !r.m.stallKilled
+		var cancel context.CancelFunc
+		if kill {
+			r.m.stallKilled = true
+			cancel = r.m.cancelRun
+		}
+		r.m.mu.Unlock()
+
+		if alert {
+			s.notifyStall(r.name, elapsed, string(phases[r.name]))
+		}
+		if kill && cancel != nil {
+			s.log.Warn("swarm: stall hard-timeout — cancelling run", "member", r.name, "elapsed", elapsed.Round(time.Second))
+			s.notifyStallKilled(r.name, elapsed)
+			cancel()
+		}
+	}
+}
+
+// notifyStall raises the one-per-run stall alert.
+func (s *Supervisor) notifyStall(name string, elapsed time.Duration, phase string) {
+	s.log.Warn("swarm: member run stalled", "member", name, "elapsed", elapsed.Round(time.Second), "phase", phase)
+	subject := fmt.Sprintf("⏳ stall: %s busy for %s", name, elapsed.Round(time.Second))
+	body := fmt.Sprintf(
+		"Member %q has been busy for %s (phase: %s) — past the stall threshold of %s. "+
+			"This may be a hung LLM call or tool, or a legitimately long task. You can suspend it from the web "+
+			"(its claimed mail is unclaimed and retries), raise settings.stall_threshold if long runs are expected "+
+			"here, or set settings.stall_hard_timeout to auto-cancel runs like this one.",
+		name, elapsed.Round(time.Second), phase, s.sp.settings.StallThreshold)
+	s.notifyOps(name, subject, body)
+}
+
+// notifyStallKilled announces a hard-timeout cancel.
+func (s *Supervisor) notifyStallKilled(name string, elapsed time.Duration) {
+	subject := fmt.Sprintf("⏱️ stall: %s run cancelled after %s", name, elapsed.Round(time.Second))
+	body := fmt.Sprintf(
+		"Member %q exceeded settings.stall_hard_timeout (%s); its run was cancelled. The mail it was working is "+
+			"unclaimed and retries on its next wake — if the same work hangs again you will be alerted again. "+
+			"Raise the timeout if this was a legitimate long task.",
+		name, s.sp.settings.StallHardTimeout)
+	s.notifyOps(name, subject, body)
 }
 
 // sweepBudgetDay advances the meter day and unfreezes members whose breaker
@@ -420,6 +527,7 @@ func (s *Supervisor) timerTick(ctx context.Context) {
 			return
 		case now := <-t.C:
 			s.sweepBudgetDay(now)
+			s.sweepStalls(now)
 			s.fireDue(now)
 		}
 	}

@@ -1,6 +1,6 @@
 # RP-14 — Stuck-run watchdog（卡死的 run 要看得見、停得下）
 
-> 狀態：**草案 / Draft（待 Johnny 拍板）** ｜ 日期：2026-06-10 ｜ 波次：**第四波（運營硬化）** ｜ 優先：**P0**
+> 狀態：**✅ 已實作（2026-06-10，feature/RP-14-stuck-run-watchdog）** ｜ 日期：2026-06-10 ｜ 波次：**第四波（運營硬化）** ｜ 優先：**P0**
 > 觸發：2026-06-10 健康檢查——run 沒有最長時限；busy 成員 timer 跳過該輪（正確）、rescan
 > 只 poke idle（正確）——組合結果是**一個被卡死的 tool call 或 LLM 連線會讓成員永久 busy
 > 而無人告警**。Sunday 還配 `max_iterations: 99`，放大了最壞情況。
@@ -75,3 +75,30 @@ settings:
 
 - 自動診斷卡死原因（那是 transcript / RP-17 event log 的事）。
 - LLM/工具層的逐請求 timeout 治理（屬 `pkg/llm`、各工具自身的契約，另案）。
+
+---
+
+## 6. 實作記錄與偏離（2026-06-10）
+
+落點：`scheduler.go`（`memberRun.runStartedAt/stallNotified/stallKilled` + `sweepStalls`
++ `notifyStall`/`notifyStallKilled`，並把 RP-13 的通知抽成共用 `notifyOps`）、
+`agentdef/manifest.go`（`stall_threshold`/`stall_hard_timeout` 解析，duration 字串、
+`"0"`=關、省略=預設 10m、round-trip 無損）。測試：`stall_test.go` 四條（一次告警/豁免/
+hard-kill 重試/預設關）+ manifest knob 測試；`-race` 全綠。User guide（zh/en §8）已加
+「成本與卡死保險絲」節。
+
+偏離：
+
+1. **掛在 timerTick 而非 rescanTick**（§3.2 原案）：tick 1 秒、已與 sweepBudgetDay 同點，
+   測試也已縮短——同樣零新 goroutine，粒度更細。
+2. **沒有 `KindStall` 事件**：沿 RP-13 同一裁定——supervisor 合成事件得寫 `sp.out`，
+   buffer 滿會堵住 tick goroutine（spaceSink 的阻塞回壓是給 agent goroutine 的設計）；
+   通知走持久信（leader 會被喚醒、operator 在 Timeline 看到）+ Warn log。等 FE 真要接
+   Attention 再議安全的合成事件通道。
+3. 旋鈕命名 `stall_hard_timeout`（原案 `hard_timeout`，加前綴避免歧義）；`PhasePaused`
+   （迭代上限）也列入人為等待豁免。
+4. **hard-kill 的循環語意**：取消後信件退回未讀、由 rescan 後盾重投（非乾淨退出會結束
+   serve 迴圈，重試靠 rescan ≤8s）——同一件事反覆掛住會「每輪 kill + 通知一次」，
+   v1 接受（預設關閉；連續 N 次後自動 Suspend 留給校準期後的後續）。
+5. 測試腳手架順手修正：`ctlSpace` 補 `Workdir`（避免 Freeze 把 `.vero/` 寫進 CWD）、
+   `startSup` 同步縮短 `rescanInterval`。

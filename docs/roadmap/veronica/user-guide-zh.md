@@ -151,6 +151,11 @@ workers:
 settings:
   permission_mode: default  # default | accept_edits | plan | bypass
   max_iterations: 50        # 每个成员单次运行的循环上限
+  # —— 运营保险丝（按需启用，详见 §8）——
+  # daily_budget_tokens: 2000000  # 每成员每日 token 上限（in+out）；0/省略 = 不限
+  # budget_stay_frozen: false     # true = 超额冻结跨日不自动解冻（需手动）
+  # stall_threshold: 10m          # 成员忙超过即告警；"0" 关闭（省略 = 默认 10m）
+  # stall_hard_timeout: 30m       # 忙超过即自动取消该次运行；0/省略 = 关闭
 ```
 
 - 同一 space 内**成员名唯一**（不支持副本 —— 每个成员取不同名字）。
@@ -221,8 +226,10 @@ effort: medium
 when_to_use: "后端：API、数据库 schema、迁移、服务端测试。"
 # 选填：按定时器唤醒做自检（cron 与 every 二选一）：
 # schedule:
-#   cron: "*/5 * * * *"     # 每 5 分钟
+#   cron: "*/5 * * * *"     # 每 5 分钟（cron 按系统本地时区比对）
 #   # every: "30s"          # 或固定间隔
+# 选填：个别 token 预算覆写（见 §8）：>0 自有上限、-1 完全豁免、省略 = 继承 settings
+# budget_tokens: 250000
 ```
 
 `agents/sub/backend-dev/tools/active.yml` —— 程序员真正需要的干活工具
@@ -339,6 +346,54 @@ evva service stop
 - **冻结 / 解冻** —— 让成员停止服务但不删除（被冻结者不再被派任务；解冻即可回归）。
 - **暂停 / 恢复** —— 立刻中止成员正在飞的运行，之后再恢复（它的未读工作会被重新处理）。
 - **全部停止（Halt all）** —— 紧急制动：取消该 space 里所有在飞的运行。
+
+### 成本与卡死保险丝（token 预算 / stall 看门狗）
+
+7×24 跑的团队需要两根保险丝。都在 `evva-swarm.yml` 的 `settings:` 里、按 space 生效；
+不设就完全不介入。
+
+**每日 token 预算（budget breaker）**
+
+```yaml
+settings:
+  daily_budget_tokens: 2000000   # 每成员每天（本地日界线）in+out token 上限；0 = 不限
+  budget_stay_frozen: false      # true = 跨日不自动解冻，须手动
+workers:
+  - agent: watchdog
+    budget_tokens: -1            # 个别覆写：>0 自有上限；-1 完全豁免；省略 = 继承
+```
+
+- 成员在一次运行结束后越线 → **自动冻结**，leader 与你（Web 收件箱 / Timeline）各收到一封
+  `⚠️ budget breaker` 通知。
+- 它的邮箱照常排队、什么都不丢；**本地日界线一过自动解冻**（除非 `budget_stay_frozen`）。
+- 在花名册手动解冻视为操作员覆写：若当日额度仍超标，它跑完下一轮会**再次熔断（只再通知
+  一次）** —— 真要放行请调高预算。
+- 用量随时看得到：leader 跑 `list_members` 每行带 `tok in 1.2M out 345k, today 89k/500k`；
+  Web 花名册 API 带 `tokensIn / tokensOut / tokensToday / tokensBudget`。计数与熔断状态
+  会持久化 —— **重启服务不会清零当天额度**。
+
+**Stall 看门狗（卡死告警 / 自动止损）**
+
+```yaml
+settings:
+  stall_threshold: 10m      # 忙超过此时长且不是在等人 → 告警；"0" 关闭（省略 = 默认 10m）
+  stall_hard_timeout: 0     # 忙超过此时长 → 自动取消该次运行；0/省略 = 关闭（建议先观察再开）
+```
+
+- 成员**忙**超过 `stall_threshold`（卡死的 LLM 调用、挂住的工具、或确实很长的任务），
+  你和 leader 各收到一封 `⏳ stall` 通知 —— **每次运行最多一封**，不刷屏。
+- 正在**等人**的不算卡死：waiting-approval / waiting-input / paused 阶段一律豁免。
+- 开了 `stall_hard_timeout`，超时的运行会被取消：它认领中的邮件自动退回未读、下次唤醒
+  重试 —— **不丢工作**；同一件事再挂住会再告警/再取消。
+- leader 自己卡死时，至少你会收到通知。
+
+**时间与时区（v1.4.5-beta.2 起）**
+
+- 注入给成员的所有时间（`currenttime`、事件戳、信件 `[sent …]`、alarm 回执）一律带明确
+  UTC 偏移，如 `2026-06-10 20:25:00 +08:00`。
+- `alarm_set` 等处的裸时间字符串按**系统本地时区**解析；要表达 UTC 用 RFC3339
+  （`2026-06-10T12:25:00Z`），确认回执会同时给出 UTC 对照，下错时区一眼可见。
+- cron（manifest 的 `schedule` 与 leader 的 `schedule_set`）按系统本地墙钟比对。
 
 ### 重启与续跑
 

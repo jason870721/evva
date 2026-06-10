@@ -156,6 +156,11 @@ workers:
 settings:
   permission_mode: default  # default | accept_edits | plan | bypass
   max_iterations: 50        # per-run loop cap for each member
+  # —— operational fuses (opt-in; see §8) ——
+  # daily_budget_tokens: 2000000  # per-member daily token cap (in+out); 0/omit = unlimited
+  # budget_stay_frozen: false     # true = a budget freeze survives the day rollover
+  # stall_threshold: 10m          # alert when a member is busy longer; "0" off (omit = 10m)
+  # stall_hard_timeout: 30m       # auto-cancel a run busy longer; 0/omit = off
 ```
 
 - **Member names are unique** within a space (no replicas — give each a distinct
@@ -232,8 +237,10 @@ effort: medium
 when_to_use: "Backend: APIs, DB schema, migrations, server tests."
 # Optional: wake on a timer to self-check (cron OR every, pick one):
 # schedule:
-#   cron: "*/5 * * * *"     # every 5 minutes
+#   cron: "*/5 * * * *"     # every 5 minutes (cron matches the system's LOCAL timezone)
 #   # every: "30s"          # or a fixed interval
+# Optional: per-member token budget override (see §8): >0 own cap, -1 exempt, omit = inherit
+# budget_tokens: 250000
 ```
 
 `agents/sub/backend-dev/tools/active.yml` — the real work tools a coder needs
@@ -362,6 +369,65 @@ From the **web roster** you can, per member:
 - **Suspend / Resume** — abort a member's in-flight run immediately, then resume
   later (its unread work is reprocessed).
 - **Halt all** — the emergency stop: cancel every in-flight run in the space.
+
+### Cost & stall fuses (token budget / run watchdog)
+
+A team running 24/7 needs two fuses. Both live under `settings:` in
+`evva-swarm.yml`, apply per space, and stay fully out of the way until set.
+
+**Daily token budget (the budget breaker)**
+
+```yaml
+settings:
+  daily_budget_tokens: 2000000   # per-member in+out token cap per LOCAL day; 0 = unlimited
+  budget_stay_frozen: false      # true = the freeze survives the day rollover (manual unfreeze)
+workers:
+  - agent: watchdog
+    budget_tokens: -1            # per-member override: >0 own cap; -1 exempt; omit = inherit
+```
+
+- A member that crosses the line at the end of a run is **frozen automatically**;
+  the leader and you (web inbox / Timeline) each get a `⚠️ budget breaker`
+  notice.
+- Its mailbox keeps queuing — nothing is lost — and it **auto-unfreezes when the
+  local day rolls over** (unless `budget_stay_frozen`).
+- Unfreezing it from the roster is an operator override: if it is still over
+  budget it re-trips after its next run (one more notice), so raise the budget
+  if you really mean "keep going".
+- Usage is always visible: the leader's `list_members` shows
+  `tok in 1.2M out 345k, today 89k/500k` per member, and the web roster API
+  carries `tokensIn / tokensOut / tokensToday / tokensBudget`. Counters and
+  breaker state persist — **restarting the service does not reset the day's
+  spend**.
+
+**Stall watchdog (hang alerts / auto-cancel)**
+
+```yaml
+settings:
+  stall_threshold: 10m      # busy longer than this (and not waiting on a human) → alert; "0" off
+  stall_hard_timeout: 0     # busy longer than this → cancel the run; 0/omit = off (tune alerts first)
+```
+
+- A member **busy** past `stall_threshold` — a hung LLM call, a wedged tool, or
+  a genuinely long task — sends you and the leader one `⏳ stall` notice, **at
+  most once per run**.
+- Waiting on a human doesn't count: the waiting-approval / waiting-input /
+  paused phases are exempt.
+- With `stall_hard_timeout` set, an over-time run is cancelled: its claimed mail
+  returns to unread and retries on the next wake — **no work is lost**; if the
+  same work hangs again it alerts and cancels again.
+- If the leader itself stalls, you still get the notice.
+
+**Time & timezones (since v1.4.5-beta.2)**
+
+- Every timestamp injected into a member — `currenttime`, event stamps, mail
+  `[sent …]` markers, alarm echoes — carries an explicit UTC offset, e.g.
+  `2026-06-10 20:25:00 +08:00`.
+- Bare time strings (e.g. `alarm_set`) parse in the **system's local timezone**;
+  to express UTC use RFC3339 (`2026-06-10T12:25:00Z`) — the confirmation echoes
+  the UTC twin, so a timezone mix-up is visible at a glance.
+- Cron (the manifest's `schedule` and the leader's `schedule_set`) matches the
+  system's local wall clock.
 
 ### Restart & resume
 

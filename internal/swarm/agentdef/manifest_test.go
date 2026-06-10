@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadManifestHappy(t *testing.T) {
@@ -152,5 +153,55 @@ settings:
 		m2.Leader.BudgetTokens != -1 || m2.Workers[0].BudgetTokens != 250000 {
 		t.Errorf("round-trip lost budget fields: %+v / leader %d / w1 %d",
 			m2.Settings, m2.Leader.BudgetTokens, m2.Workers[0].BudgetTokens)
+	}
+}
+
+func TestManifestStallKnobs(t *testing.T) {
+	// Explicit values parse and round-trip.
+	p := writeManifest(t, `
+name: stallish
+leader:
+  agent: lead
+settings:
+  stall_threshold: 5m
+  stall_hard_timeout: 30m
+`)
+	m, err := LoadManifest(p)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	if m.Settings.StallThreshold != 5*time.Minute || m.Settings.StallHardTimeout != 30*time.Minute {
+		t.Errorf("stall knobs = %v/%v, want 5m/30m", m.Settings.StallThreshold, m.Settings.StallHardTimeout)
+	}
+	out := filepath.Join(t.TempDir(), "evva-swarm.yml")
+	if err := WriteManifest(out, m); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+	if m2, err := LoadManifest(out); err != nil || m2.Settings.StallThreshold != 5*time.Minute || m2.Settings.StallHardTimeout != 30*time.Minute {
+		t.Errorf("round-trip = %v/%v (err %v)", m2.Settings.StallThreshold, m2.Settings.StallHardTimeout, err)
+	}
+
+	// Omitted → alert default, hard off; "0" → explicitly off, surviving a round-trip.
+	p = writeManifest(t, "name: bare\nleader:\n  agent: lead\n")
+	if m, err = LoadManifest(p); err != nil || m.Settings.StallThreshold != DefaultStallThreshold || m.Settings.StallHardTimeout != 0 {
+		t.Errorf("defaults = %v/%v (err %v), want %v/0", m.Settings.StallThreshold, m.Settings.StallHardTimeout, err, DefaultStallThreshold)
+	}
+	p = writeManifest(t, "name: off\nleader:\n  agent: lead\nsettings:\n  stall_threshold: \"0\"\n")
+	if m, err = LoadManifest(p); err != nil || m.Settings.StallThreshold != 0 {
+		t.Errorf("explicit off = %v (err %v), want 0", m.Settings.StallThreshold, err)
+	}
+	if err := WriteManifest(out, m); err != nil {
+		t.Fatalf("WriteManifest(off): %v", err)
+	}
+	if m2, err := LoadManifest(out); err != nil || m2.Settings.StallThreshold != 0 {
+		t.Errorf("off round-trip = %v (err %v), want 0", m2.Settings.StallThreshold, err)
+	}
+
+	// Garbage and negatives are load-time errors.
+	for _, bad := range []string{"abc", "-5m"} {
+		p = writeManifest(t, "name: bad\nleader:\n  agent: lead\nsettings:\n  stall_threshold: "+bad+"\n")
+		if _, err := LoadManifest(p); err == nil {
+			t.Errorf("stall_threshold %q should fail to load", bad)
+		}
 	}
 }
