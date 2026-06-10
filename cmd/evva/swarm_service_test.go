@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -251,5 +252,88 @@ func TestSwarmVacuumClient(t *testing.T) {
 	days, dry, rest := extractVacuumFlags([]string{"vacuum", "--days=7", "team", "--dry-run"})
 	if days != 7 || !dry || len(rest) != 2 || rest[0] != "vacuum" || rest[1] != "team" {
 		t.Fatalf("extractVacuumFlags = %d %v %v", days, dry, rest)
+	}
+}
+
+// RP-18: the service flag extractor handles the start/install-unit flag set
+// from any position.
+func TestExtractServiceFlags(t *testing.T) {
+	f, rest := extractServiceFlags([]string{"--addr", "0.0.0.0:9", "--allow-remote", "--foreground", "--force"})
+	if f.addr != "0.0.0.0:9" || !f.allowRemote || !f.foreground || !f.force || len(rest) != 0 {
+		t.Fatalf("flags = %+v rest=%v", f, rest)
+	}
+	f, rest = extractServiceFlags([]string{"--addr=127.0.0.1:1"})
+	if f.addr != "127.0.0.1:1" || f.foreground || len(rest) != 0 {
+		t.Fatalf("flags = %+v rest=%v", f, rest)
+	}
+}
+
+// RP-18: every platform's unit template points the supervisor at the
+// FOREGROUND mode and survives-by-restart semantics; unknown platforms error.
+func TestUnitFor(t *testing.T) {
+	rel, content, activate, err := unitFor("darwin", "/usr/local/bin/evva", "/tmp/svc.log")
+	if err != nil || rel != filepath.Join("Library", "LaunchAgents", "com.evva.service.plist") {
+		t.Fatalf("darwin = %q, %v", rel, err)
+	}
+	for _, want := range []string{"<string>/usr/local/bin/evva</string>", "<string>--foreground</string>", "SuccessfulExit", "/tmp/svc.log"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("darwin plist lacks %q", want)
+		}
+	}
+	if !strings.Contains(activate, "launchctl load") {
+		t.Errorf("darwin activate = %q", activate)
+	}
+
+	rel, content, activate, err = unitFor("linux", "/usr/local/bin/evva", "/tmp/svc.log")
+	if err != nil || rel != filepath.Join(".config", "systemd", "user", "evva-service.service") {
+		t.Fatalf("linux = %q, %v", rel, err)
+	}
+	for _, want := range []string{"ExecStart=/usr/local/bin/evva service start --foreground", "Restart=on-failure"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("systemd unit lacks %q", want)
+		}
+	}
+	if !strings.Contains(activate, "systemctl --user enable") {
+		t.Errorf("linux activate = %q", activate)
+	}
+
+	if _, _, _, err := unitFor("windows", "x", "y"); err == nil {
+		t.Error("windows should error (no template)")
+	}
+}
+
+// RP-18: install-unit writes the unit under $HOME, refuses a second write
+// without --force, and prints the activation command.
+func TestServiceInstallUnit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	useServiceHome(t)
+
+	var buf bytes.Buffer
+	if err := serviceInstallUnit(&buf, false); err != nil {
+		t.Fatalf("install-unit: %v", err)
+	}
+	rel, _, _, err := unitFor(runtime.GOOS, "x", "y")
+	if err != nil {
+		t.Skipf("no unit template on %s", runtime.GOOS)
+	}
+	path := filepath.Join(home, rel)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("unit file not written: %v", err)
+	}
+	exe, _ := os.Executable()
+	if !strings.Contains(string(b), exe) || !strings.Contains(string(b), "--foreground") {
+		t.Fatalf("unit content = %q, want exe path + --foreground", b)
+	}
+	if !strings.Contains(buf.String(), "activate it with") {
+		t.Fatalf("output = %q, want activation instructions", buf.String())
+	}
+
+	if err := serviceInstallUnit(&bytes.Buffer{}, false); err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("second install without --force = %v, want a refusal naming --force", err)
+	}
+	if err := serviceInstallUnit(&bytes.Buffer{}, true); err != nil {
+		t.Fatalf("install-unit --force: %v", err)
 	}
 }

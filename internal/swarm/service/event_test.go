@@ -195,3 +195,30 @@ func TestServiceVacuum(t *testing.T) {
 		t.Fatalf("unknown ref err = %v, want 'unknown'", err)
 	}
 }
+
+// RP-18: /healthz aggregates — running vs stopped spaces, active vs frozen
+// members — with zero names or ids in the payload.
+func TestHealthCounts(t *testing.T) {
+	svc := New("127.0.0.1:0")
+	defer svc.Stop()
+
+	idA := registerStub(t, svc) // leader + worker
+	idB := registerStub(t, svc)
+	if err := svc.Freeze(idA, "worker"); err != nil {
+		t.Fatalf("freeze: %v", err)
+	}
+	if err := svc.StopSpace(idB); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	h := svc.Health()
+	if h.Status != "ok" || h.Version == "" || h.UptimeSecs < 0 {
+		t.Fatalf("health basics = %+v", h)
+	}
+	if h.SpacesRunning != 1 || h.SpacesStopped != 1 {
+		t.Fatalf("spaces = %d running / %d stopped, want 1 / 1", h.SpacesRunning, h.SpacesStopped)
+	}
+	if h.MembersActive != 1 || h.MembersFrozen != 1 {
+		t.Fatalf("members = %d active / %d frozen, want 1 / 1", h.MembersActive, h.MembersFrozen)
+	}
+}

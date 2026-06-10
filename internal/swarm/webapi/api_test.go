@@ -218,6 +218,11 @@ func (f *fakeBackend) DeleteSkill(space, agent, skill string) error {
 	f.mu.Unlock()
 	return nil
 }
+func (f *fakeBackend) Health() HealthInfo {
+	return HealthInfo{Status: "ok", Version: "v-test", UptimeSecs: 1,
+		SpacesRunning: len(f.spaces), MembersActive: 2}
+}
+
 func (f *fakeBackend) Metrics(ref string) (MetricsInfo, bool) {
 	if !f.HasSpace(ref) {
 		return MetricsInfo{}, false

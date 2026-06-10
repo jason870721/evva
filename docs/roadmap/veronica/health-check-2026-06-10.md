@@ -37,7 +37,7 @@ claim→settle 單點）、重啟恢復（vero.db + runtime.json + SDK session r
 | [RP-15](refine-plan/RP-15-webapi-auth-hardening.md) | WebAPI 認證硬化 | P1 | 安全邊界 | 兌現 `service.go` 的 minted-token TODO：loopback 預設不變，非 loopback bind 顯式 opt-in＋強制 token，webhook 可選 secret。**✅ 已實作 2026-06-10。** |
 | [RP-16](refine-plan/RP-16-ledger-retention.md) | Ledger retention | P1 | 只增不刪 | messages/tasks 無限增長——已讀且過期者歸檔/清理，手動 `vacuum` ＋ 每日自動，活資料（unread/claimed/active）絕不動。**✅ 已實作 2026-06-10。** |
 | [RP-17](refine-plan/RP-17-durable-event-log.md) | Durable event log ＋ metrics | P2 | 事後可查 | 事件目前只進 WS——旁路落 append-only log ＋ 最小 metrics endpoint；是 EX-4（replay/eval）的地基。**✅ 已實作 2026-06-10。** |
-| [RP-18](refine-plan/RP-18-ops-polish.md) | Ops 收口 | P2 | 雜項 | cron 方言文件化、daemon 自動重啟模板（launchd/systemd）、`/healthz` 擴充。 |
+| [RP-18](refine-plan/RP-18-ops-polish.md) | Ops 收口 | P2 | 雜項 | cron 方言文件化、daemon 自動重啟模板（launchd/systemd）、`/healthz` 擴充。**✅ 已實作 2026-06-10。** |
 
 **建議落地序**：RP-13 → RP-14 →（RP-15 ∥ RP-16）→ RP-17 → RP-18。
 RP-13/14 是運營 24/7 真金白銀系統最缺的儀表與保險絲，先做；RP-17 排在 EX-4 之前即可。

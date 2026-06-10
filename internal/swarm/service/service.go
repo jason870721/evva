@@ -81,6 +81,7 @@ type Service struct {
 	// conveniences off (no FE token bootstrap, no secretless webhooks) — see
 	// SetAllowRemote (RP-15).
 	allowRemote bool
+	started     time.Time // host start, the /healthz uptime anchor (RP-18)
 	log         *slog.Logger
 
 	hub *webapi.Hub
@@ -219,6 +220,7 @@ func New(addr string) *Service {
 	s := &Service{
 		addr:       addr,
 		token:      common.GenUUID(),
+		started:    time.Now(),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		hub:        webapi.NewHub(),
 		rootCtx:    rootCtx,
@@ -1475,6 +1477,39 @@ func (s *Service) HaltAll(id string) error {
 		return fmt.Errorf("swarm: unknown space %q", id)
 	}
 	return ent.super.HaltAll()
+}
+
+// Health is the unauthenticated /healthz snapshot (RP-18): one curl tells
+// "alive but idle" (running spaces or active members == 0) from "in service".
+// Counts only — no names, ids, or workdirs leave this endpoint, because it
+// answers without a token (and possibly off-box under --allow-remote).
+func (s *Service) Health() webapi.HealthInfo {
+	version := config.Version // ldflags-injected tag on release builds
+	if version == "" {
+		version = config.DefaultAppVersion // dev builds: the version.go constant
+	}
+	h := webapi.HealthInfo{
+		Status:     "ok",
+		Version:    version,
+		UptimeSecs: int64(time.Since(s.started).Seconds()),
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, ent := range s.spaces {
+		if !ent.live() {
+			h.SpacesStopped++
+			continue
+		}
+		h.SpacesRunning++
+		for _, mv := range ent.space.Roster.Snapshot() {
+			if mv.Membership == swarm.MembershipFrozen {
+				h.MembersFrozen++
+			} else {
+				h.MembersActive++
+			}
+		}
+	}
+	return h
 }
 
 // Metrics snapshots a space's scheduler counters (RP-17): per-member wakes /

@@ -32,15 +32,22 @@ func parseLogLevel(s string) slog.Level {
 	}
 }
 
-// runService dispatches `evva service <start|stop|status>`.
+// runService dispatches `evva service <start|stop|status|install-unit>`.
 //
 //   - start  — daemonize the :8888 host (detached child), write a pidfile + token
 //     + addr + log under <AppHome>/service/. Refuses if already running.
 //     Flags: --addr <host:port> overrides the bind (else $EVVA_SERVICE_ADDR,
 //     else 127.0.0.1:8888); --allow-remote opts into a non-loopback bind
-//     (RP-15) — without it a non-loopback --addr refuses to start.
+//     (RP-15) — without it a non-loopback --addr refuses to start;
+//     --foreground runs the host in THIS process instead of daemonizing —
+//     the mode a supervisor (launchd/systemd) wants, since it owns the
+//     lifetime and the restarts (RP-18).
 //   - stop   — signal the daemon and clean the pidfile (stale pid → just clean).
 //   - status — report running/stopped, pid, addr, healthz, and the token file.
+//   - install-unit — write the platform's autostart unit (launchd plist on
+//     macOS, systemd user unit on Linux) pointing at this binary, and print
+//     the activation command. Never enables anything itself; --force
+//     overwrites an existing unit file.
 //
 // The backgrounded child re-enters this same path with EVVA_SERVICE_DAEMON=1 and
 // runs the blocking server (serviceRun); the flags reach it as env vars.
@@ -55,7 +62,7 @@ func runService(args []string) {
 		sub = args[0]
 		args = args[1:]
 	}
-	addr, allowRemote, rest := extractServiceFlags(args)
+	flags, rest := extractServiceFlags(args)
 	if len(rest) > 0 {
 		exitf(2, "evva service %s: unexpected argument %q", sub, rest[0])
 	}
@@ -63,38 +70,97 @@ func runService(args []string) {
 	var err error
 	switch sub {
 	case "start":
-		err = serviceStart(os.Stdout, addr, allowRemote)
+		if flags.foreground {
+			err = serviceForeground(os.Stdout, flags.addr, flags.allowRemote)
+		} else {
+			err = serviceStart(os.Stdout, flags.addr, flags.allowRemote)
+		}
 	case "stop":
 		err = serviceStop(os.Stdout)
 	case "status":
 		err = serviceStatus(os.Stdout)
+	case "install-unit":
+		err = serviceInstallUnit(os.Stdout, flags.force)
 	default:
-		exitf(2, "evva service: unknown subcommand %q (want start|stop|status; start takes --addr <host:port> and --allow-remote)", sub)
+		exitf(2, "evva service: unknown subcommand %q (want start|stop|status|install-unit; start takes --addr <host:port>, --allow-remote and --foreground)", sub)
 	}
 	if err != nil {
 		exitf(1, "evva service %s: %v", sub, err)
 	}
 }
 
-// extractServiceFlags pulls `--addr <v>` (or `--addr=v`) and `--allow-remote`
-// out of args from any position, returning the leftovers.
-func extractServiceFlags(args []string) (addr string, allowRemote bool, rest []string) {
+// serviceFlags is everything `evva service` accepts after the subcommand.
+type serviceFlags struct {
+	addr        string
+	allowRemote bool
+	foreground  bool
+	force       bool
+}
+
+// extractServiceFlags pulls the service flags out of args from any position,
+// returning the leftovers.
+func extractServiceFlags(args []string) (f serviceFlags, rest []string) {
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "--addr" && i+1 < len(args):
-			addr = args[i+1]
+			f.addr = args[i+1]
 			i++
 		case strings.HasPrefix(a, "--addr="):
-			addr = strings.TrimPrefix(a, "--addr=")
+			f.addr = strings.TrimPrefix(a, "--addr=")
 		case a == "--allow-remote":
-			allowRemote = true
+			f.allowRemote = true
+		case a == "--foreground":
+			f.foreground = true
+		case a == "--force":
+			f.force = true
 		default:
 			rest = append(rest, a)
 		}
 	}
-	return addr, allowRemote, rest
+	return f, rest
+}
+
+// validateBind enforces the RP-15 loopback gate for both start modes.
+func validateBind(addr string, allowRemote bool) error {
+	if !allowRemote && !service.IsLoopbackAddr(addr) {
+		return fmt.Errorf("refusing non-loopback bind %q — anyone who reaches the service holds operator power over this machine (the agents run shell). Pass --allow-remote to expose it anyway; every endpoint then requires the session token (%s)", addr, tokenPath())
+	}
+	return nil
+}
+
+// serviceForeground runs the host in the CURRENT process — what launchd /
+// systemd want (RP-18): the supervisor owns the lifetime, the restarts, and
+// stdout/stderr. It still writes the pidfile so `evva service status` / `stop`
+// keep telling the truth, and blocks until SIGTERM/SIGINT (serviceRun clears
+// the runtime files on exit).
+func serviceForeground(out io.Writer, addrFlag string, allowRemote bool) error {
+	if pid, ok := readPid(); ok && processAlive(pid) {
+		return fmt.Errorf("already running (pid %d) at %s", pid, targetAddr())
+	}
+	addr := addrFlag
+	if addr == "" {
+		addr = listenAddr()
+	}
+	if err := validateBind(addr, allowRemote); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(serviceDir(), 0o755); err != nil {
+		return err
+	}
+	if err := writePid(os.Getpid()); err != nil {
+		return fmt.Errorf("write pidfile: %w", err)
+	}
+	// serviceRun reads its parameters from the env — the daemon-child contract.
+	// Reuse it rather than growing a second plumbing path.
+	_ = os.Setenv(addrEnv, addr)
+	if allowRemote {
+		_ = os.Setenv(allowRemoteEnv, "1")
+	}
+	fmt.Fprintf(out, "evva service running in the foreground on http://%s (pid %d)\n", addr, os.Getpid())
+	serviceRun()
+	return nil
 }
 
 // serviceStart backgrounds a detached copy of this binary running the host, then
@@ -112,8 +178,8 @@ func serviceStart(out io.Writer, addrFlag string, allowRemote bool) error {
 	if addr == "" {
 		addr = listenAddr()
 	}
-	if !allowRemote && !service.IsLoopbackAddr(addr) {
-		return fmt.Errorf("refusing non-loopback bind %q — anyone who reaches the service holds operator power over this machine (the agents run shell). Pass --allow-remote to expose it anyway; every endpoint then requires the session token (%s)", addr, tokenPath())
+	if err := validateBind(addr, allowRemote); err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(serviceDir(), 0o755); err != nil {

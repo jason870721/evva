@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -27,13 +28,17 @@ func TestHealthz(t *testing.T) {
 	base := "http://" + svc.Addr()
 	client := &http.Client{Timeout: 2 * time.Second}
 
-	// /healthz -> 200 "ok"
+	// /healthz -> 200 JSON liveness snapshot (RP-18; plain probes still see 200)
 	resp := mustGet(t, client, base+"/healthz")
 	if resp.code != http.StatusOK {
 		t.Fatalf("/healthz status = %d, want 200", resp.code)
 	}
-	if resp.body != "ok" {
-		t.Fatalf("/healthz body = %q, want %q", resp.body, "ok")
+	var health struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal([]byte(resp.body), &health); err != nil || health.Status != "ok" || health.Version == "" {
+		t.Fatalf("/healthz body = %q (err %v), want JSON with status ok + a version", resp.body, err)
 	}
 
 	// / -> embedded SPA placeholder

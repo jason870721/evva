@@ -97,9 +97,21 @@ type cronExpr struct {
 }
 
 func parseCron(expr string) (cronExpr, error) {
+	// Name the unsupported dialects up front (RP-18) — a Vixie-cron habit
+	// should fail with "that syntax doesn't exist here", not "bad value".
+	if strings.HasPrefix(strings.TrimSpace(expr), "@") {
+		return cronExpr{}, fmt.Errorf("cron %q: @-aliases (@daily, @hourly, @every …) are not supported — write the 5-field form (e.g. %q)", expr, "0 0 * * *")
+	}
 	fields := strings.Fields(expr)
+	if len(fields) > 0 && strings.HasPrefix(fields[0], "TZ=") {
+		return cronExpr{}, fmt.Errorf("cron %q: a TZ= prefix is not supported — schedules always match the system's LOCAL wall clock", expr)
+	}
 	if len(fields) != 5 {
-		return cronExpr{}, fmt.Errorf("cron %q: want 5 fields, got %d", expr, len(fields))
+		hint := ""
+		if len(fields) == 6 {
+			hint = " — a seconds field is not supported; minute resolution only"
+		}
+		return cronExpr{}, fmt.Errorf("cron %q: want 5 fields (minute hour day-of-month month day-of-week), got %d%s", expr, len(fields), hint)
 	}
 	var c cronExpr
 	var err error
@@ -132,6 +144,9 @@ func parseField(spec string, lo, hi int) (uint64, bool, error) {
 	var mask uint64
 	star := false
 	for _, part := range strings.Split(spec, ",") {
+		if strings.ContainsAny(part, "LW#?") {
+			return 0, false, fmt.Errorf("%q: L/W/#/? specials are not supported — only plain values, ranges (a-b), steps (*/n, a-b/n) and comma lists", part)
+		}
 		base, stepStr, hasStep := strings.Cut(part, "/")
 		step := 1
 		if hasStep {

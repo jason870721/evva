@@ -132,6 +132,11 @@ type Backend interface {
 	// wakes/runs/aborts + run-duration buckets, bus hint drops, and the event
 	// log's logged/dropped counts. false = unknown or stopped space.
 	Metrics(spaceID string) (MetricsInfo, bool)
+
+	// Health is the unauthenticated liveness snapshot (RP-18): version,
+	// uptime, and aggregate counts only — enough to tell "alive but idle"
+	// from "in service" with one curl, while leaking no names or detail.
+	Health() HealthInfo
 }
 
 // SpaceInfo is one row of GET /api/swarms. Status is "running" | "stopped"
@@ -278,6 +283,20 @@ type VacuumStats struct {
 	DryRun   bool     `json:"dryRun"`
 }
 
+// HealthInfo is GET /healthz (RP-18). The endpoint stays unauthenticated
+// (liveness probes can't hold a token), so it deliberately carries no names,
+// ids, or workdirs — per-space detail lives behind the guard
+// (GET /api/swarms, /api/swarm/{id}/metrics).
+type HealthInfo struct {
+	Status        string `json:"status"` // always "ok" when the host answers
+	Version       string `json:"version"`
+	UptimeSecs    int64  `json:"uptimeSecs"`
+	SpacesRunning int    `json:"spacesRunning"`
+	SpacesStopped int    `json:"spacesStopped"`
+	MembersActive int    `json:"membersActive"`
+	MembersFrozen int    `json:"membersFrozen"`
+}
+
 // MetricsInfo is GET /api/swarm/{id}/metrics (RP-17): plain counters, no
 // timeseries — the user-side exporter (if any) owns history.
 type MetricsInfo struct {
@@ -331,10 +350,11 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 	mux := http.NewServeMux()
 
 	// Health is unauthenticated so liveness probes (and the M0 smoke test)
-	// don't need the token.
+	// don't need the token. Since RP-18 it answers JSON — status, version,
+	// uptime, and aggregate counts; still a 200 for any probe that only
+	// checks the status code.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ok"))
+		writeJSON(w, http.StatusOK, b.Health())
 	})
 
 	guard := tokenGuard(b)

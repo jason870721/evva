@@ -229,7 +229,7 @@ effort: medium
 when_to_use: "后端：API、数据库 schema、迁移、服务端测试。"
 # 选填：按定时器唤醒做自检（cron 与 every 二选一）：
 # schedule:
-#   cron: "*/5 * * * *"     # 每 5 分钟（cron 按系统本地时区比对）
+#   cron: "*/5 * * * *"     # 每 5 分钟（本地时区；方言见 §11）
 #   # every: "30s"          # 或固定间隔
 # 选填：个别 token 预算覆写（见 §8）：>0 自有上限、-1 完全豁免、省略 = 继承 settings
 # budget_tokens: 250000
@@ -456,6 +456,32 @@ curl -s -H "Authorization: Bearer $(cat ~/.evva/service/token)" \
 `wakesTimer` / `runs` / `aborts` 和运行时长直方图（`runSeconds`：lt10s / lt1m /
 lt10m / gte10m）。纯 JSON——要历史曲线就自己接 exporter。
 
+### 开机自启（扛住 crash 与重启）
+
+`evva service start` 会守护化，但 crash 或重开机后没有人把它拉起来——把这件事
+交给平台的 supervisor：
+
+```bash
+evva service install-unit     # 写入 launchd plist（macOS）或 systemd user unit（Linux）
+```
+
+然后执行它打印的启用指令（它自己绝不启用任何东西）。unit 跑的是
+`evva service start --foreground`——supervisor 直接拥有进程、失败即重启，swarm
+按下方「重启与续跑」路径原地恢复（session、未读信、membership、alarm）。在
+supervisor 之下请用 `launchctl` / `systemctl --user` 启停，不要用
+`evva service stop`（supervisor 会立刻把它拉回来）。手动配置模板见
+[docs/user-guide/zh-tw/service-autostart.md](../../user-guide/zh-tw/service-autostart.md)。
+
+给监控用：`GET /healthz` 免 token、回 JSON——
+
+```json
+{"status":"ok","version":"v1.5.0","uptimeSecs":86400,
+ "spacesRunning":1,"spacesStopped":0,"membersActive":3,"membersFrozen":0}
+```
+
+`spacesRunning` 或 `membersActive` 为 0 即「活着但空转」；只有计数、没有名字——
+每个 space 的细节都在 token 后面。
+
 ### 重启与续跑
 
 swarm 是崩溃安全的。在 `evva service stop`（或崩溃）后重新 `evva service start`：
@@ -579,6 +605,25 @@ curl -X POST http://127.0.0.1:8888/api/swarm/<space-id>/event \
 | `advertise_skills` | 在提示词里列出已安装的 skill。 |
 | `schedule.cron` | 5 字段 cron 定时唤醒（如 `"*/5 * * * *"`）。 |
 | `schedule.every` | 用固定间隔代替 cron（如 `"30s"`、`"5m"`）。 |
+
+### Schedule cron 方言
+
+swarm 的 cron 是自写的、刻意精简。五个字段——`分 时 日 月 星期`——按**系统本地
+墙钟**匹配，分钟精度。
+
+每个字段支持：`*`、单值（`5`）、范围（`9-17`）、步进（`*/5`、`9-17/2`）、逗号
+列表（`0,30`）及任意组合（`0,15,30-45/5`）。星期为 `0-7`，0 和 7 都是周日。
+当「日」和「星期」**同时**受限时，任一匹配即算匹配（标准 cron 的 OR 语义）。
+
+**不支持**——parser 会点名拒绝：秒字段（6 字段写法）、`@daily` / `@every` 别名、
+`L` / `W` / `#` / `?` 特殊符、`TZ=` 前缀（时区永远是系统本地）。
+
+```
+*/5 * * * *      每 5 分钟
+0 17 * * 1-5     工作日 17:00
+0 9,18 * * *     每天 09:00 与 18:00
+0 3 1 * *        每月 1 号 03:00
+```
 
 ### swarm 工具名
 

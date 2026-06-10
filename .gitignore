@@ -41,3 +41,5 @@ log/
 minimal-host
 
 .DS_Store
+# build artifact from a bare `go build ./cmd/...` at the repo root
+/evva

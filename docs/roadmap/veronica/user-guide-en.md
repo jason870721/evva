@@ -240,7 +240,7 @@ effort: medium
 when_to_use: "Backend: APIs, DB schema, migrations, server tests."
 # Optional: wake on a timer to self-check (cron OR every, pick one):
 # schedule:
-#   cron: "*/5 * * * *"     # every 5 minutes (cron matches the system's LOCAL timezone)
+#   cron: "*/5 * * * *"     # every 5 minutes (LOCAL timezone; dialect: §11)
 #   # every: "30s"          # or a fixed interval
 # Optional: per-member token budget override (see §8): >0 own cap, -1 exempt, omit = inherit
 # budget_tokens: 250000
@@ -497,6 +497,33 @@ backed-up member), and per-member `wakesMessage` / `wakesTimer` / `runs` /
 `aborts` plus a run-duration histogram (`runSeconds`: lt10s / lt1m / lt10m /
 gte10m). Plain JSON — point your own exporter at it if you want history.
 
+### Autostart (survive crashes and reboots)
+
+`evva service start` daemonizes but nothing brings it back after a crash or a
+reboot — hand that job to the platform's supervisor:
+
+```bash
+evva service install-unit     # writes the launchd plist (macOS) or systemd user unit (Linux)
+```
+
+…then run the activation command it prints (it never enables anything by
+itself). The unit runs `evva service start --foreground` — the supervisor owns
+the process, restarts it on failure, and the swarm resumes where it was
+(sessions, unread mail, membership, alarms — the Restart & resume path below).
+Under a supervisor, stop/start with `launchctl` / `systemctl --user`, not
+`evva service stop` (the supervisor would just restart it). Templates for
+manual setup: [docs/user-guide/en/service-autostart.md](../../user-guide/en/service-autostart.md).
+
+For monitors: `GET /healthz` needs no token and answers JSON —
+
+```json
+{"status":"ok","version":"v1.5.0","uptimeSecs":86400,
+ "spacesRunning":1,"spacesStopped":0,"membersActive":3,"membersFrozen":0}
+```
+
+`spacesRunning` or `membersActive` at 0 is "alive but idle"; counts only, no
+names — per-space detail stays behind the token.
+
 ### Restart & resume
 
 The swarm is crash-safe. After `evva service stop` (or a crash) and a fresh
@@ -628,6 +655,28 @@ Replies: new → 202, duplicate `idempotency_key` → 200, bad/missing secret �
 | `advertise_skills` | List installed skills on the prompt. |
 | `schedule.cron` | 5-field cron for a timer wake (e.g. `"*/5 * * * *"`). |
 | `schedule.every` | Fixed interval instead of cron (e.g. `"30s"`, `"5m"`). |
+
+### Schedule cron dialect
+
+The swarm's cron is self-written and deliberately small. Five fields —
+`minute hour day-of-month month day-of-week` — matched against the **system's
+LOCAL wall clock**, minute resolution.
+
+Supported per field: `*`, plain values (`5`), ranges (`9-17`), steps (`*/5`,
+`9-17/2`), comma lists (`0,30`), and any mix (`0,15,30-45/5`). Day-of-week is
+`0-7` with both 0 and 7 meaning Sunday. When BOTH day-of-month and day-of-week
+are restricted, a day matches if **either** does (standard cron OR semantics).
+
+NOT supported — the parser rejects these by name: a seconds field (6-field
+specs), `@daily` / `@every` aliases, `L` / `W` / `#` / `?` specials, and `TZ=`
+prefixes (the timezone is always system-local).
+
+```
+*/5 * * * *      every 5 minutes
+0 17 * * 1-5     17:00 on weekdays
+0 9,18 * * *     09:00 and 18:00 daily
+0 3 1 * *        03:00 on the 1st of each month
+```
 
 ### Swarm tool names (auto-injected by role)
 

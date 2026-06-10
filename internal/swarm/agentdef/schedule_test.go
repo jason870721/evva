@@ -1,6 +1,7 @@
 package agentdef
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -142,6 +143,39 @@ func TestParseCronErrors(t *testing.T) {
 	for _, expr := range bad {
 		if _, err := parseCron(expr); err == nil {
 			t.Errorf("parseCron(%q) = nil error, want failure", expr)
+		}
+	}
+}
+
+// RP-18: unsupported cron dialects fail with messages that NAME the missing
+// feature, instead of a generic "bad value".
+func TestCronUnsupportedSyntaxNamed(t *testing.T) {
+	cases := map[string]string{
+		"@daily":          "@-aliases",
+		"@every 5m":       "@-aliases",
+		"0 0 1 1 * 2026":  "want 5 fields",
+		"*/30 * * * * *":  "seconds field is not supported",
+		"TZ=UTC 0 0 * * *": "TZ= prefix is not supported",
+		"0 0 L * *":       "L/W/#/? specials",
+		"0 0 * * 5#3":     "L/W/#/? specials",
+		"0 0 15W * *":     "L/W/#/? specials",
+		"0 0 ? * 1":       "L/W/#/? specials",
+	}
+	for expr, want := range cases {
+		_, err := parseCron(expr)
+		if err == nil {
+			t.Errorf("parseCron(%q) succeeded, want a named-unsupported error", expr)
+			continue
+		}
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("parseCron(%q) err = %v, want it to mention %q", expr, err, want)
+		}
+	}
+
+	// The supported dialect still parses.
+	for _, ok := range []string{"*/5 * * * *", "0 17 * * 1-5", "0 9,18 1-15/2 * 0"} {
+		if _, err := parseCron(ok); err != nil {
+			t.Errorf("parseCron(%q) = %v, want ok", ok, err)
 		}
 	}
 }
