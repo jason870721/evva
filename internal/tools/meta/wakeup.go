@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/johnny1110/evva/pkg/common"
 	"github.com/johnny1110/evva/pkg/tools"
 )
 
@@ -144,7 +145,7 @@ func (t *WakeupTool) Execute(ctx context.Context, logger *slog.Logger, input jso
 		now := time.Now()
 		return tools.Result{
 			IsError: true,
-			Content: fmt.Sprintf("schedule_wakeup: cancelled during sleep — %v, currentTime: %s", ctx.Err(), now.Format("2006-01-02 15:04:05")),
+			Content: fmt.Sprintf("schedule_wakeup: cancelled during sleep — %v, currentTime: %s", ctx.Err(), common.Stamp(now)),
 		}, nil
 	case <-timer.C:
 	}
@@ -152,6 +153,6 @@ func (t *WakeupTool) Execute(ctx context.Context, logger *slog.Logger, input jso
 	t.queue.Enqueue(in.Prompt)
 	now := time.Now()
 	return tools.Result{
-		Content: fmt.Sprintf("woke up after %gs — reason: %s, currentTime: %s. Wakeup prompt queued; next turn will see it as a fresh user message.", seconds, in.Reason, now.Format("2006-01-02 15:04:05")),
+		Content: fmt.Sprintf("woke up after %gs — reason: %s, currentTime: %s. Wakeup prompt queued; next turn will see it as a fresh user message.", seconds, in.Reason, common.Stamp(now)),
 	}, nil
 }

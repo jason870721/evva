@@ -8,6 +8,7 @@ import (
 
 	"github.com/johnny1110/evva/internal/swarm"
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
+	"github.com/johnny1110/evva/pkg/common"
 	pubtools "github.com/johnny1110/evva/pkg/tools"
 )
 
@@ -33,7 +34,8 @@ func newScheduleSet(mc swarm.MemberContext) pubtools.Tool {
 		name: toolScheduleSet,
 		desc: "Put a worker on a recurring schedule (crontab): it will wake on the cron cadence and run the " +
 			"given prompt, even with no new messages — use this for standing duties like periodic patrols or reviews. " +
-			"`cron` is a standard 5-field expression (minute hour day-of-month month day-of-week), e.g. \"*/30 * * * *\". " +
+			"`cron` is a standard 5-field expression (minute hour day-of-month month day-of-week), e.g. \"*/30 * * * *\", " +
+			"matched against the system's LOCAL wall clock — " + common.ZoneLabel() + ". " +
 			"Each member has at most one schedule; calling this again replaces it. You cannot schedule yourself.",
 		schema: `{"type":"object","properties":{` +
 			`"member":{"type":"string","description":"Member name to put on a schedule (see list_members)."},` +
@@ -63,7 +65,7 @@ func newScheduleSet(mc swarm.MemberContext) pubtools.Tool {
 			if err := mc.Space.SetMemberSchedule(member, sch); err != nil {
 				return errf("schedule_set: %v", err), nil
 			}
-			return okf("Scheduled %s on cron %q. It will wake on that cadence and run: %s", member, sch.Cron, in.Prompt), nil
+			return okf("Scheduled %s on cron %q (local %s). It will wake on that cadence and run: %s", member, sch.Cron, common.ZoneLabel(), in.Prompt), nil
 		},
 	}
 }

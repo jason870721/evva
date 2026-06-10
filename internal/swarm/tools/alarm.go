@@ -8,6 +8,7 @@ import (
 
 	"github.com/johnny1110/evva/internal/swarm"
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
+	"github.com/johnny1110/evva/pkg/common"
 	pubtools "github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/alarm"
 )
@@ -23,9 +24,11 @@ func newAlarmSet(mc swarm.MemberContext) pubtools.Tool {
 		desc: "Set a ONE-SHOT alarm that fires at an absolute date/time (second precision) and wakes a member with a prompt, " +
 			"delivered as a durable message. Omit `member` to wake yourself; only the leader may target another member. " +
 			"Use this for a specific instant or a one-off follow-up (\"re-check the testnet run at 2026-09-11 12:31:50\") — " +
-			"for a RECURRING cadence use schedule_set instead. The alarm fires once, then is gone.",
+			"for a RECURRING cadence use schedule_set instead. The alarm fires once, then is gone. " +
+			"A time without an explicit offset is LOCAL system time — " + common.ZoneLabel() + "; " +
+			"the confirmation echoes the parsed instant with its UTC twin, so check it when your intent was a UTC time.",
 		schema: `{"type":"object","properties":{` +
-			`"at":{"type":"string","description":"Absolute fire time, second precision: \"2006-01-02 15:04:05\" (local) or RFC3339 \"2006-01-02T15:04:05Z07:00\". Must be in the future."},` +
+			`"at":{"type":"string","description":"Absolute fire time, second precision: \"2006-01-02 15:04:05\" (LOCAL system time) or RFC3339 \"2006-01-02T15:04:05Z07:00\" with an explicit offset. Must be in the future."},` +
 			`"prompt":{"type":"string","description":"What the woken member should do. Keep it self-contained — it arrives with no other context."},` +
 			`"member":{"type":"string","description":"Member to wake (see list_members). Omit to wake yourself. Only the leader may target someone else."},` +
 			`"label":{"type":"string","description":"Optional short label shown in the fire banner and list_members."}` +
@@ -79,8 +82,8 @@ func newAlarmSet(mc swarm.MemberContext) pubtools.Tool {
 			if target != mc.Name {
 				who = target
 			}
-			return okf("Alarm %s set for %s (local). It will fire once and wake %s with: %s",
-				a.ID, fireAt.Local().Format("2006-01-02 15:04:05"), who, in.Prompt), nil
+			return okf("Alarm %s set for %s. It will fire once and wake %s with: %s",
+				a.ID, common.StampWithUTC(fireAt), who, in.Prompt), nil
 		},
 	}
 }

@@ -12,6 +12,22 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every model-facing wall-clock string now carries an explicit timezone.**
+  A swarm agent in a UTC+8 container read the zone-less `currenttime` stamp as
+  UTC and filed a phantom "system clock is 8 hours fast" bug (Sunday PRD-001).
+  All time strings injected into a model's context now use one canonical
+  offset-stamped layout via `pkg/common.Stamp` (`2006-01-02 15:04:05 -07:00`):
+  swarm timer wakes, mail prompts (which also gain a `currenttime` header and
+  per-message `[sent …]` stamps), webhook `external-event` stamps,
+  `alarm_set` / `alarm_create` confirmations (echoed with their UTC twin so a
+  zone mix-up is visible at a glance), `alarm_list` / `list_members` pending
+  alarms, the fired-alarm banner, and `schedule_wakeup` results. The solo
+  environment section gains a static, cache-safe `- Timezone:` line, and the
+  `alarm` / `schedule_set` / `cron_create` tool descriptions state the zone
+  bare timestamps and cron fields are interpreted in (`pkg/common.ZoneLabel`).
+
 ### Added
 
 - **Alarm tool family — one-shot absolute-time self-wake.** New

@@ -21,12 +21,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-// stamp is the friendly local-time layout used in messages and the durable
-// store is RFC3339 (via time.Time JSON). Matches the format used elsewhere in
-// the agent (e.g. wakeup.go's currentTime).
-const stamp = "2006-01-02 15:04:05"
+	"github.com/johnny1110/evva/pkg/common"
+)
 
 // defaultMaxPending caps simultaneous pending alarms per scheduler so a runaway
 // loop cannot accumulate unbounded timers and store growth.
@@ -61,16 +58,20 @@ type Fired struct {
 }
 
 // Message renders the user-message body injected into the conversation when
-// this alarm fires: an ⏰ banner (with label and an optional late marker)
-// followed by the alarm's own prompt.
+// this alarm fires: an ⏰ banner carrying the fire instant (offset-stamped, so
+// the woken agent knows what time it is) plus label and an optional late
+// marker, followed by the alarm's own prompt.
 func (f Fired) Message() string {
 	var b strings.Builder
 	b.WriteString("⏰ Alarm fired")
 	if f.Label != "" {
 		b.WriteString(" [" + f.Label + "]")
 	}
-	if f.Late {
-		fmt.Fprintf(&b, " (late — was due %s)", f.FireAt.Local().Format(stamp))
+	switch {
+	case f.Late:
+		fmt.Fprintf(&b, " (late — was due %s)", common.Stamp(f.FireAt))
+	case !f.FireAt.IsZero():
+		fmt.Fprintf(&b, " — %s", common.Stamp(f.FireAt))
 	}
 	b.WriteByte('\n')
 	b.WriteString(f.Prompt)
@@ -147,7 +148,7 @@ func (s *Scheduler) Arm(a Alarm) (Alarm, error) {
 	now := s.now()
 	if !a.FireAt.After(now) {
 		return Alarm{}, fmt.Errorf("fire time %s is not in the future (now %s)",
-			a.FireAt.Local().Format(stamp), now.Local().Format(stamp))
+			common.Stamp(a.FireAt), common.Stamp(now))
 	}
 
 	s.mu.Lock()
@@ -397,5 +398,6 @@ func ParseFireTime(s string, loc *time.Location) (time.Time, error) {
 			return t, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("unrecognized time %q — use \"2006-01-02 15:04:05\" (local) or RFC3339", s)
+	zone, _ := time.Now().In(loc).Zone()
+	return time.Time{}, fmt.Errorf("unrecognized time %q — use \"2006-01-02 15:04:05\" (local %s) or RFC3339 with an explicit offset", s, zone)
 }

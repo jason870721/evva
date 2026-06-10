@@ -5,7 +5,10 @@
 // via constructor injection.
 package cron
 
-import "github.com/johnny1110/evva/pkg/tools"
+import (
+	"github.com/johnny1110/evva/pkg/common"
+	"github.com/johnny1110/evva/pkg/tools"
+)
 
 // Names lists every tool name this package contributes.
 func Names() []tools.ToolName {
@@ -18,7 +21,7 @@ var (
 	Create tools.Tool = tools.NewStub(
 		tools.CRON_CREATE,
 		"Schedule a prompt to be enqueued at a future time. Supports recurring (default) and one-shot jobs. "+
-			"Uses standard 5-field cron in the user's local timezone: \"M H DoM Mon DoW\". "+
+			"Uses standard 5-field cron in the user's local timezone ("+common.ZoneLabel()+"): \"M H DoM Mon DoW\". "+
 			"Avoid :00 and :30 minute marks when possible — pick off-minutes like 7 or 57 to spread load. "+
 			"Recurring jobs auto-expire after 7 days. Jobs only fire while the REPL is idle. "+
 			"Session-only by default (use `durable: true` to persist).",

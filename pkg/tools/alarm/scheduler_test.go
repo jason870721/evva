@@ -1,10 +1,13 @@
 package alarm
 
 import (
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/johnny1110/evva/pkg/common"
 )
 
 // fireSink collects fired alarms for assertions, safe across the AfterFunc
@@ -215,8 +218,12 @@ func TestFiredMessage(t *testing.T) {
 	if got := labeled.Message(); got != "⏰ Alarm fired [deploy]\np" {
 		t.Errorf("labeled Message() = %q", got)
 	}
+	timed := Fired{Alarm: Alarm{Prompt: "p", FireAt: at}}
+	if got, want := timed.Message(), fmt.Sprintf("⏰ Alarm fired — %s\np", common.Stamp(at)); got != want {
+		t.Errorf("timed Message() = %q, want %q", got, want)
+	}
 	late := Fired{Alarm: Alarm{Prompt: "p", FireAt: at}, Late: true}
-	want := "⏰ Alarm fired (late — was due 2026-09-11 12:31:50)\np"
+	want := fmt.Sprintf("⏰ Alarm fired (late — was due %s)\np", common.Stamp(at))
 	if got := late.Message(); got != want {
 		t.Errorf("late Message() = %q, want %q", got, want)
 	}

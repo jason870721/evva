@@ -9,6 +9,7 @@ import (
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
 	"github.com/johnny1110/evva/internal/swarm/store"
+	"github.com/johnny1110/evva/pkg/common"
 	"github.com/johnny1110/evva/pkg/skill"
 )
 
@@ -150,7 +151,7 @@ func (s *Supervisor) serve(ctx context.Context, name string, m *memberRun, reaso
 			return // nothing unread — idle burns no tokens
 		}
 		s.log.Debug("swarm serve: member has mail", "member", name, "batch", len(batch))
-		if !s.runOnce(ctx, name, m, composeMailPrompt(batch)) {
+		if !s.runOnce(ctx, name, m, composeMailPrompt(time.Now(), batch)) {
 			return // suspended/errored — runOnce already unclaimed the batch for retry
 		}
 	}
@@ -229,9 +230,12 @@ func (s *Supervisor) safeRun(ctx context.Context, name, prompt string) (out stri
 // composeMailPrompt renders a claimed batch of unread mail (store.ClaimUnread,
 // already oldest-first) as the synthetic run-start prompt. The rows come from the
 // store — the single source of truth — so this naturally absorbs dropped or
-// over-delivered chan hints.
-func composeMailPrompt(batch []store.Message) string {
+// over-delivered chan hints. Like the timer wake, it opens with a currenttime
+// reminder (offset-stamped) so a mail-woken member knows what time it is, and
+// each message carries its sent stamp so stale mail is visible as stale.
+func composeMailPrompt(now time.Time, batch []store.Message) string {
 	var b strings.Builder
+	fmt.Fprintf(&b, "<system-reminder>currenttime: %s</system-reminder>\n", common.Stamp(now))
 	b.WriteString("You have unread messages from your teammates. Read each one and take whatever action it asks for; use send_message to reply or report back.\n")
 	for _, msg := range batch {
 		b.WriteString("\n--- Message from ")
@@ -240,6 +244,11 @@ func composeMailPrompt(batch []store.Message) string {
 			b.WriteString(" (re: ")
 			b.WriteString(msg.Subject)
 			b.WriteString(")")
+		}
+		if msg.CreatedAt > 0 {
+			b.WriteString(" [sent ")
+			b.WriteString(common.Stamp(time.UnixMilli(msg.CreatedAt)))
+			b.WriteString("]")
 		}
 		b.WriteString(" ---\n")
 		b.WriteString(msg.Body)
@@ -250,19 +259,21 @@ func composeMailPrompt(batch []store.Message) string {
 
 const scheduledDutyPrompt = "[Scheduled duty] Your recurring schedule fired. Carry out your standing responsibilities now: check the state you are responsible for and take any action it requires. If everything is in order, report that briefly and stand down — do not invent work."
 
-// scheduledWakePrompt builds the run-start prompt for a timer wake. It is the
-// ONE place a wall-clock time enters the conversation (the static system prompt
-// deliberately carries none — RP-5/RP-7): the agent learns "what time is it"
-// from the wake itself. A member's custom schedule Prompt becomes the body; an
-// empty one falls back to the generic standing-duty sentence. The whole thing is
-// wrapped in a <system-reminder> so the model reads it as harness context, not a
-// teammate's request.
+// scheduledWakePrompt builds the run-start prompt for a timer wake. Wake
+// prompts are where wall-clock time enters the conversation (the static system
+// prompt deliberately carries no date — RP-5/RP-7): the agent learns "what time
+// is it" from the wake itself, so the stamp carries an explicit UTC offset — a
+// zone-less time reads as UTC to the model and is misread by the local offset.
+// A member's custom schedule Prompt becomes the body; an empty one falls back
+// to the generic standing-duty sentence. The whole thing is wrapped in a
+// <system-reminder> so the model reads it as harness context, not a teammate's
+// request.
 func scheduledWakePrompt(now time.Time, prompt string) string {
 	body := strings.TrimSpace(prompt)
 	if body == "" {
 		body = scheduledDutyPrompt
 	}
-	return fmt.Sprintf("<system-reminder>currenttime: %s, %s</system-reminder>", now.Format("2006-01-02 15:04:05"), body)
+	return fmt.Sprintf("<system-reminder>currenttime: %s, %s</system-reminder>", common.Stamp(now), body)
 }
 
 // poke signals a member's non-message wake (timer or resume). Non-blocking: if a

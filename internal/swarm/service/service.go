@@ -1362,7 +1362,7 @@ func (s *Service) IngestEvent(ref string, evt webapi.EventIn) (messageID string,
 func shapeEvent(source, body string, data json.RawMessage) string {
 	var b strings.Builder
 	b.WriteString("<system-reminder>\n")
-	fmt.Fprintf(&b, "external-event  source=%s  time=%s\n", source, time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&b, "external-event  source=%s  time=%s\n", source, common.Stamp(time.Now()))
 	b.WriteString(body)
 	if d := strings.TrimSpace(string(data)); d != "" && d != "null" {
 		if len(d) > maxEventDataChars {

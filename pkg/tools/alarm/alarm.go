@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/johnny1110/evva/pkg/common"
 	"github.com/johnny1110/evva/pkg/tools"
 )
 
@@ -41,7 +42,9 @@ func (t *CreateTool) Description() string {
 	return "Set a one-shot alarm that wakes you at an ABSOLUTE wall-clock instant (second precision), then re-enters the conversation with your prompt as a fresh user message.\n\n" +
 		"Use this — not schedule_wakeup — whenever the wake time is a specific date/time, or more than an hour away. schedule_wakeup is a blocking RELATIVE sleep capped at 1 hour; an alarm is non-blocking, fires at an exact timestamp arbitrarily far in the future, and (when durable) survives process restarts.\n\n" +
 		"On fire: if you are idle a fresh turn starts automatically; if you are mid-task the prompt lands at the next step. The alarm fires once, then is gone.\n\n" +
-		"`at` accepts \"2006-01-02 15:04:05\" (your local timezone) or RFC3339 with an explicit offset; it must be in the future. Write `prompt` as a note-to-self that will still make sense with no surrounding context. `durable` defaults to true."
+		"`at` accepts \"2006-01-02 15:04:05\" (your local timezone — " + common.ZoneLabel() + ") or RFC3339 with an explicit offset; it must be in the future. " +
+		"The confirmation echoes the parsed instant with its UTC twin — check it when your intent was a UTC time. " +
+		"Write `prompt` as a note-to-self that will still make sense with no surrounding context. `durable` defaults to true."
 }
 
 func (t *CreateTool) Schema() json.RawMessage {
@@ -97,7 +100,7 @@ func (t *CreateTool) Execute(_ context.Context, logger *slog.Logger, input json.
 	until := time.Until(a.FireAt).Round(time.Second)
 	return tools.Result{
 		Content: fmt.Sprintf("alarm %s set for %s (in %s)%s. It fires once and injects your prompt as a fresh user message.",
-			a.ID, a.FireAt.Local().Format(stamp), until, durableSuffix(durable)),
+			a.ID, common.StampWithUTC(a.FireAt), until, durableSuffix(durable)),
 		Metadata: a,
 	}, nil
 }
@@ -137,7 +140,7 @@ func (t *ListTool) Execute(_ context.Context, _ *slog.Logger, _ json.RawMessage)
 			label = " [" + a.Label + "]"
 		}
 		fmt.Fprintf(&b, "- %s%s — %s (in %s)%s\n    %s\n",
-			a.ID, label, a.FireAt.Local().Format(stamp),
+			a.ID, label, common.Stamp(a.FireAt),
 			a.FireAt.Sub(now).Round(time.Second), durableSuffix(a.Durable), truncate(a.Prompt, 120))
 	}
 	return tools.Result{Content: strings.TrimRight(b.String(), "\n"), Metadata: alarms}, nil

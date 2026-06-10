@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/johnny1110/evva/pkg/common"
 )
 
 // Fragments are the reusable building blocks composed by the main agent
@@ -162,7 +164,12 @@ func environmentSection(ctx PromptContext) string {
 		}
 		parts = append(parts, fmt.Sprintf("- Today: %s", today.Format("Monday January 2 2006")))
 	}
+	// The timezone line is deliberately NOT gated by OmitDate: the zone is
+	// run-invariant (cache-safe even for a weeks-long swarm member) and it is
+	// the contract that disambiguates every wall-clock stamp the agent will
+	// see — currenttime wakes, alarm echoes, cron specs all read in this zone.
 	parts = append(parts,
+		fmt.Sprintf("- Timezone: %s — wall-clock times without an explicit offset (currenttime, alarms, cron) are local to this zone", common.ZoneLabel()),
 		fmt.Sprintf("- Working directory: %s", workdir),
 		fmt.Sprintf("- AAP_HOME (global: config, skills, memory): %s", evvaHome),
 	)

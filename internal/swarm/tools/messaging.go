@@ -8,6 +8,7 @@ import (
 
 	"github.com/johnny1110/evva/internal/swarm"
 	"github.com/johnny1110/evva/internal/swarm/store"
+	"github.com/johnny1110/evva/pkg/common"
 	pubtools "github.com/johnny1110/evva/pkg/tools"
 )
 
@@ -89,7 +90,7 @@ func newListMembers(mc swarm.MemberContext) pubtools.Tool {
 			members := mc.Space.Roster.Snapshot()
 			pendingAlarms := mc.Space.AlarmScheduler().List()
 			var b strings.Builder
-			fmt.Fprintf(&b, "Swarm members (%d):\n", len(members))
+			fmt.Fprintf(&b, "Swarm members (%d) — times are local %s:\n", len(members), common.ZoneLabel())
 			for _, m := range members {
 				// DisplayPhase shows the fine event-derived sub-phase (e.g.
 				// "executing:bash", "waiting-approval:bash") so a teammate can see
@@ -117,7 +118,7 @@ func newListMembers(mc swarm.MemberContext) pubtools.Tool {
 						if a.Label != "" {
 							label = " " + a.Label
 						}
-						fmt.Fprintf(&b, "    ⏰ %s at %s%s\n", a.ID, a.FireAt.Local().Format("2006-01-02 15:04:05"), label)
+						fmt.Fprintf(&b, "    ⏰ %s at %s%s\n", a.ID, common.Stamp(a.FireAt), label)
 					}
 				}
 			}
