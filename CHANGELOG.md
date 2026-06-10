@@ -12,7 +12,11 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
-## [v1.4.5-beta.2] — 2026-06-10
+## [v1.5.0-beta.1] — 2026-06-10
+
+Veronica wave 4 — operational hardening (RP-13..RP-17). Supersedes the
+unpromoted v1.4.5 betas; their content (alarm tools, timezone discipline) is
+folded in below, so this entry is cumulative since v1.4.4.
 
 ### Fixed
 
@@ -29,8 +33,6 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   environment section gains a static, cache-safe `- Timezone:` line, and the
   `alarm` / `schedule_set` / `cron_create` tool descriptions state the zone
   bare timestamps and cron fields are interpreted in (`pkg/common.ZoneLabel`).
-
-## [v1.4.5-beta.1] — 2026-06-10
 
 ### Added
 
@@ -1124,9 +1126,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.4.5-beta.2...HEAD
-[v1.4.5-beta.2]: https://github.com/johnny1110/evva/compare/v1.4.5-beta.1...v1.4.5-beta.2
-[v1.4.5-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.4...v1.4.5-beta.1
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.5.0-beta.1...HEAD
+[v1.5.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.4...v1.5.0-beta.1
 [v1.4.4-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.3...v1.4.4-beta.1
 [v1.4.3]: https://github.com/johnny1110/evva/compare/v1.4.2-beta.1...v1.4.3
 [v1.4.3-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.2-beta.1...v1.4.3-beta.1
