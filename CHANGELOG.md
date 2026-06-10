@@ -12,6 +12,29 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.5.1-beta.1] — 2026-06-11
+
+### Added
+
+- **Excel tool (`excel`).** New deferred tool built on excelize v2 with 20
+  operations: read/write cell values, create workbooks, list sheets, get info,
+  search, copy/delete sheets, insert rows/cols, merge/unmerge cells, formulas
+  (with `CalcCellValue` evaluation), charts (7 types), pivot tables, data
+  validation, cell styling (font/fill/border/alignment/number format), column
+  widths, row heights, and conditional formatting. 36 unit tests covering CRUD,
+  styling, formula computation, dimensions, and error paths.
+
+### Fixed
+
+- **Excel tool schema** uses flat `properties` + `enum` instead of `oneOf` to
+  avoid model parameter routing bugs. Duplicate `json:"data"` tag on `Data` and
+  `PivotData` input fields fixed (was causing `write` to always fail with
+  "data is required").
+- **Formula read-back** now uses `CalcCellValue` instead of returning stale
+  cached cell values.
+- **Sheet dimensions** computed from actual row scans instead of relying on
+  excelize's default `"A1"` dimension.
+
 ## [v1.5.0-beta.5] — 2026-06-10
 
 Veronica wave 4 — operational hardening (RP-13..RP-18). Supersedes the
@@ -1145,7 +1168,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.5.0-beta.5...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.5.1-beta.1...HEAD
+[v1.5.1-beta.1]: https://github.com/johnny1110/evva/compare/v1.5.0-beta.5...v1.5.1-beta.1
 [v1.5.0-beta.5]: https://github.com/johnny1110/evva/compare/v1.5.0-beta.4...v1.5.0-beta.5
 [v1.4.4-beta.1]: https://github.com/johnny1110/evva/compare/v1.4.3...v1.4.4-beta.1
 [v1.4.3]: https://github.com/johnny1110/evva/compare/v1.4.2-beta.1...v1.4.3
