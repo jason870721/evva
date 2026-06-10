@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/johnny1110/evva/internal/swarm/agentdef"
+	"github.com/johnny1110/evva/internal/swarm/store"
 	"github.com/johnny1110/evva/internal/swarm/webapi"
 	"github.com/johnny1110/evva/pkg/common"
 )
@@ -146,5 +148,50 @@ func TestIngestEventRemoteNeedsSecret(t *testing.T) {
 	}
 	if mid, _, err := svc.IngestEvent(id, webapi.EventIn{Body: "x"}, loopbackAuth); err != nil || mid == "" {
 		t.Errorf("loopback without secret = id:%q err:%v, want accepted (legacy trust)", mid, err)
+	}
+}
+
+// RP-16: the service's manual vacuum resolves the window (explicit days > the
+// space's setting > the default), reports dry-run and real counts identically,
+// and 404-maps an unknown ref.
+func TestServiceVacuum(t *testing.T) {
+	svc := New("127.0.0.1:0")
+	defer svc.Stop()
+	id := registerStub(t, svc)
+
+	ent, ok := svc.entry(id)
+	if !ok {
+		t.Fatal("no entry for registered space")
+	}
+	old := time.Now().AddDate(0, 0, -40).UnixMilli()
+	if err := ent.space.Store.PutMessage(store.Message{
+		ID: "m-old", Sender: "a", Recipient: "leader", Body: "x", CreatedAt: old, ReadAt: &old,
+	}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	// The stub manifest has retention off (0), so days<=0 resolves to the default.
+	dry, err := svc.Vacuum(id, 0, true)
+	if err != nil {
+		t.Fatalf("dry vacuum: %v", err)
+	}
+	if dry.Messages != 1 || dry.Days != agentdef.DefaultRetentionDays || !dry.DryRun {
+		t.Fatalf("dry = %+v, want 1 message at the %d-day default", dry, agentdef.DefaultRetentionDays)
+	}
+	real, err := svc.Vacuum(id, 0, false)
+	if err != nil {
+		t.Fatalf("vacuum: %v", err)
+	}
+	if real.Messages != dry.Messages || len(real.Files) == 0 {
+		t.Fatalf("real = %+v, want dry-matching counts + archive files", real)
+	}
+
+	// An explicit window narrower than the data's age clears nothing.
+	if again, err := svc.Vacuum(id, 365, false); err != nil || again.Messages != 0 || again.Days != 365 {
+		t.Fatalf("365-day vacuum = %+v, %v — want 0 rows at days=365", again, err)
+	}
+
+	if _, err := svc.Vacuum("ghost", 0, false); err == nil || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("unknown ref err = %v, want 'unknown'", err)
 	}
 }

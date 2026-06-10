@@ -122,6 +122,11 @@ type Backend interface {
 	MemberSkills(spaceID, agent string) ([]SkillInfo, bool)
 	AddSkill(spaceID, agent string, spec SkillSpec) error
 	DeleteSkill(spaceID, agent, skill string) error
+
+	// Vacuum runs one ledger retention pass now (RP-16): archive-then-delete
+	// messages read ≥ days ago and tasks completed ≥ days ago. days <= 0 uses
+	// the space's configured window (or the default); dryRun only counts.
+	Vacuum(ref string, days int, dryRun bool) (VacuumStats, error)
 }
 
 // SpaceInfo is one row of GET /api/swarms. Status is "running" | "stopped"
@@ -255,6 +260,17 @@ const WebhookSecretHeader = "X-Evva-Webhook-Secret"
 type EventAuth struct {
 	Secret   string
 	Loopback bool
+}
+
+// VacuumStats is the result of POST /api/swarm/{id}/vacuum (RP-16): how many
+// rows one retention pass archived + deleted (or, on a dry run, would have),
+// the archive files appended, and the effective window used.
+type VacuumStats struct {
+	Messages int      `json:"messages"`
+	Tasks    int      `json:"tasks"`
+	Files    []string `json:"files,omitempty"`
+	Days     int      `json:"days"`
+	DryRun   bool     `json:"dryRun"`
 }
 
 // MessageInfo mirrors store.Message on the wire (GET /api/messages).
@@ -534,6 +550,23 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 	}))
 	mux.Handle("POST /api/halt", guard(func(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, b.HaltAll(r.URL.Query().Get("space")))
+	}))
+	// Ledger retention pass (RP-16). The body is optional — an empty POST runs
+	// the space's configured window for real; {days, dry_run} override.
+	mux.Handle("POST /api/swarm/{id}/vacuum", guard(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Days   int  `json:"days"`
+			DryRun bool `json:"dry_run"`
+		}
+		if r.ContentLength != 0 && !decode(w, r, &body) {
+			return
+		}
+		stats, err := b.Vacuum(r.PathValue("id"), body.Days, body.DryRun)
+		if err != nil {
+			respondErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, stats)
 	}))
 
 	// WebSocket bridge — guarded by the same token (browsers pass it as ?token=).

@@ -34,8 +34,9 @@ const (
 // task ledger is single-writer (the Leader) by design; the mutex's real job is
 // the multi-writer `messages` table.
 type Store struct {
-	db *sql.DB
-	mu sync.RWMutex
+	db  *sql.DB
+	dir string // <workdir>/.vero — the db's home, where archive/ lives (RP-16)
+	mu  sync.RWMutex
 }
 
 // Open creates <workdir>/.vero/ if needed, opens vero.db with WAL +
@@ -69,7 +70,7 @@ func Open(workdir string) (*Store, error) {
 		return nil, fmt.Errorf("store: ping %s: %w", path, err)
 	}
 
-	s := &Store{db: db}
+	s := &Store{db: db, dir: dir}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: migrate: %w", err)

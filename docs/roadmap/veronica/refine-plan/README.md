@@ -143,7 +143,7 @@ schedule 欄位）；RP-9（Phase 2）獨立，但與 RP-7 互補（timer 驅動
 | [RP-13](RP-13-member-usage-metering.md) | 成員用量儀表＋預算熔斷 | **P0** | 成本可觀測 | run 邊界計量進 roster 快照；list_members/web 顯示 per-member tokens；超日預算自動 Freeze＋通知 leader/User，跨日自動解凍（標記自帶觸發日，翻日邊緣不可偷）。**✅ 已實作 2026-06-10。** |
 | [RP-14](RP-14-stuck-run-watchdog.md) | Stuck-run watchdog | **P0** | 卡死可見 | busy 超閾值發 stall 通知（每 run 一次；等審批/提問/paused 豁免）；可選 `stall_hard_timeout` 自動 cancel——取消不丟信（unclaim 重投既有保障）。**✅ 已實作 2026-06-10。** |
 | [RP-15](RP-15-webapi-auth-hardening.md) | WebAPI 認證硬化 | P1 | 安全邊界 | 兌現 `service.go:58` minted-token TODO；非 loopback 顯式 opt-in＋強制 token；webhook 可選 secret（向後相容）。**✅ 已實作 2026-06-10。** |
-| [RP-16](RP-16-ledger-retention.md) | Ledger retention | P1 | 只增不刪 | 已讀且過期的 messages / completed tasks 先歸檔（jsonl.gz）再清；`evva swarm vacuum` ＋ 每日自動；活資料絕不動。 |
+| [RP-16](RP-16-ledger-retention.md) | Ledger retention | P1 | 只增不刪 | 已讀且過期的 messages / completed tasks 先歸檔（jsonl.gz）再清；`evva swarm vacuum` ＋ 每日自動；活資料絕不動。**✅ 已實作 2026-06-10。** |
 | [RP-17](RP-17-durable-event-log.md) | Durable event log ＋ metrics | P2 | 事後可查 | publish 旁路落日切 jsonl（永不回壓 pump）＋ wake/run/abort counters 與 metrics endpoint；是 EX-4 replay 的地基。 |
 | [RP-18](RP-18-ops-polish.md) | Ops 收口 | P2 | 雜項 | cron 方言文件化、launchd/systemd 自動重啟模板、`/healthz` 擴充。 |
 

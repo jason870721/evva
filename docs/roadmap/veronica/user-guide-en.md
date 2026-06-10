@@ -162,6 +162,7 @@ settings:
   # stall_threshold: 10m          # alert when a member is busy longer; "0" off (omit = 10m)
   # stall_hard_timeout: 30m       # auto-cancel a run busy longer; 0/omit = off
   # webhook_secret: "hunter2"     # require X-Evva-Webhook-Secret on event POSTs (see §10)
+  # retention_days: 30            # archive+delete consumed history after N days; "0" = keep forever
 ```
 
 - **Member names are unique** within a space (no replicas — give each a distinct
@@ -430,6 +431,41 @@ settings:
 - Cron (the manifest's `schedule` and the leader's `schedule_set`) matches the
   system's local wall clock.
 
+### Ledger retention (`retention_days` / `evva swarm vacuum`)
+
+A 24/7 swarm accumulates messages and completed tasks without bound, and the
+web/API reads slow down with the table size. Retention keeps the working set
+small **without losing history**: eligible rows are first appended to
+`<workdir>/.vero/archive/YYYY-MM.jsonl.gz` (bucketed by the row's own month),
+then deleted and the database compacted.
+
+What is eligible — and nothing else ever is:
+
+- messages already **read**, where the read happened ≥ `retention_days` ago;
+- tasks in the terminal **completed** state for ≥ `retention_days` —
+  unless something that survives still references them (a message's
+  `ref_task`, a child task's parent link): referenced tasks are kept.
+
+Unread mail, claimed (in-flight) mail, and pending/running/suspended/verifying
+tasks are untouchable, regardless of age.
+
+It runs automatically **once per local day** (plus once at service start, to
+catch up a machine that slept through midnight) whenever
+`settings.retention_days` > 0 — the default is **30**; set `"0"` to keep the
+old never-delete behavior. Manually, with a preview:
+
+```bash
+evva swarm vacuum my-eng-team --dry-run     # counts only, touches nothing
+evva swarm vacuum my-eng-team               # archive + delete at the configured window
+evva swarm vacuum my-eng-team --days 7      # override the window for this pass
+```
+
+Reading the archive later: it is gzipped JSON-lines —
+`zcat .vero/archive/2026-06.jsonl.gz | jq .` (each line carries `kind`
+message/task plus the full original row). For scale: a 100k-message backlog
+makes the messages API take ~300 ms per call; after a vacuum it is back to
+sub-millisecond, and the pass itself took ~1.2 s.
+
 ### Restart & resume
 
 The swarm is crash-safe. After `evva service stop` (or a crash) and a fresh
@@ -536,6 +572,7 @@ Replies: new → 202, duplicate `idempotency_key` → 200, bad/missing secret �
 | `evva swarm ls` | List registered spaces. |
 | `evva swarm stop <id>` | Stop (and drop) one space. |
 | `evva swarm add <id> <member>` | Hot-load a worker (`agents/sub/<member>/`) into a space. |
+| `evva swarm vacuum <ref> [--days N] [--dry-run]` | Archive-then-delete consumed history (RP-16); dry-run previews. |
 
 ### Environment variables
 

@@ -218,6 +218,16 @@ func (f *fakeBackend) DeleteSkill(space, agent, skill string) error {
 	f.mu.Unlock()
 	return nil
 }
+func (f *fakeBackend) Vacuum(ref string, days int, dryRun bool) (VacuumStats, error) {
+	if !f.HasSpace(ref) {
+		return VacuumStats{}, errUnknownSpace
+	}
+	if days <= 0 {
+		days = 30
+	}
+	return VacuumStats{Messages: 2, Tasks: 1, Days: days, DryRun: dryRun}, nil
+}
+
 func (f *fakeBackend) IngestEvent(ref string, evt EventIn, auth EventAuth) (string, bool, error) {
 	if ref == "sp-stopped" {
 		return "", false, errSpaceStopped
@@ -649,6 +659,54 @@ func TestEventWebhookUnauthenticated(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("guarded route without token = %d, want 401", resp.StatusCode)
+	}
+}
+
+// RP-16: the vacuum route is guarded, takes an optional {days, dry_run} body
+// (an empty POST uses defaults), and 404s an unknown space.
+func TestVacuumRoute(t *testing.T) {
+	fake := newFake()
+	srv := httptest.NewServer(NewRouter(fake, NewHub(), nil))
+	defer srv.Close()
+
+	if s := post(t, srv.URL+"/api/swarm/sp-a/vacuum", nil); s != http.StatusUnauthorized {
+		t.Fatalf("vacuum without token = %d, want 401", s)
+	}
+
+	req, _ := http.NewRequest("POST", srv.URL+"/api/swarm/sp-a/vacuum?token="+fake.token,
+		bytes.NewBufferString(`{"days":7,"dry_run":true}`))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stats VacuumStats
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || stats.Days != 7 || !stats.DryRun || stats.Messages != 2 {
+		t.Fatalf("vacuum = %d %+v, want 200 with echoed days/dry-run", resp.StatusCode, stats)
+	}
+
+	// Empty body → defaults (no decode failure).
+	req, _ = http.NewRequest("POST", srv.URL+"/api/swarm/sp-a/vacuum?token="+fake.token, nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("empty-body vacuum = %d, want 200", resp.StatusCode)
+	}
+
+	req, _ = http.NewRequest("POST", srv.URL+"/api/swarm/ghost/vacuum?token="+fake.token, nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown-space vacuum = %d, want 404", resp.StatusCode)
 	}
 }
 

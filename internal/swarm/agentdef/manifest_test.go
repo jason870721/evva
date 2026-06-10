@@ -237,3 +237,47 @@ func TestManifestWebhookSecret(t *testing.T) {
 		t.Fatalf("omitted webhook_secret = %q, want empty", m2.Settings.WebhookSecret)
 	}
 }
+
+// RP-16: settings.retention_days — "" → default 30, "0" → off, "45" → 45;
+// garbage / negative fail the load; values round-trip (default omits, off
+// emits "0").
+func TestManifestRetentionKnob(t *testing.T) {
+	m, err := LoadManifest(writeManifest(t, "leader:\n  agent: lead\n"))
+	if err != nil {
+		t.Fatalf("LoadManifest (omitted): %v", err)
+	}
+	if m.Settings.RetentionDays != DefaultRetentionDays {
+		t.Fatalf("omitted retention_days = %d, want default %d", m.Settings.RetentionDays, DefaultRetentionDays)
+	}
+
+	for yml, want := range map[string]int{
+		"leader:\n  agent: lead\nsettings:\n  retention_days: \"0\"\n": 0,
+		"leader:\n  agent: lead\nsettings:\n  retention_days: 45\n":    45,
+	} {
+		p := writeManifest(t, yml)
+		m, err := LoadManifest(p)
+		if err != nil {
+			t.Fatalf("LoadManifest: %v", err)
+		}
+		if m.Settings.RetentionDays != want {
+			t.Fatalf("retention_days = %d, want %d", m.Settings.RetentionDays, want)
+		}
+		if err := WriteManifest(p, m); err != nil {
+			t.Fatalf("WriteManifest: %v", err)
+		}
+		back, err := LoadManifest(p)
+		if err != nil {
+			t.Fatalf("reload: %v", err)
+		}
+		if back.Settings.RetentionDays != want {
+			t.Fatalf("round-trip retention_days = %d, want %d", back.Settings.RetentionDays, want)
+		}
+	}
+
+	for _, bad := range []string{"abc", "-3", "1.5"} {
+		p := writeManifest(t, "leader:\n  agent: lead\nsettings:\n  retention_days: \""+bad+"\"\n")
+		if _, err := LoadManifest(p); err == nil {
+			t.Errorf("retention_days %q should fail to load", bad)
+		}
+	}
+}

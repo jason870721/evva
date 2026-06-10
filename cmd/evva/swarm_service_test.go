@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -197,5 +198,58 @@ func TestSwarmRegisterNoManifest(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := swarmRegister(&bytes.Buffer{}, ""); err == nil || !strings.Contains(err.Error(), "no evva-swarm.yml") {
 		t.Fatalf("want a no-manifest error, got %v", err)
+	}
+}
+
+// TestSwarmVacuumClient (RP-16): the vacuum client POSTs {days, dry_run} with
+// the token and prints the returned stats; the flag extractor handles both
+// flag styles from any position.
+func TestSwarmVacuumClient(t *testing.T) {
+	useServiceHome(t)
+
+	const wantToken = "tkn"
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/api/swarm/team/vacuum" {
+			http.Error(w, "bad route", http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+wantToken {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			Days   int  `json:"days"`
+			DryRun bool `json:"dry_run"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Days != 7 || !body.DryRun {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"messages":3,"tasks":1,"days":7,"dryRun":true,"files":null}`))
+	}))
+	defer stub.Close()
+
+	addr := strings.TrimPrefix(stub.URL, "http://")
+	if err := os.WriteFile(addrPath(), []byte(addr), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tokenPath(), []byte(wantToken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := swarmVacuum(&buf, "team", 7, true); err != nil {
+		t.Fatalf("swarmVacuum: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "would archive 3 message(s) and 1 completed task(s)") ||
+		!strings.Contains(out, "without --dry-run to apply") {
+		t.Fatalf("vacuum output = %q, want dry-run wording with the stub's counts", out)
+	}
+
+	days, dry, rest := extractVacuumFlags([]string{"vacuum", "--days=7", "team", "--dry-run"})
+	if days != 7 || !dry || len(rest) != 2 || rest[0] != "vacuum" || rest[1] != "team" {
+		t.Fatalf("extractVacuumFlags = %d %v %v", days, dry, rest)
 	}
 }

@@ -1432,6 +1432,29 @@ func (s *Service) HaltAll(id string) error {
 	return ent.super.HaltAll()
 }
 
+// Vacuum runs one RP-16 retention pass for a space right now (the manual
+// entrance — the supervisor also sweeps daily). days <= 0 resolves to the
+// space's configured retention_days, or the default when the space disabled
+// retention — an explicit operator request overrides "off". dryRun reports the
+// would-be counts without archiving or deleting anything.
+func (s *Service) Vacuum(ref string, days int, dryRun bool) (webapi.VacuumStats, error) {
+	ent, ok := s.entry(ref)
+	if !ok {
+		return webapi.VacuumStats{}, fmt.Errorf("swarm: unknown space %q", ref)
+	}
+	if days <= 0 {
+		days = ent.space.RetentionDays()
+		if days <= 0 {
+			days = agentdef.DefaultRetentionDays
+		}
+	}
+	st, err := ent.space.Store.Vacuum(time.Now().AddDate(0, 0, -days), dryRun)
+	if err != nil {
+		return webapi.VacuumStats{}, fmt.Errorf("swarm: vacuum %q: %w", ref, err)
+	}
+	return webapi.VacuumStats{Messages: st.Messages, Tasks: st.Tasks, Files: st.Files, Days: days, DryRun: dryRun}, nil
+}
+
 // superCmd routes a one-member supervisor command, surfacing an "unknown space"
 // error the HTTP layer maps to 404.
 func (s *Service) superCmd(id, agent string, fn func(*swarm.Supervisor, string) error) error {

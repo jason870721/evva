@@ -302,6 +302,12 @@ func (sp *SwarmSpace) WebhookSecret() string {
 	return sp.settings.WebhookSecret // set once at construction, never mutated
 }
 
+// RetentionDays returns the space's ledger retention window in days (0 =
+// retention disabled). Exported for the service's manual vacuum default (RP-16).
+func (sp *SwarmSpace) RetentionDays() int {
+	return sp.settings.RetentionDays // set once at construction, never mutated
+}
+
 // ScheduleFor returns a member's declared timer schedule, if any. Exported so
 // list_members (internal/swarm/tools) can render each member's crontab.
 func (sp *SwarmSpace) ScheduleFor(name string) (agentdef.Schedule, bool) {

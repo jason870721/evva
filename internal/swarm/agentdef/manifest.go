@@ -3,6 +3,7 @@ package agentdef
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,12 +59,23 @@ type Settings struct {
 	// loopback trust: local callers post freely, non-loopback callers are
 	// rejected outright.
 	WebhookSecret string
+	// RetentionDays drives the RP-16 ledger vacuum: messages read more than
+	// this many days ago and tasks completed at least that long ago are
+	// archived to .vero/archive/ and deleted, daily. 0 = retention disabled
+	// (the pre-RP-16 "never deletes history" behavior); a manifest that omits
+	// the knob gets DefaultRetentionDays.
+	RetentionDays int
 }
 
 // DefaultStallThreshold is the alert line a manifest gets when it does not set
 // settings.stall_threshold. Long enough that legitimate tool-heavy runs don't
 // page the operator; short enough that a hung run is noticed the same hour.
 const DefaultStallThreshold = 10 * time.Minute
+
+// DefaultRetentionDays is the ledger retention window a manifest gets when it
+// does not set settings.retention_days. A month keeps the web/API working set
+// small on a 24/7 swarm while the archive retains the full history.
+const DefaultRetentionDays = 30
 
 // scheduleYml is the on-disk schedule block shared by the manifest's leader and
 // workers (and mirrored by profile.yml). Exactly one of cron/every is set.
@@ -94,7 +106,25 @@ type manifestYml struct {
 		StallThreshold    string `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
 		StallHardTimeout  string `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
 		WebhookSecret     string `yaml:"webhook_secret,omitempty"`
+		RetentionDays     string `yaml:"retention_days,omitempty"` // days; "" = default 30, "0" = off
 	} `yaml:"settings,omitempty"`
+}
+
+// parseRetentionDays reads the optional retention knob: "" → DefaultRetentionDays,
+// "0" → disabled, otherwise a positive whole number of days.
+func parseRetentionDays(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return DefaultRetentionDays, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("not a whole number of days: %q", s)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("must not be negative: %q", s)
+	}
+	return n, nil
 }
 
 // parseStallDuration reads an optional duration knob: "" → def, "0" → disabled,
@@ -155,6 +185,10 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest settings.stall_hard_timeout: %w", err)
 	}
+	retention, err := parseRetentionDays(y.Settings.RetentionDays)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.retention_days: %w", err)
+	}
 	m := Manifest{
 		Name:    y.Name,
 		Workdir: y.Workdir,
@@ -167,6 +201,7 @@ func LoadManifest(path string) (Manifest, error) {
 			StallThreshold:    stall,
 			StallHardTimeout:  hard,
 			WebhookSecret:     strings.TrimSpace(y.Settings.WebhookSecret),
+			RetentionDays:     retention,
 		},
 	}
 	for _, w := range y.Workers {
@@ -222,6 +257,14 @@ func WriteManifest(path string, m Manifest) error {
 		y.Settings.StallHardTimeout = m.Settings.StallHardTimeout.String()
 	}
 	y.Settings.WebhookSecret = m.Settings.WebhookSecret
+	// Retention round-trips like the stall knobs: default → omit, off → "0".
+	switch m.Settings.RetentionDays {
+	case DefaultRetentionDays: // omit
+	case 0:
+		y.Settings.RetentionDays = "0"
+	default:
+		y.Settings.RetentionDays = strconv.Itoa(m.Settings.RetentionDays)
+	}
 	b, err := yaml.Marshal(y)
 	if err != nil {
 		return fmt.Errorf("agentdef: marshal manifest: %w", err)

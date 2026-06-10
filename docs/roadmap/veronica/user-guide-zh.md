@@ -157,6 +157,7 @@ settings:
   # stall_threshold: 10m          # 成员忙超过即告警；"0" 关闭（省略 = 默认 10m）
   # stall_hard_timeout: 30m       # 忙超过即自动取消该次运行；0/省略 = 关闭
   # webhook_secret: "hunter2"     # 要求事件 POST 携带 X-Evva-Webhook-Secret（见 §10）
+  # retention_days: 30            # 已消费历史 N 天后归档+删除；"0" = 永不删除
 ```
 
 - 同一 space 内**成员名唯一**（不支持副本 —— 每个成员取不同名字）。
@@ -396,6 +397,37 @@ settings:
   （`2026-06-10T12:25:00Z`），确认回执会同时给出 UTC 对照，下错时区一眼可见。
 - cron（manifest 的 `schedule` 与 leader 的 `schedule_set`）按系统本地墙钟比对。
 
+### Ledger 瘦身（`retention_days` / `evva swarm vacuum`）
+
+24/7 跑的 swarm 会无限累积 messages 和已完成任务，Web/API 的读取随表变大而变慢。
+Retention 在**不丢历史**的前提下控制工作集：符合条件的行先追加到
+`<workdir>/.vero/archive/YYYY-MM.jsonl.gz`（按行自己的月份分桶），再删除并压缩
+数据库。
+
+只有这些行会被清（其余永不动）：
+
+- 已**读**、且读取发生在 ≥ `retention_days` 天前的 messages；
+- 进入终态 **completed** 且 ≥ `retention_days` 天的任务——但若仍被存活的行引用
+ （某条留存消息的 `ref_task`、某个子任务的 parent 链），则继续保留。
+
+未读信、claimed（折叠中）的信、以及 pending/running/suspended/verifying 状态的
+任务无论多老都碰不得。
+
+只要 `settings.retention_days` > 0（默认 **30**；写 `"0"` 保持旧的永不删除行为），
+service 每个本地日自动跑一次（service 启动时也补跑一次，弥补睡过午夜的机器）。
+手动跑、先预览：
+
+```bash
+evva swarm vacuum my-eng-team --dry-run     # 只报数字，什么都不动
+evva swarm vacuum my-eng-team               # 按配置窗口归档+删除
+evva swarm vacuum my-eng-team --days 7      # 本次临时覆盖窗口
+```
+
+之后要查归档：它就是 gzip 的 JSON-lines ——
+`zcat .vero/archive/2026-06.jsonl.gz | jq .`（每行带 `kind` message/task 和完整
+原始行）。量级参考：积压 10 万条 messages 时 API 单次 ~300 ms，vacuum 后回到
+亚毫秒，清理本身约 1.2 秒。
+
 ### 重启与续跑
 
 swarm 是崩溃安全的。在 `evva service stop`（或崩溃）后重新 `evva service start`：
@@ -494,6 +526,7 @@ curl -X POST http://127.0.0.1:8888/api/swarm/<space-id>/event \
 | `evva swarm ls` | 列出已注册的 space。 |
 | `evva swarm stop <id>` | 停止（并移除）一个 space。 |
 | `evva swarm add <id> <成员>` | 向 space 热加载一个 worker（`agents/sub/<成员>/`）。 |
+| `evva swarm vacuum <ref> [--days N] [--dry-run]` | 归档后删除已消费历史（RP-16）；dry-run 先预览。 |
 
 ### 环境变量
 

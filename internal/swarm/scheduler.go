@@ -528,9 +528,42 @@ func (s *Supervisor) timerTick(ctx context.Context) {
 		case now := <-t.C:
 			s.sweepBudgetDay(now)
 			s.sweepStalls(now)
+			s.sweepRetention(now)
 			s.fireDue(now)
 		}
 	}
+}
+
+// sweepRetention runs the RP-16 ledger vacuum once per local day — and once
+// right after startup, catching up a service that was down at midnight. The
+// pass runs in its own goroutine: it holds the store's write lock and may
+// VACUUM, which must not delay wakes on the tick goroutine. vacuumBusy
+// collapses overlap if a slow pass outlives the day check; vacuumDay is only
+// touched here (single tick goroutine), so it needs no lock.
+func (s *Supervisor) sweepRetention(now time.Time) {
+	days := s.sp.settings.RetentionDays // set once at construction, never mutated
+	if days <= 0 {
+		return // retention off — the pre-RP-16 "never deletes history" behavior
+	}
+	day := now.Local().Format("2006-01-02")
+	if day == s.vacuumDay || !s.vacuumBusy.CompareAndSwap(false, true) {
+		return
+	}
+	s.vacuumDay = day
+	cutoff := now.AddDate(0, 0, -days)
+	s.wg.Add(1) // tracked so teardown drains the pass BEFORE the store closes
+	go func() {
+		defer s.wg.Done()
+		defer s.vacuumBusy.Store(false)
+		stats, err := s.store.Vacuum(cutoff, false)
+		if err != nil {
+			s.log.Warn("swarm retention vacuum failed", "err", err)
+			return
+		}
+		if stats.Messages+stats.Tasks > 0 {
+			s.log.Info("swarm retention vacuum", "messages", stats.Messages, "tasks", stats.Tasks, "files", stats.Files)
+		}
+	}()
 }
 
 // fireDue pokes every scheduled, active member whose next activation has passed,

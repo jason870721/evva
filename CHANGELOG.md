@@ -30,6 +30,19 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Swarm ledger retention (RP-16).** A 24/7 swarm's messages and completed
+  tasks no longer grow without bound: rows whose life is over — messages READ
+  at least `retention_days` ago, tasks COMPLETED at least that long ago and
+  not referenced by anything that survives — are appended to
+  `<workdir>/.vero/archive/YYYY-MM.jsonl.gz` (gzip JSON-lines, readable with
+  `zcat … | jq`) and then deleted, with the database compacted. Unread mail,
+  claimed (in-flight) mail, and active tasks are untouchable regardless of
+  age. Runs automatically once per local day (plus a catch-up pass at service
+  start) when `settings.retention_days` > 0 (default 30; `"0"` keeps the old
+  never-delete behavior), and manually via `evva swarm vacuum <ref>
+  [--days N] [--dry-run]` / `POST /api/swarm/{id}/vacuum`. With a 100k-message
+  backlog the messages API drops from ~300 ms back to sub-millisecond after a
+  pass. Documented in the swarm user guide §8 (zh/en).
 - **Swarm web API auth hardening (RP-15).** The fixed dev session token
   (`root`) is gone: every `evva service start` mints a random secret, persists
   it to `~/.evva/service/token` (0600), and the CLI keeps reading that file —
