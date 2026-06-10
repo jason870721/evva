@@ -81,7 +81,7 @@ One schema, one loader, two visibility surfaces. This is also the seam that prof
 | `pkg/hooks` | Lifecycle hooks | Shell + HTTP backends for 6 event types |
 | `pkg/mcp` | MCP client | Server config, stdio + Streamable-HTTP transports, OAuth |
 | `pkg/banner` | Startup branding | ASCII art banner rendering |
-| `pkg/version` | Build version | `Version` constant (semver, no leading `v`) |
+| `pkg/version` | Build version | `Version` constant — the full current tag name incl. leading `v` (e.g. `"v1.4.5-beta.2"`) |
 | `pkg/update` | Self-update mechanism | `Check()` / `Apply()` |
 | `pkg/common` | Shared utilities | Small helpers used across packages |
 
@@ -144,118 +144,125 @@ Key boundaries:
 
 ### Branch strategy
 
+Each release branch owns exactly one tag tier: **`main` ships stable tags, `pre-release` ships beta tags.** There is no alpha tier.
+
 ```
-main  ← production (stable + beta tags; latest = stable)
-  ↑ Sat merge (pre-release must be a descendant; if diverged, use --no-ff)
-pre-release  ← staging (weekly feature accumulation, alpha tag)
-  ↑ Sat merge
+main  ← production (stable tags only: vX.Y.Z; GitHub "Latest")
+  ↑ promote (command: release)        ← hotfix/* cut from main (command: hotfix release)
+pre-release  ← staging (beta tags only: vX.Y.Z-beta.N; GitHub pre-release)
+  ↑ ship (commands: pre-release feature / hotfix pre-release)
 dev  ← integration
   ↑ feature PR, squash/merge after review
 feature/*  ← topic branches (cut from dev)
 ```
 
+This is the seam the `evva update` command rides on: `evva update` resolves GitHub's **Latest** release — the newest stable on `main` — while `evva update v<X>.<Y>.<Z>-beta.<N>` pins to a beta published from `pre-release` (see `pkg/update`). `go install ...@latest` ignores `-beta.N` tags entirely — only stable tags move `@latest`.
+
+**Backflow rule:** after EVERY tag (beta or stable), merge the tagged branch back into `dev` and push. This keeps `pkg/version/version.go` and `CHANGELOG.md` converged across all three branches. Skipping it is exactly why dev's version constant once drifted four releases behind and why every dev → pre-release merge used to hit a CHANGELOG conflict.
+
 ### Daily development
 
-1. Branch off `dev`: `git checkout -b feature/<ticket-or-name>` (e.g. `feature/PRD-11`, `feature/bundle-skill`).
-2. Commit changes with conventional commit prefixes: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`.
-3. Push to GitHub, open a PR targeting `dev`, wait for merge review.
-
-### Weekly release (every Saturday morning)
-
-The project publishes both pre-release (alpha) and release (beta + stable) tags. Beta tags are marked as `latest` on GitHub when no stable tag exists; once a stable tag is cut, `latest` points to it. Alpha tags are pre-release only.
-
-**Step 1 — Alpha release (dev → pre-release)**
-
-```bash
-git checkout pre-release
-git merge dev
-```
-
-Before tagging, verify:
-
-1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 alpha 版號（例如 `v1.4.3-alpha.1`）。
-2. Alpha release 不另寫 CHANGELOG，但版號應與 dev 分支累積的變更範圍一致。
-
-Then bump the version and tag:
-
-```
-git tag -a v<X>.<Y>.<Z>-alpha.<N> -m "v<X>.<Y>.<Z>-alpha.<N> — <summary>"
-git push origin pre-release v<X>.<Y>.<Z>-alpha.<N>
-gh release create v<X>.<Y>.<Z>-alpha.<N> --target pre-release --prerelease --title "v<X>.<Y>.<Z>-alpha.<N> — <summary>"
-```
-
-**Step 2 — Beta release (pre-release → main)**
-
-```bash
-git checkout main
-git merge pre-release --ff-only   # if diverged (e.g. changelog commits on main), use --no-ff merge instead
-```
-
-Before tagging, verify:
-
-1. `pkg/version/version.go` 中的 `Version` 常數已更新為正確的 beta 版號（例如 `v1.4.3-beta.1`）。
-2. `CHANGELOG.md` 中的 `[Unreleased]` 已改名為對應的 beta 版號，版號與內容一致。
-
-Then bump the version and tag:
-
-```
-git tag -a v<X>.<Y>.<Z>-beta.<N> -m "v<X>.<Y>.<Z>-beta.<N> — <summary>"
-git push origin main v<X>.<Y>.<Z>-beta.<N>
-gh release create v<X>.<Y>.<Z>-beta.<N> --target main --title "v<X>.<Y>.<Z>-beta.<N> — <summary>"
-```
-
-**Step 3 — Stable release (optional, on main)**
-
-When the project is ready for a stable release, promote the latest beta:
-
-```bash
-git checkout main
-# Update pkg/version/version.go: drop -beta.N suffix (e.g. v1.4.3-beta.1 → v1.4.3)
-# Update CHANGELOG.md: rename [vX.Y.Z-beta.N] → [vX.Y.Z], update comparison URLs
-git add pkg/version/version.go CHANGELOG.md
-git commit -m "chore: promote v<X>.<Y>.<Z>-beta.<N> to stable v<X>.<Y>.<Z>"
-git tag -a v<X>.<Y>.<Z> -m "v<X>.<Y>.<Z> — <summary>"
-git push origin main v<X>.<Y>.<Z>
-gh release create v<X>.<Y>.<Z> --target main --title "v<X>.<Y>.<Z> — <summary>"
-```
-
-**Important:** `go install ...@latest` ignores pre-release tags (`-alpha.N`, `-beta.N`). A stable tag is needed for `@latest` to resolve to the current version. Without one, `@latest` falls back to the last stable tag (e.g. `v0.2.0`).
+1. Branch off `dev`: `git checkout -b feature/<ticket-or-name>` (e.g. `feature/RP-15`, `feature/bundle-skill`).
+2. Commit with conventional prefixes: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`.
+3. Push to GitHub, open a PR targeting `dev`, merge after review.
 
 ### Version numbering
 
-`vX.Y.Z` where:
+`vX.Y.Z[-beta.N]`:
 
-| Component | Meaning |
+| Component | Rule |
 |---|---|
-| **X** (major) | Breaking changes, new direction |
-| **Y** (minor) | Feature updates |
-| **Z** (patch) | Bug fixes + small adjustments |
+| **X** (major) | Breaking change to the `pkg/` SDK surface or CLI/config behavior, or a direction-level milestone (v0 → v1). Deliberate and rare. |
+| **Y** (minor) | **One roadmap wave = one minor.** A wave claims its minor in its planning doc at planning time; the first release containing that wave's work bumps Y (Z=0). |
+| **Z** (patch) | Within-wave increments after the wave's debut: fixes, docs, small follow-ups. |
+| **-beta.N** | Only on `pre-release`. N counts cuts of the SAME target base version, starting at 1; it resets when the base changes. A stable tag is ALWAYS a verbatim promotion of the last beta of that base. |
 
-Pre-release suffix: `-beta.<N>` (on main), `-alpha.<N>` (on pre-release). N starts at 1 per base version.
+One-line litmus: **does the release contain work from a new roadmap wave → bump Y; otherwise → bump Z.**
 
-### CHANGELOG
+**Base-version decision** (run top-down when cutting a new beta):
 
-Only beta and stable releases get changelog entries (they're the user-facing releases). Each entry summarizes the features and fixes accumulated since the last release. Alpha releases do not get separate changelog entries.
+1. Contains work from a roadmap wave that has never shipped → that wave's claimed minor, `Z=0`. (Any unpromoted older beta is superseded; its content rides along, since dev is cumulative.)
+2. Else, the current beta's base is still unpromoted → keep that base; this cut is its `-beta.(N+1)`.
+3. Else → newest stable's `Z+1`, `-beta.1`.
 
-When a release is published, edit `CHANGELOG.md`:
+Wave → minor map (append a row whenever a new wave is planned):
 
-1. Rename `## [Unreleased]` → `## [v<X>.<Y>.<Z>]` (or `[v<X>.<Y>.<Z>-beta.<N>]`).
-2. Insert a fresh `## [Unreleased]` section at the top.
-3. Add a summary of what this release contains under `### Added`, `### Fixed`, `### Changed`, `### Breaking`.
-4. Update the comparison URLs at the bottom of the file.
+| Minor | Wave |
+|---|---|
+| v1.3 | MCP client |
+| v1.4 | Typed memory + Veronica Phase 1 (refine waves 1–3, timezone discipline) |
+| v1.5 | Veronica wave 4 — operational hardening (RP-13..RP-18) |
+| v1.6 | Explore track (EX-1..EX-6) — confirm scope when the first EX ships |
 
-Then commit:
+### The four release commands
 
-```
-git add CHANGELOG.md && git commit -m "chore: changelog for v<X>.<Y>.<Z>"
-```
+The operator triggers every release with one of four phrases — match on intent, however the sentence is phrased:
+
+| Command | Meaning | Version |
+|---|---|---|
+| **`pre-release feature`** | ship dev's accumulated work as a new beta | base-version decision above; first cut of a base → `-beta.1` |
+| **`hotfix pre-release`** | the current beta broke; re-cut it with fixes | same base, `-beta.(N+1)` |
+| **`release`** | promote the newest beta to stable | strip `-beta.N` |
+| **`hotfix release`** | critical fix straight onto stable | newest stable `Z+1`, no beta |
+
+**Each phrase IS the full authorization** to execute its playbook end-to-end, including pushing branches and tags — do not ask again. Stop and report instead of pushing only when a precondition fails: dirty tree, failing tests, or the actual dev delta contradicting the command's intent (e.g. `hotfix pre-release` requested but features are present).
+
+#### Playbook: `pre-release feature`
+
+1. Preflight: clean tree; `git fetch origin`; `go test ./...` green on dev.
+2. Pick the target version with the base-version decision (check `git tag --sort=-creatordate | head` for current state).
+3. `git checkout pre-release && git pull && git merge dev` (`--no-ff` is fine when diverged).
+4. `pkg/version/version.go`: set `Version` to the full tag name (e.g. `"v1.5.0-beta.1"`).
+5. `CHANGELOG.md`: rename `[Unreleased]` → `[vX.Y.Z-beta.1] — <date>`; insert a fresh `[Unreleased]` on top; update the comparison URLs at the bottom.
+6. `git add pkg/version/version.go CHANGELOG.md && git commit -m "chore: changelog and version bump for vX.Y.Z-beta.1"`.
+7. `git tag -a vX.Y.Z-beta.1 -m "vX.Y.Z-beta.1 — <one-line summary>"`.
+8. `git push origin pre-release vX.Y.Z-beta.1` — the tag push triggers `.github/workflows/release.yml` (tag contains `-` → published as a GitHub pre-release).
+9. Backflow: `git checkout dev && git merge pre-release && git push origin dev`.
+10. Report: tag, what shipped, release URL.
+
+#### Playbook: `hotfix pre-release`
+
+Premise: the fix is already merged to dev via the normal `feature/*` flow (if not, do that first). Verify the dev → pre-release delta is fixes-only; if features snuck in, report and suggest `pre-release feature` instead.
+
+1. Version = same base as the current beta, `-beta.(N+1)`.
+2. Steps 3–10 as in `pre-release feature`, with one CHANGELOG difference: do NOT open a new entry — fold the fix lines into the existing `[vX.Y.Z-beta.N]` entry and rename its heading to `-beta.(N+1)` (one entry per base version; the eventual stable entry is cumulative).
+
+#### Playbook: `release`
+
+1. Identify the newest beta on `pre-release`; report its soak time (days since the tag) for the record.
+2. `git checkout main && git pull && git merge pre-release` (`--ff-only` when possible, else `--no-ff`).
+3. `pkg/version/version.go`: drop `-beta.N` (e.g. `"v1.5.0"`).
+4. `CHANGELOG.md`: rename `[vX.Y.Z-beta.N]` → `[vX.Y.Z] — <date>`; update the comparison URLs.
+5. `git add pkg/version/version.go CHANGELOG.md && git commit -m "chore: promote vX.Y.Z-beta.N to stable vX.Y.Z"`.
+6. `git tag -a vX.Y.Z -m "vX.Y.Z — <one-line summary>"` then `git push origin main vX.Y.Z` — a bare tag publishes as **Latest** (`evva update` and `@latest` move to it).
+7. Backflow: `git checkout dev && git merge main && git push origin dev` (pre-release converges at its next cut from dev).
+8. Report: tag, soak time, release URL.
+
+#### Playbook: `hotfix release`
+
+For a critical bug in the current stable while `pre-release` may already carry the next wave.
+
+1. `git checkout main && git pull && git checkout -b hotfix/<name>`; apply the fix (or cherry-pick it from dev); `go test ./...`.
+2. Merge `hotfix/<name>` into `main`.
+3. Version = newest stable `Z+1`, tagged stable DIRECTLY — the only path that skips a beta. If that number is already claimed by an unpromoted beta, the hotfix still takes it; the superseded beta's content re-ships later under the next free number (never delete or re-point existing tags).
+4. `pkg/version/version.go` + a new `[vX.Y.Z] — <date>` CHANGELOG entry (typically just `### Fixed`), committed together.
+5. `git tag -a vX.Y.Z -m "vX.Y.Z — <summary>"` then `git push origin main vX.Y.Z`.
+6. Backflow: `git checkout dev && git merge main && git push origin dev`. The fix reaches `pre-release` at its next cut from dev.
+7. Report.
+
+### CHANGELOG rules
+
+- **One entry per base version.** It is born as `[vX.Y.Z-beta.1]` at the first beta; each later beta of the same base folds its lines in and renames the heading; promotion renames it to `[vX.Y.Z]`. A hotfix-release entry is born stable directly.
+- `[Unreleased]` always sits on top between releases; sections are `### Added` / `### Fixed` / `### Changed` / `### Breaking`.
+- Update the comparison URLs at the bottom on every rename.
+- Merge-conflict rule (legacy drift only): keep `[Unreleased]` from dev on top, released entries below, dedupe lines.
 
 ### Key rules
 
-- `pkg/version/version.go` stores the *current* version constant.
-- Bump the version in a separate commit before tagging.
-- Always ask before pushing tags or releases — pushing is a shared-state operation.
-- `gh release create` targets `main` for beta/stable, `pre-release` for alpha.
+- `pkg/version/version.go`'s `Version` constant carries the FULL tag name including the leading `v` (e.g. `"v1.4.5-beta.2"`). It is the dev-build fallback for `evva update`'s current-version check; release binaries get the real tag injected via ldflags (`pkg/config.Version`). Invariant: tag name == `Version` constant == CHANGELOG heading.
+- The four release commands carry push authorization. Any tag or release push OUTSIDE these four playbooks still requires asking first — pushing is a shared-state operation.
+- Never skip the backflow merge into `dev` after a tag.
+- Releases are published by `.github/workflows/release.yml` on tag push (cross-compiles binaries, attaches them, generates notes): tag containing `-` → `--prerelease`; bare `vX.Y.Z` → Latest. No manual `gh release create`.
 
 ---
 
