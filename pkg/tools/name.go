@@ -144,6 +144,10 @@ const (
 	JSON_QUERY ToolName = "json_query"
 	CALC       ToolName = "calc"
 
+	// EXCEL — read, write, create, and manipulate Excel (.xlsx) spreadsheets.
+	// Deferred: the LLM discovers it via tool_search when it needs Excel operations.
+	EXCEL ToolName = "excel"
+
 	// REPL — run a Python or JavaScript snippet in a fresh subprocess and
 	// return combined stdout+stderr. Deferred; surfaced via tool_search.
 	REPL ToolName = "repl"
