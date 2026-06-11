@@ -254,6 +254,7 @@ func (s *Supervisor) runOnce(ctx context.Context, name string, m *memberRun, pro
 func (s *Supervisor) meterRun(name string, pre llm.Usage, ctl ui.Controller) {
 	post := ctl.Usage()
 	delta := (post.InputTokens + post.OutputTokens) - (pre.InputTokens + pre.OutputTokens)
+	s.sp.metrics.countRunTokens(name, delta) // RP-28: same delta as the daily fold below
 	total := s.sp.addDailyUsage(name, delta, localDay(time.Now()))
 	s.sp.Roster.setUsage(name, post, ctl.LastTurnInputTokens(), total)
 

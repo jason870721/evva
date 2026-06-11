@@ -229,6 +229,12 @@ type RunEndPayload struct {
 	Content string
 	// Thinking is the assistant's reasoning text (if any).
 	Thinking string
+	// Usage is this run's token cost (RP-28): the session-usage delta from
+	// loop entry (Run, or Continue after an iter-limit pause) to this event.
+	// Cache fields carry the provider's prompt-cache accounting where
+	// reported, zero otherwise. nil when the provider reported no usage at
+	// all (e.g. a stub client) — absent, never fabricated.
+	Usage *llm.Usage `json:",omitempty"`
 }
 
 // IterLimitPayload is emitted when the loop hits Agent.maxIters. The UI

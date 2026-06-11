@@ -344,12 +344,16 @@ type MetricsInfo struct {
 
 // MemberMetricsInfo is one member's scheduler counters. RunSeconds buckets
 // completed runs by wall-clock duration: lt10s / lt1m / lt10m / gte10m.
+// RunTokens buckets the same runs by token cost (input+output, the RP-13
+// delta): lt1k / lt10k / lt50k / gte50k (RP-28) — the histogram that says
+// whether a watchdog's per-run cost is creeping up with history length.
 type MemberMetricsInfo struct {
 	WakesMessage int64            `json:"wakesMessage"`
 	WakesTimer   int64            `json:"wakesTimer"`
 	Runs         int64            `json:"runs"`
 	Aborts       int64            `json:"aborts"`
 	RunSeconds   map[string]int64 `json:"runSeconds"`
+	RunTokens    map[string]int64 `json:"runTokens"`
 }
 
 // ProposalInfo mirrors store.Proposal on the wire

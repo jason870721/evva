@@ -210,6 +210,12 @@ type Agent struct {
 	// invalid request shape every provider rejects).
 	running atomic.Bool
 
+	// runStartUsage is the session-usage snapshot taken when runLoop entered
+	// (RP-28): done() reports the run's own token cost as the delta from it
+	// on the RunEnd event. Written and read only by the goroutine holding
+	// the `running` CAS.
+	runStartUsage llm.Usage
+
 	// sessionOnce ensures SessionStart fires exactly once per agent
 	// lifetime — the first Run() call triggers it; Continue() (resume,
 	// iter-limit re-entry) does not.

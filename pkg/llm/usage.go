@@ -28,6 +28,18 @@ func (u Usage) Add(v Usage) Usage {
 	}
 }
 
+// Sub returns the per-field difference u − v: the cost of one slice of work
+// cut out of a cumulating counter (delta = after.Sub(before)). Mirror of Add.
+func (u Usage) Sub(v Usage) Usage {
+	return Usage{
+		InputTokens:         u.InputTokens - v.InputTokens,
+		OutputTokens:        u.OutputTokens - v.OutputTokens,
+		CacheReadTokens:     u.CacheReadTokens - v.CacheReadTokens,
+		CacheCreationTokens: u.CacheCreationTokens - v.CacheCreationTokens,
+		ReasoningTokens:     u.ReasoningTokens - v.ReasoningTokens,
+	}
+}
+
 // Total returns InputTokens + OutputTokens. Cache fields are subsets of
 // InputTokens (per Anthropic's accounting), so they are not double-counted.
 func (u Usage) Total() int {

@@ -593,7 +593,7 @@ line each. "What happened at 03:00 last night?" is now a grep, even after a
 restart:
 
 ```bash
-grep '03:0' .vero/events/2026-06-09.jsonl | jq '.event.event.Kind' | sort | uniq -c
+grep '03:0' .vero/events/2026-06-09.jsonl | jq '.event.Kind' | sort | uniq -c
 ```
 
 Files rotate daily; old days are pruned by the same `retention_days` window
@@ -611,8 +611,24 @@ curl -s -H "Authorization: Bearer $(cat ~/.evva/service/token)" \
 returns `uptimeSecs`, `eventsLogged` / `eventsDropped` (the recorder),
 `hintsDropped` (mailbox backpressure — a climbing value means a chronically
 backed-up member), and per-member `wakesMessage` / `wakesTimer` / `runs` /
-`aborts` plus a run-duration histogram (`runSeconds`: lt10s / lt1m / lt10m /
-gte10m). Plain JSON — point your own exporter at it if you want history.
+`aborts`, a run-duration histogram (`runSeconds`: lt10s / lt1m / lt10m /
+gte10m), and a **per-run token-cost histogram** (`runTokens`: lt1k / lt10k /
+lt50k / gte50k, RP-28 — fed from the same delta as the RP-13 daily meter, so
+the two can never disagree). Plain JSON — point your own exporter at it if
+you want history.
+
+**Per-run token metering (RP-28)**: every `run_end` event carries that run's
+own token cost (`Usage`: InputTokens / OutputTokens / CacheReadTokens /
+CacheCreationTokens — whether the conversation history hit the prompt cache
+is visible at a glance; when the provider reports no usage the field is
+absent, never fabricated). "What does the watchdog's per-wake cost look like
+this week — is it creeping up with history length?" is one jq:
+
+```bash
+jq -r 'select(.event.Kind=="run_end" and .event.AgentID=="<member-agent-id>")
+  | .event.RunEnd.Usage | "\(.InputTokens) \(.CacheReadTokens)"' \
+  .vero/events/2026-06-*.jsonl
+```
 
 ### Autostart (survive crashes and reboots)
 

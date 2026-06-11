@@ -520,7 +520,7 @@ token 级的流式 chunk）都会同时追加到 `<workdir>/.vero/events/YYYY-MM
 也不丢：
 
 ```bash
-grep '03:0' .vero/events/2026-06-09.jsonl | jq '.event.event.Kind' | sort | uniq -c
+grep '03:0' .vero/events/2026-06-09.jsonl | jq '.event.Kind' | sort | uniq -c
 ```
 
 文件按日切；旧文件按同一个 `retention_days` 窗口清理（`"0"` = 永久保留）。
@@ -536,8 +536,21 @@ curl -s -H "Authorization: Bearer $(cat ~/.evva/service/token)" \
 
 返回 `uptimeSecs`、`eventsLogged` / `eventsDropped`（记录器）、`hintsDropped`
 （信箱背压——持续上涨说明某成员长期积压）、以及每成员的 `wakesMessage` /
-`wakesTimer` / `runs` / `aborts` 和运行时长直方图（`runSeconds`：lt10s / lt1m /
-lt10m / gte10m）。纯 JSON——要历史曲线就自己接 exporter。
+`wakesTimer` / `runs` / `aborts`、运行时长直方图（`runSeconds`：lt10s / lt1m /
+lt10m / gte10m）和**每次运行的 token 成本直方图**（`runTokens`：lt1k / lt10k /
+lt50k / gte50k，RP-28——与 RP-13 当日计量同一笔 delta，不二记）。纯 JSON——
+要历史曲线就自己接 exporter。
+
+**Per-run token 计量（RP-28）**：每条 `run_end` 事件带该次运行自己的 token 成本
+（`Usage`：InputTokens / OutputTokens / CacheReadTokens / CacheCreationTokens——
+对话史在不在 cache 里一眼可见；provider 没报 usage 时整个字段缺席，绝不伪造）。
+「watchdog 这周每次唤醒花多少、有没有随对话变长而爬升」一句 jq 就能回答：
+
+```bash
+jq -r 'select(.event.Kind=="run_end" and .event.AgentID=="<member-agent-id>")
+  | .event.RunEnd.Usage | "\(.InputTokens) \(.CacheReadTokens)"' \
+  .vero/events/2026-06-*.jsonl
+```
 
 ### 开机自启（扛住 crash 与重启）
 

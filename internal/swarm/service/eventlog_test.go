@@ -132,10 +132,17 @@ func TestEventLogIntegration(t *testing.T) {
 			return false
 		}
 		content, _ = os.ReadFile(filepath.Join(evDir, entries[0].Name()))
-		return strings.Contains(string(content), `"turn_start"`)
+		return strings.Contains(string(content), `"turn_start"`) &&
+			strings.Contains(string(content), `"run_end"`)
 	})
 	if !strings.Contains(string(content), `"spaceId":"sp-evlog-on"`) {
 		t.Fatalf("event line lacks the wire envelope: %q", content)
+	}
+	// RP-28 acceptance: the run_end line in the FILE carries the run's own
+	// token cost (the stub reports 120 in / 30 out per turn), so one day of
+	// event log reconstructs any member's per-run series with jq alone.
+	if !strings.Contains(string(content), `"InputTokens":120`) || !strings.Contains(string(content), `"OutputTokens":30`) {
+		t.Fatalf("run_end line lacks per-run usage: %q", content)
 	}
 
 	// Toggle OFF (the plain stub): same activity, no events dir.

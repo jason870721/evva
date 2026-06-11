@@ -86,6 +86,14 @@ func TestBudgetBreakerTripsFreezesAndNotifies(t *testing.T) {
 		t.Errorf("snapshot usage = %+v daily %d, want in 800 out 400 daily 1200", v.Usage, v.DailyTokens)
 	}
 
+	// RP-28: the run-token histogram counted the SAME two runs the daily
+	// counter metered (one source, no double books) — 600 tokens/run lands
+	// both in the <1k bucket.
+	mm, _ := sp.MetricsSnapshot()
+	if got := mm["w"].RunTokens; got != [4]int64{2, 0, 0, 0} {
+		t.Errorf("RunTokens = %v, want [2 0 0 0] — two 600-token runs in the <1k bucket", got)
+	}
+
 	// Frozen: further mail queues but never runs.
 	if _, err := sp.Bus.Send(store.Message{Sender: "user", Recipient: "w", Body: "ignored"}); err != nil {
 		t.Fatalf("send: %v", err)

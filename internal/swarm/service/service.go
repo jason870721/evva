@@ -1734,6 +1734,10 @@ func (s *Service) Metrics(ref string) (webapi.MetricsInfo, bool) {
 				"lt10s": m.RunSeconds[0], "lt1m": m.RunSeconds[1],
 				"lt10m": m.RunSeconds[2], "gte10m": m.RunSeconds[3],
 			},
+			RunTokens: map[string]int64{
+				"lt1k": m.RunTokens[0], "lt10k": m.RunTokens[1],
+				"lt50k": m.RunTokens[2], "gte50k": m.RunTokens[3],
+			},
 		}
 	}
 	return mi, true

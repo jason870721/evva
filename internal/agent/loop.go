@@ -133,6 +133,11 @@ func (a *Agent) Continue(ctx context.Context) (string, error) {
 // already contains whatever messages the caller wants to seed (a fresh
 // RoleUser for Run; nothing extra for Continue).
 func (a *Agent) runLoop(ctx context.Context) (string, error) {
+	// Per-run usage baseline (RP-28): done() reports this loop's token cost
+	// as the session-usage delta from here. Safe without locks — only the
+	// goroutine that won the a.running CAS reaches this.
+	a.runStartUsage = a.session.Usage
+
 	var stopHookActive bool
 	for iter := 0; iter < int(a.maxIters.Load()); iter++ {
 
@@ -312,6 +317,12 @@ func (a *Agent) done(iter int, resp llm.Response) string {
 				Iters:    iter,
 				Content:  resp.Content,
 				Thinking: resp.Thinking,
+			}
+			// Per-run token cost (RP-28): the session delta since runLoop
+			// entered. A provider that reported nothing leaves the whole
+			// delta zero → field stays nil (absent, never fabricated).
+			if delta := a.session.Usage.Sub(a.runStartUsage); delta != (llm.Usage{}) {
+				e.RunEnd.Usage = &delta
 			}
 		})
 		a.logger.Debug("run.done.mainagent", "status", a.status)

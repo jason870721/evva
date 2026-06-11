@@ -16,6 +16,12 @@ type MemberMetrics struct {
 	// RunSeconds buckets completed runs by wall-clock duration:
 	// [0] <10s, [1] <1m, [2] <10m, [3] ≥10m.
 	RunSeconds [4]int64
+	// RunTokens buckets runs by token cost (input+output, the same per-run
+	// delta the RP-13 daily counter folds — one source, no double books):
+	// [0] <1k, [1] <10k, [2] <50k, [3] ≥50k. A run whose provider reported
+	// no usage lands in [0] with zero cost — the bucket count still equals
+	// Runs, so "every run metered" stays checkable (RP-28).
+	RunTokens [4]int64
 }
 
 // spaceMetrics aggregates per-member counters. Mutex-guarded plain ints —
@@ -82,6 +88,28 @@ func (m *spaceMetrics) countRun(name string, d time.Duration, clean bool) {
 		mm.RunSeconds[2]++
 	default:
 		mm.RunSeconds[3]++
+	}
+}
+
+// countRunTokens buckets one finished run's token cost (RP-28). Fed from
+// meterRun with the SAME delta that feeds the RP-13 daily counter, so the
+// histogram and the budget gauge can never disagree about a run's cost.
+func (m *spaceMetrics) countRunTokens(name string, total int) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	mm := m.memberLocked(name)
+	switch {
+	case total < 1_000:
+		mm.RunTokens[0]++
+	case total < 10_000:
+		mm.RunTokens[1]++
+	case total < 50_000:
+		mm.RunTokens[2]++
+	default:
+		mm.RunTokens[3]++
 	}
 }
 

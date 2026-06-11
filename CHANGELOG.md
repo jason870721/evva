@@ -14,6 +14,20 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Per-run token metering (RP-28 Part A).** Every `run_end` event now
+  carries the run's own token cost — `RunEndPayload.Usage` (new SDK field on
+  `pkg/event`), the session-usage delta from loop entry, cache read/creation
+  included where the provider reports them, `nil` (absent, never fabricated)
+  when nothing was reported. One day of a space's event log reconstructs any
+  member's per-run cost series with jq alone — the number that says whether
+  a watchdog's per-wake cost creeps up with conversation length, and whether
+  the RP-5 prompt-cache discipline is actually hitting. `/metrics` gains a
+  per-member `runTokens` histogram (lt1k / lt10k / lt50k / gte50k buckets,
+  the runSeconds pattern) fed from the SAME delta the RP-13 daily meter
+  folds — one source, no double books. New `pkg/llm` helper: `Usage.Sub`
+  (mirror of `Add`). Part B (fresh-context wakes) stays a design direction
+  gated on this data, per the ticket. Web per-run sparkline rides the FE
+  batch (FE-5).
 - **CLI operator messaging: `evva swarm send <ref> <member> <text|->`
   (RP-27).** The web composer's flat-comms primitive, now scriptable: POSTs
   the existing `/api/agents/{member}/message` endpoint as sender `user`

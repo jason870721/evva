@@ -97,6 +97,9 @@ func ctlSpace(t *testing.T, members map[string]agentdef.Role) (*SwarmSpace, map[
 		Workdir:   dir,
 		Roster:    newRoster(),
 		schedules: map[string]agentdef.Schedule{},
+		// Metrics like production (NewSpace always sets them) so counter
+		// assertions — run-token histogram included (RP-28) — see real tallies.
+		metrics: newSpaceMetrics(),
 	}
 	sp.Bus = bus.New(st, sp.Roster)
 

@@ -30,7 +30,10 @@ func (f *fakeLLM) Name() string             { return stubProvider }
 func (f *fakeLLM) Model() string            { return f.model }
 func (*fakeLLM) SupportsDeferLoading() bool { return false }
 func (*fakeLLM) Complete(context.Context, []llm.Message, []tools.Tool) (llm.Response, error) {
-	return llm.Response{Content: "ok"}, nil
+	// A small fixed usage per turn, so run_end events carry a per-run cost
+	// (RP-28) and the event-log integration test can assert the full chain
+	// agent → pump → file.
+	return llm.Response{Content: "ok", Usage: llm.Usage{InputTokens: 120, OutputTokens: 30}}, nil
 }
 func (f *fakeLLM) Stream(ctx context.Context, m []llm.Message, ts []tools.Tool, _ llm.ChunkSink) (llm.Response, error) {
 	return f.Complete(ctx, m, ts)
