@@ -12,6 +12,8 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.5.2-beta.1] — 2026-06-11
+
 ### Added
 
 - **Worker task proposals (RP-23).** The bottom-up work inlet: a worker that
@@ -1252,7 +1254,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.5.1-beta.2...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.5.2-beta.1...HEAD
+[v1.5.2-beta.1]: https://github.com/johnny1110/evva/compare/v1.5.1-beta.2...v1.5.2-beta.1
 [v1.5.1-beta.2]: https://github.com/johnny1110/evva/compare/v1.5.1-beta.1...v1.5.1-beta.2
 [v1.5.1-beta.1]: https://github.com/johnny1110/evva/compare/v1.5.0-beta.5...v1.5.1-beta.1
 [v1.5.0-beta.5]: https://github.com/johnny1110/evva/compare/v1.5.0-beta.4...v1.5.0-beta.5
