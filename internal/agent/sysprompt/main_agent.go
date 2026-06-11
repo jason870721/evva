@@ -147,6 +147,7 @@ func mainToolsGuideSection() string {
 		"- Pick the right tool: `" + nameScheduleWakeup + "` is a BLOCKING relative sleep capped at 1 hour — right for \"poll again in 60s\". An alarm is the tool for a SPECIFIC date/time or any wait longer than an hour (\"resume this tomorrow 09:00\", \"follow up at 2026-09-11 12:31:50\"). For a RECURRING cadence use cron, not a chain of alarms.\n\n" +
 		"## Web tools (`" + nameWebSearch + "` / `" + nameWebFetch + "`)\n" +
 		"Reach for these when the answer depends on info past your training cutoff: latest financial news, library versions, new APIs, current events, or a verbatim error-message lookup.\n\n" +
+		untrustedContentProtocolLine + "\n\n" +
 		"## Json tools (`" + nameJSONQuery + "`)\n" +
 		"Extract a value from a JSON blob using a simple path expression.\n\n" +
 		"## Calculate tools (`" + nameCalc + "`)\n" +

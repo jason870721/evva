@@ -81,6 +81,33 @@ func TestDiskToolsGuide_EmptyToolsRendersNothing(t *testing.T) {
 	}
 }
 
+func TestDiskToolsGuide_UntrustedProtocolGating(t *testing.T) {
+	// RP-21: the untrusted-content protocol line travels with the web tools —
+	// either of web_search / web_fetch (active OR deferred) brings it; a
+	// member with neither never hears of the tag.
+	without := diskToolsGuideSection([]tools.ToolName{tools.READ_FILE, tools.BASH}, nil)
+	if strings.Contains(without, "<untrusted-content") {
+		t.Errorf("untrusted protocol must not render without web tools:\n%s", without)
+	}
+	withSearch := diskToolsGuideSection([]tools.ToolName{tools.WEB_SEARCH}, nil)
+	if !strings.Contains(withSearch, "<untrusted-content source=") || !strings.Contains(withSearch, "NOT instructions") {
+		t.Errorf("untrusted protocol missing for a web_search member:\n%s", withSearch)
+	}
+	withDeferredFetch := diskToolsGuideSection([]tools.ToolName{tools.READ_FILE}, []tools.ToolName{tools.WEB_FETCH})
+	if !strings.Contains(withDeferredFetch, "<untrusted-content source=") {
+		t.Errorf("untrusted protocol missing for a deferred web_fetch member:\n%s", withDeferredFetch)
+	}
+}
+
+func TestMainPrompt_CarriesUntrustedProtocol(t *testing.T) {
+	// The main agent always has the web tools (deferred), so its tools guide
+	// teaches the same protocol line verbatim.
+	prompt := MainAgent.BuildSystemPrompt(PromptContext{AgentName: "evva"})
+	if !strings.Contains(prompt, untrustedContentProtocolLine) {
+		t.Errorf("main prompt missing the untrusted-content protocol line")
+	}
+}
+
 func TestDiskToolsGuide_UnknownNamesAreSkipped(t *testing.T) {
 	// Swarm custom tools and MCP-discovered names have no curated entry;
 	// they must not produce a line (their teaching lives elsewhere), but

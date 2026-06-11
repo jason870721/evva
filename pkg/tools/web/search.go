@@ -148,8 +148,10 @@ func (t *SearchTool) Execute(ctx context.Context, logger *slog.Logger, input jso
 		return tools.Result{Content: fmt.Sprintf("web_search: no results for %q", query)}, nil
 	}
 
+	// Titles, URLs, and snippets are authored by the outside world — the whole
+	// result list goes inside one untrusted envelope; only the header line is
+	// evva's own framing (RP-21).
 	var b strings.Builder
-	fmt.Fprintf(&b, "Search results for %q:\n\n", query)
 	for i, r := range out.Results {
 		title := strings.TrimSpace(r.Title)
 		if title == "" {
@@ -161,5 +163,6 @@ func (t *SearchTool) Execute(ctx context.Context, logger *slog.Logger, input jso
 		}
 		b.WriteByte('\n')
 	}
-	return tools.Result{Content: strings.TrimRight(b.String(), "\n")}, nil
+	header := fmt.Sprintf("Search results for %q:\n\n", query)
+	return tools.Result{Content: header + wrapUntrusted("web_search", strings.TrimRight(b.String(), "\n"))}, nil
 }
