@@ -11,6 +11,9 @@ import type {
   TranscriptEntry,
   SkillInfo,
   SkillSpec,
+  ProposalInfo,
+  MemoryFileInfo,
+  MetricsInfo,
 } from '../types/wire'
 import type { WireEvent } from '../types/events'
 
@@ -58,6 +61,13 @@ export function createApi(getToken: () => string) {
       req<TranscriptEntry[]>('GET', `/api/agents/${enc(agent)}/transcript?space=${enc(id)}`),
     // Outstanding approval/question gates (raw event shape), re-rendered on (re)connect.
     pending: (id: string) => req<WireEvent[]>('GET', `/api/swarm/${enc(id)}/pending`),
+    // Worker proposals (RP-23), read-only: the leader decides via its own tools.
+    proposals: (id: string) => req<ProposalInfo[]>('GET', `/api/swarm/${enc(id)}/proposals`),
+    // Member long-term memory (RP-25), the operator's read-only transparency window.
+    memberMemory: (id: string, agent: string) =>
+      req<MemoryFileInfo[]>('GET', `/api/agents/${enc(agent)}/memory?space=${enc(id)}`),
+    // Scheduler counters (RP-17) + watchdog tallies (RP-22) + run-token histograms (RP-28).
+    metrics: (id: string) => req<MetricsInfo>('GET', `/api/swarm/${enc(id)}/metrics`),
 
     // commands
     run: (id: string, agent: string, prompt: string) =>
@@ -89,6 +99,12 @@ export function createApi(getToken: () => string) {
       req<null>('POST', `/api/agents/${enc(agent)}/skills?space=${enc(id)}`, spec),
     deleteSkill: (id: string, agent: string, skill: string) =>
       req<null>('DELETE', `/api/agents/${enc(agent)}/skills/${enc(skill)}?space=${enc(id)}`),
+    // Space-shared skills (RP-26): one copy EVERY member loads; add/delete
+    // hot-reloads the whole team. Create-only — delete first to replace.
+    sharedSkills: (id: string) => req<SkillInfo[]>('GET', `/api/swarm/${enc(id)}/skills`),
+    addSharedSkill: (id: string, spec: SkillSpec) => req<null>('POST', `/api/swarm/${enc(id)}/skills`, spec),
+    deleteSharedSkill: (id: string, skill: string) =>
+      req<null>('DELETE', `/api/swarm/${enc(id)}/skills/${enc(skill)}`),
     halt: (id: string) => req<null>('POST', `/api/halt?space=${enc(id)}`),
     // Lifecycle (ref = id or name): stop KEEPS the space (run restarts it).
     stopSpace: (ref: string) => req<null>('POST', `/api/swarm/${enc(ref)}/stop`),

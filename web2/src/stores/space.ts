@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { attentionItems, type AttentionItem } from '../lib/events'
 import { api } from '../lib/apiClient'
 import { errMsg } from '../lib/util'
-import type { MemberInfo, MemberSpec, SkillInfo, SkillSpec } from '../types/wire'
+import type { MemberInfo, MemberSpec, MemoryFileInfo, MetricsInfo, SkillInfo, SkillSpec } from '../types/wire'
 import { useConnectionStore } from './connection'
 import { useStreamStore } from './stream'
 import { useUiStore } from './ui'
@@ -99,6 +99,32 @@ export const useSpaceStore = defineStore('space', {
       const id = useConnectionStore().spaceId
       if (!id) return
       await api.deleteSkill(id, name, skill)
+    },
+    // Space-shared skills (RP-26): one copy every member loads; add/delete
+    // hot-reloads the whole team.
+    fetchSharedSkills(): Promise<SkillInfo[]> {
+      const id = useConnectionStore().spaceId
+      return id ? api.sharedSkills(id) : Promise.resolve([])
+    },
+    async addSharedSkill(spec: SkillSpec) {
+      const id = useConnectionStore().spaceId
+      if (!id) return
+      await api.addSharedSkill(id, spec)
+    },
+    async deleteSharedSkill(skill: string) {
+      const id = useConnectionStore().spaceId
+      if (!id) return
+      await api.deleteSharedSkill(id, skill)
+    },
+    // Member long-term memory (RP-25), read-only.
+    fetchMemory(name: string): Promise<MemoryFileInfo[]> {
+      const id = useConnectionStore().spaceId
+      return id ? api.memberMemory(id, name) : Promise.resolve([])
+    },
+    // Scheduler/watchdog/token counters (RP-17/22/28), fetched on demand.
+    fetchMetrics(): Promise<MetricsInfo | null> {
+      const id = useConnectionStore().spaceId
+      return id ? api.metrics(id) : Promise.resolve(null)
     },
     reset() {
       this.roster = []

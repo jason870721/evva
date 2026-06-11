@@ -158,6 +158,31 @@ func TestSetupSwarmSkill_Content(t *testing.T) {
 		"list_members",
 		"skill",
 		"advertise_skills",
+		// Fifth-wave coverage (RP-19..28): the ecosystem guidance must keep
+		// naming the per-member trust/cost knobs, the watchdog + retention
+		// settings, the shared-skill and proposal surfaces, member memory,
+		// and the operator-side CLI verbs.
+		"accept_edits",
+		"budget_tokens",
+		"daily_budget_tokens",
+		"stall_threshold",
+		"task_stale_threshold",
+		"mailbox_stale_threshold",
+		"retention_days",
+		"event_log",
+		"webhook_secret",
+		"X-Evva-Webhook-Secret",
+		"permissions.json",
+		"agents/skills/",
+		"skill_publish",
+		"task_propose",
+		"proposal_accept",
+		"memory/",
+		"MEMORY.md",
+		"tool_search",
+		"evva swarm send",
+		"evva swarm vacuum",
+		"evva service status",
 	} {
 		if !strings.Contains(body, must) {
 			t.Errorf("setup-swarm body missing required reference %q", must)

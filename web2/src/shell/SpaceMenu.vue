@@ -7,12 +7,18 @@ import { useRouter } from 'vue-router'
 import { useSpacesStore } from '../stores/spaces'
 import { errMsg } from '../lib/util'
 import ConfirmDialog from '../components/safety/ConfirmDialog.vue'
+import SharedSkillsPanel from '../components/compose/SharedSkillsPanel.vue'
+import MetricsPanel from '../components/ops/MetricsPanel.vue'
 
 const props = defineProps<{ spaceId: string }>()
 const spaces = useSpacesStore()
 const router = useRouter()
 const open = ref(false)
 const err = ref('')
+// Space-scoped management panes (read/author, not destructive): the shared
+// skill library (RP-26) and the metrics counters (RP-17/22/28).
+const showSkills = ref(false)
+const showMetrics = ref(false)
 
 interface Confirm {
   title: string
@@ -97,6 +103,9 @@ function remove() {
     <template v-if="open">
       <div class="backdrop" @click="open = false" />
       <ul class="menu">
+        <li @click="showSkills = true; open = false">✦ shared skills</li>
+        <li @click="showMetrics = true; open = false">📊 metrics</li>
+        <li class="sep" aria-hidden="true"></li>
         <li v-if="sp && sp.status === 'stopped'" @click="run()">▶ run</li>
         <li v-else @click="stop()">■ stop</li>
         <li @click="reset()">↺ reset</li>
@@ -104,6 +113,9 @@ function remove() {
         <li class="danger" @click="remove()">🗑 remove</li>
       </ul>
     </template>
+
+    <SharedSkillsPanel v-if="showSkills" @close="showSkills = false" />
+    <MetricsPanel v-if="showMetrics" @close="showMetrics = false" />
 
     <ConfirmDialog
       v-if="confirm"
@@ -167,6 +179,15 @@ function remove() {
 }
 .menu li.danger {
   color: var(--color-danger);
+}
+.menu li.sep {
+  padding: 0;
+  margin: 0.2rem 0;
+  border-top: 1px solid var(--color-line);
+  cursor: default;
+}
+.menu li.sep:hover {
+  background: transparent;
 }
 .err {
   position: absolute;

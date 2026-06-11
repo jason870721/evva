@@ -4,6 +4,7 @@ import { useSpacesStore } from '../stores/spaces'
 import { useSpaceStore } from '../stores/space'
 import { useLedgerStore } from '../stores/ledger'
 import { useMailStore } from '../stores/mail'
+import { useProposalsStore } from '../stores/proposals'
 import { useStreamStore } from '../stores/stream'
 import { useGateStore } from '../stores/gate'
 
@@ -18,6 +19,7 @@ export function useSwarm(spaceId: Ref<string>) {
   const space = useSpaceStore()
   const ledger = useLedgerStore()
   const mail = useMailStore()
+  const proposals = useProposalsStore()
   const stream = useStreamStore()
   const gate = useGateStore()
 
@@ -26,13 +28,14 @@ export function useSwarm(spaceId: Ref<string>) {
 
   async function start() {
     conn.setSpace(spaceId.value)
-    await Promise.all([space.refresh(), ledger.refresh(), mail.refresh()])
+    await Promise.all([space.refresh(), ledger.refresh(), mail.refresh(), proposals.refresh()])
     await stream.hydrateFromTranscripts(space.roster)
     conn.open(spaceId.value)
     poll = setInterval(() => {
       void space.refresh()
       void ledger.refresh()
       void mail.refresh()
+      void proposals.refresh()
     }, 2500)
     clock = setInterval(() => {
       space.now = Date.now()
@@ -48,6 +51,7 @@ export function useSwarm(spaceId: Ref<string>) {
     space.reset()
     ledger.reset()
     mail.reset()
+    proposals.reset()
   }
 
   onMounted(start)
