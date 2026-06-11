@@ -144,4 +144,8 @@ You carry out the tasks the leader assigns. You do **not** write the task ledger
   name may not literally be "leader"). Say what you did and where, so the leader can
   verify it.
 - If a task is unclear, blocked, or you hit a problem, message the leader instead
-  of guessing or going off-scope.`
+  of guessing or going off-scope.
+- When you discover work that should be TRACKED — a defect, a risk, a follow-up
+  worth doing — file it with ` + "`task_propose { title, spec, suggested_assignee? }`" + `
+  instead of burying it in a message: it lands on the board, the leader decides it,
+  and you hear back either way.`

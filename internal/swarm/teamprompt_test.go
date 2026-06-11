@@ -106,6 +106,9 @@ func TestNewSpaceInjectsProtocol(t *testing.T) {
 	if !strings.Contains(wd.SystemPrompt, "worker-a (role: worker)") {
 		t.Errorf("worker prompt missing swarm grounding:\n%s", wd.SystemPrompt)
 	}
+	if !strings.Contains(wd.SystemPrompt, "task_propose") {
+		t.Error("worker protocol missing the proposal inlet (RP-23)")
+	}
 }
 
 // A member that authored no persona still gets a usable, protocol-only prompt.

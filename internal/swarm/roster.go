@@ -383,6 +383,14 @@ func (r *Roster) setCurrentTask(name string, taskID int64) {
 	}
 }
 
+// LeaderName returns the unique leader's member name, or "" when the roster
+// has none (e.g. a store-only test space). Exported for the proposal tools
+// (RP-23), which address the leader without knowing its actual name; the
+// budget breaker and watchdog use it via the unexported alias below.
+func (r *Roster) LeaderName() string {
+	return r.leaderName()
+}
+
 // leaderName returns the unique leader's member name, or "" when the roster has
 // none (e.g. a store-only test space). Used by the budget breaker to address
 // its notification mail without the caller knowing the leader's actual name.

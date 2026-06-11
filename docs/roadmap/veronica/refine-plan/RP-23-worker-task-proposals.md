@@ -1,6 +1,15 @@
 # RP-23 — Worker 任務提案（bottom-up 工作入口，不破壞 leader 單一寫者）
 
-> 狀態：**草案 / Draft（待 Johnny 拍板）** ｜ 階段：**第五波** ｜ 優先：**P2** ｜ 日期：2026-06-11
+> 狀態：**✅ 已完成（2026-06-11，feature/RP-23-worker-task-proposals）** ｜ 階段：**第五波** ｜ 優先：**P2** ｜ 日期：2026-06-11
+> 落地註記：照 Option A（`0005_proposals.sql` + `store/proposals.go`）。比提案多三個決定：①`ref_task`
+> 刻意**不是** FOREIGN KEY——真 FK 會把 proposals 捲進 RP-16 vacuum 的 transitive pinning fixpoint（提案
+> 釘住已完成 task 或反之）；它是 audit pointer，兩邊可獨立歸檔。②`proposal_accept` 的「原子」做成**單一
+> store 交易**（`AcceptProposal`：claim open→accepted ＋ 直接以 `running` INSERT task ＋ 回填 ref_task）——
+> 比工具層串 task_create+task_assign 更強：併發裁決恰一勝者、永不產生孤兒 task；DAO 並做 leader-only
+> Actor 檢查（與 TransitionTask 同口徑，縱深防禦）。③多給 leader 一個 `proposal_list`——accept 需要
+> proposal_id，context 壓縮後 leader 必須能重查（與 task_list 存在的理由相同）。decided 提案進 RP-16
+> 歸檔（archive kind "proposal"）；`GET /api/swarm/{id}/proposals` 已就緒，FE lane 留給 FE 波（ticket
+> 原文也標 FE-5/FE-7 範疇）。Web 可見性現狀：API + leader 通知信（Messages/Timeline 可見）。
 > 觸發：Sunday swarm 重整。實例：risk-monitor 巡檢發現裸倉，要 trader 補停損——這在精神上是一張 task（要追蹤、要驗收、要留痕），但 worker 開不了票，只能走 `send_message`：**看板無痕、無人驗收、reviewer 復盤找不到**。
 > 關聯：[RP-6](RP-6-completed-task-scaling.md)（task 規模化——提案被接受後進同一帳本）、[RP-12](RP-12-advice-loop-closure.md)（提案被打回時的閉環紀律同樣適用）、`internal/swarm/tools/set.go:75-85`（現行 role→tool 邊界）、design v1 的 task-ledger 單一寫者不變量
 > 請求者：Sunday。**無 Sunday-specific code。**
