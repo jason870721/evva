@@ -12,6 +12,18 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.6.0-beta.3] — 2026-06-11
+
+### Fixed
+
+- **Swarm communication protocol.** Swarm agents now receive a dedicated
+  "How you communicate" section in their system prompt that explicitly
+  separates two output channels with a table: output text → human operator
+  (web console), send_message → teammates. Adds explicit rules prohibiting
+  replying to teammates with output text and prohibiting send_message to
+  "user". The composeMailPrompt wake message is also strengthened with the
+  same channel rules for immediate-action context.
+
 ## [v1.6.0-beta.2] — 2026-06-11
 
 ### Added
@@ -1389,7 +1401,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.6.0-beta.2...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.6.0-beta.3...HEAD
+[v1.6.0-beta.3]: https://github.com/johnny1110/evva/compare/v1.6.0-beta.2...v1.6.0-beta.3
 [v1.6.0-beta.2]: https://github.com/johnny1110/evva/compare/v1.5.2-beta.1...v1.6.0-beta.2
 [v1.5.2-beta.1]: https://github.com/johnny1110/evva/compare/v1.5.1-beta.2...v1.5.2-beta.1
 [v1.5.1-beta.2]: https://github.com/johnny1110/evva/compare/v1.5.1-beta.1...v1.5.1-beta.2
