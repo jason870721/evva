@@ -12,37 +12,7 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
-### Added
-
-- **setup-swarm bundled skill: fifth-wave ecosystem coverage.** The skill that
-  teaches evva to scaffold a swarm now covers the whole wave-5 operating
-  surface: per-member `permission_mode` and `budget_tokens` overrides (with
-  the deny-pierces-bypass rule spelled out), the full `settings:` guardrail
-  reference (stall + task/mailbox staleness watchdogs, retention, event log,
-  webhook secret), durable runtime schedules vs the manifest baseline, the
-  auto-created per-member `memory/` dirs, space-shared skills under
-  `agents/skills/` + the leader's `skill_publish`, the worker `task_propose`
-  flow, and the operator verbs `evva swarm send` / `evva swarm vacuum`. It
-  also stops hand-waving persona prompts toward tool documentation (RP-19
-  grounds tools automatically) and corrects the pre-RP-15 "default token is
-  root" claim — tokens are minted per service start and local browsers
-  bootstrap via loopback. The content-hygiene test pins every new reference.
-- **web2: the fifth wave reaches the operator UI.** A Proposals tab (RP-23)
-  shows the open review queue (oldest-first, with a tab badge) and the decided
-  audit trail, linking accepted proposals to the task they became — read-only
-  by design, the decision stays with the leader's tools. The member inspector
-  gains a Memory tab (RP-25, the read-only transparency window onto a
-  member's long-term notes) and, on Live, the member's effective permission
-  mode (RP-24), its RP-13 daily budget gauge, and session in/out token
-  counts; roster cards chip non-default permission modes and show the budget
-  bar when a cap is set. The space ⚙ menu gains "shared skills" (RP-26
-  list/author/delete — the operator's final-arbiter surface over
-  `skill_publish`, hot-reloading the whole team) and "metrics" (RP-17
-  counters, RP-22 stale-task/mailbox alert tallies, and the RP-28 per-member
-  run-token histograms). New wire types mirror `MemberInfo.permissionMode` +
-  token fields, `ProposalInfo`, `MemoryFileInfo`, and `MetricsInfo`.
-
-## [v1.6.0-beta.1] — 2026-06-11
+## [v1.6.0-beta.2] — 2026-06-11
 
 ### Added
 
@@ -135,6 +105,33 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   precedent). The effective stance is surfaced everywhere an operator looks:
   `list_members` lines carry `· perm bypass`, the web roster API carries
   `permissionMode`.
+- **setup-swarm bundled skill: fifth-wave ecosystem coverage.** The skill that
+  teaches evva to scaffold a swarm now covers the whole wave-5 operating
+  surface: per-member `permission_mode` and `budget_tokens` overrides (with
+  the deny-pierces-bypass rule spelled out), the full `settings:` guardrail
+  reference (stall + task/mailbox staleness watchdogs, retention, event log,
+  webhook secret), durable runtime schedules vs the manifest baseline, the
+  auto-created per-member `memory/` dirs, space-shared skills under
+  `agents/skills/` + the leader's `skill_publish`, the worker `task_propose`
+  flow, and the operator verbs `evva swarm send` / `evva swarm vacuum`. It
+  also stops hand-waving persona prompts toward tool documentation (RP-19
+  grounds tools automatically) and corrects the pre-RP-15 "default token is
+  root" claim — tokens are minted per service start and local browsers
+  bootstrap via loopback. The content-hygiene test pins every new reference.
+- **web2: the fifth wave reaches the operator UI.** A Proposals tab (RP-23)
+  shows the open review queue (oldest-first, with a tab badge) and the decided
+  audit trail, linking accepted proposals to the task they became — read-only
+  by design, the decision stays with the leader's tools. The member inspector
+  gains a Memory tab (RP-25, the read-only transparency window onto a
+  member's long-term notes) and, on Live, the member's effective permission
+  mode (RP-24), its RP-13 daily budget gauge, and session in/out token
+  counts; roster cards chip non-default permission modes and show the budget
+  bar when a cap is set. The space ⚙ menu gains "shared skills" (RP-26
+  list/author/delete — the operator's final-arbiter surface over
+  `skill_publish`, hot-reloading the whole team) and "metrics" (RP-17
+  counters, RP-22 stale-task/mailbox alert tallies, and the RP-28 per-member
+  run-token histograms). New wire types mirror `MemberInfo.permissionMode` +
+  token fields, `ProposalInfo`, `MemoryFileInfo`, and `MetricsInfo`.
 
 ### Changed
 
@@ -1392,8 +1389,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.6.0-beta.1...HEAD
-[v1.6.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.5.2-beta.1...v1.6.0-beta.1
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.6.0-beta.2...HEAD
+[v1.6.0-beta.2]: https://github.com/johnny1110/evva/compare/v1.5.2-beta.1...v1.6.0-beta.2
 [v1.5.2-beta.1]: https://github.com/johnny1110/evva/compare/v1.5.1-beta.2...v1.5.2-beta.1
 [v1.5.1-beta.2]: https://github.com/johnny1110/evva/compare/v1.5.1-beta.1...v1.5.1-beta.2
 [v1.5.1-beta.1]: https://github.com/johnny1110/evva/compare/v1.5.0-beta.5...v1.5.1-beta.1
