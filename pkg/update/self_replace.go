@@ -117,28 +117,9 @@ func extractZip(data []byte) ([]byte, error) {
 	return nil, fmt.Errorf("evva binary not found in zip archive")
 }
 
-// replaceBinary atomically replaces dst with src on Unix. On Windows it
-// cannot overwrite a running executable, so we write a helper script and
-// tell the user to run it.
-func replaceBinary(dst, src string) error {
-	// On Unix we can do an atomic rename as long as src and dst are on the
-	// same filesystem. os.Rename is atomic on Linux/macOS within the same
-	// mount point, which the temp dir and the binary dir almost always are.
-	if err := os.Rename(src, dst); err != nil {
-		// If rename fails (cross-device), fall back to copy+remove.
-		if isCrossDevice(err) {
-			return copyAndRemove(src, dst)
-		}
-		return fmt.Errorf("rename %s → %s: %w", src, dst, err)
-	}
-	return nil
-}
-
-func isCrossDevice(err error) bool {
-	return strings.Contains(err.Error(), "cross-device") ||
-		strings.Contains(err.Error(), "invalid cross-device link")
-}
-
+// copyAndRemove stages src next to dst (same volume) and renames it into
+// place — the cross-device fallback for both platforms' replaceBinary
+// (which live in self_replace_unix.go / self_replace_windows.go).
 func copyAndRemove(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {

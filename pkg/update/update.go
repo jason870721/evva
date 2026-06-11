@@ -54,8 +54,9 @@ func CheckTag(ctx context.Context, owner, repo, tag string) (*Release, error) {
 // Returns the path to the replaced binary.
 //
 // On Unix the replacement is atomic (os.Rename on the same filesystem).
-// On Windows the replacement is deferred to next launch (the running exe
-// cannot be overwritten).
+// On Windows the running image cannot be overwritten but CAN be renamed:
+// it is moved aside to "<exe>.old" and the new binary takes its place —
+// the leftover .old is swept by CleanupOld at the next start.
 func Apply(ctx context.Context, release *Release) (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -93,6 +94,16 @@ func Apply(ctx context.Context, release *Release) (string, error) {
 	}
 
 	return exe, nil
+}
+
+// CleanupOld removes the "<exe>.old" leftover a Windows self-update leaves
+// behind (replaceBinary renames the running image aside; only a LATER
+// process can delete it). Call early at startup. No-op when absent and
+// harmless on unix, where Apply never creates one.
+func CleanupOld() {
+	if exe, err := os.Executable(); err == nil {
+		_ = os.Remove(exe + ".old")
+	}
 }
 
 // assetNameFor returns the expected asset filename for the given OS and arch,

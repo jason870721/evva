@@ -22,6 +22,12 @@ jobs:
             goarch: amd64
           - goos: linux
             goarch: arm64
+          - goos: windows
+            goarch: amd64
+          # Best-effort: cross-compiled like the rest but not validated on
+          # real arm64 hardware (PRD §9 Q1).
+          - goos: windows
+            goarch: arm64
 
     steps:
       - name: Checkout
@@ -37,13 +43,23 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
+          BIN=evva
+          if [ "$GOOS" = "windows" ]; then BIN=evva.exe; fi
           go build \
             -ldflags "-s -w -X github.com/johnny1110/evva/pkg/config.Version=${{ github.ref_name }} -X github.com/johnny1110/evva/pkg/config.CommitSHA=${{ github.sha }} -X github.com/johnny1110/evva/pkg/config.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -o evva \
+            -o "$BIN" \
             ./cmd/evva
 
-      - name: Package (tar.gz)
-        run: tar -czf "evva-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" evva
+      - name: Package
+        # Names and entry names must match pkg/update exactly: assetNameFor
+        # expects evva-<goos>-<goarch>.tar.gz / .zip, and the extractors look
+        # for an "evva" / "evva.exe" entry (self_replace.go).
+        run: |
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "evva-${{ matrix.goos }}-${{ matrix.goarch }}.zip" evva.exe
+          else
+            tar -czf "evva-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" evva
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
