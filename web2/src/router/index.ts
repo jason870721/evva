@@ -7,6 +7,7 @@ import BoardView from '../views/BoardView.vue'
 import TimelineView from '../views/TimelineView.vue'
 import StreamView from '../views/StreamView.vue'
 import CompletedView from '../views/CompletedView.vue'
+import ProposalsView from '../views/ProposalsView.vue'
 import ThemeProbe from '../views/ThemeProbe.vue'
 
 // Hash history: the service serves the SPA from a plain embedded FileServer with
@@ -26,6 +27,7 @@ export const router = createRouter({
       children: [
         { path: '', name: 'workspace', redirect: (to) => ({ name: 'board', params: to.params }) },
         { path: 'board', name: 'board', component: BoardView },
+        { path: 'proposals', name: 'proposals', component: ProposalsView },
         { path: 'timeline', name: 'timeline', component: TimelineView },
         { path: 'stream', name: 'stream', component: StreamView },
         { path: 'stream/:member', name: 'stream-member', component: StreamView },

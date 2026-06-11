@@ -9,8 +9,11 @@ import { contextColor } from '@/lib/colors'
 // member's wire fields; an unknown model window (limit 0) shows a dim rail + —
 // instead of a misleading 0%. Shared by the roster card and the focused console
 // header so the same agent reads the same gauge in both places.
-const props = withDefaults(defineProps<{ used: number; limit: number; label?: string }>(), {
+// noun names what the gauge measures in the tooltip — 'context' for the CTX
+// bar, e.g. 'tokens today' when reused as the RP-13 budget gauge (BDG).
+const props = withDefaults(defineProps<{ used: number; limit: number; label?: string; noun?: string }>(), {
   label: 'CTX',
+  noun: 'context',
 })
 
 const WIDTH = 12 // matches the TUI's barWidth so the texture reads identically
@@ -25,8 +28,8 @@ const color = computed(() => contextColor(u.value.pct))
 const pctText = computed(() => `${Math.round(u.value.pct)}%`)
 const title = computed(() =>
   u.value.known
-    ? `context: ${humanTokens(u.value.used)} / ${humanTokens(u.value.limit)} tokens (${u.value.pct.toFixed(1)}%)`
-    : `context: ${humanTokens(u.value.used)} tokens · model window unknown`,
+    ? `${props.noun}: ${humanTokens(u.value.used)} / ${humanTokens(u.value.limit)} tokens (${u.value.pct.toFixed(1)}%)`
+    : `${props.noun}: ${humanTokens(u.value.used)} tokens · limit unknown`,
 )
 </script>
 

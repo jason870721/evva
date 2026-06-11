@@ -6,6 +6,7 @@ import { useSessionStore } from './session'
 import { useStreamStore } from './stream'
 import { useGateStore } from './gate'
 import { useLedgerStore } from './ledger'
+import { useProposalsStore } from './proposals'
 
 // The socket handle is kept module-local (not in reactive state) — it is an IO
 // object, not data. Components/stores send through the store's send() action.
@@ -70,7 +71,10 @@ export const useConnectionStore = defineStore('connection', {
         return
       }
       stream.foldChat(ev)
-      if (touchesLedger(ev)) useLedgerStore().scheduleRefresh()
+      if (touchesLedger(ev)) {
+        useLedgerStore().scheduleRefresh()
+        useProposalsStore().scheduleRefresh()
+      }
     },
   },
 })

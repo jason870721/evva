@@ -7,12 +7,12 @@ export type Locale = 'zh-Hant' | 'en'
 
 const messages = {
   'zh-Hant': {
-    tabs: { board: '看板', timeline: '時間軸', stream: '串流', completed: '已完成' },
+    tabs: { board: '看板', proposals: '提案', timeline: '時間軸', stream: '串流', completed: '已完成' },
     common: { connect: '連線', refresh: '重新整理', changeToken: '更換 token', logout: '登出', members: '成員' },
     ws: { reconnecting: '即時連線中斷，重連中…（已退回 2.5 秒輪詢）' },
   },
   en: {
-    tabs: { board: 'Board', timeline: 'Timeline', stream: 'Stream', completed: 'Completed' },
+    tabs: { board: 'Board', proposals: 'Proposals', timeline: 'Timeline', stream: 'Stream', completed: 'Completed' },
     common: { connect: 'Connect', refresh: 'Refresh', changeToken: 'Change token', logout: 'Logout', members: 'Members' },
     ws: { reconnecting: 'Live connection lost — reconnecting… (falling back to a 2.5s poll)' },
   },

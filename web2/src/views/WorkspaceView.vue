@@ -6,6 +6,7 @@ import { useSwarm } from '../composables/useSwarm'
 import { useSpaceStore } from '../stores/space'
 import { useGateStore } from '../stores/gate'
 import { useConnectionStore } from '../stores/connection'
+import { useProposalsStore } from '../stores/proposals'
 import { useUiStore } from '../stores/ui'
 import TopBar from '../shell/TopBar.vue'
 import AppLayout from '../shell/AppLayout.vue'
@@ -20,6 +21,7 @@ const { t } = useI18n()
 const space = useSpaceStore()
 const gate = useGateStore()
 const conn = useConnectionStore()
+const proposals = useProposalsStore()
 const ui = useUiStore()
 const spaceId = computed(() => String(route.params.spaceId || ''))
 const hasInspector = computed(() => !!(route.query.m || route.query.t))
@@ -28,10 +30,12 @@ const activeTab = computed(() => {
   return n === 'stream-member' ? 'stream' : n
 })
 const tabs = computed(() => [
-  { name: 'board', label: t('tabs.board') },
-  { name: 'timeline', label: t('tabs.timeline') },
-  { name: 'stream', label: t('tabs.stream') },
-  { name: 'completed', label: t('tabs.completed') },
+  { name: 'board', label: t('tabs.board'), badge: 0 },
+  // The badge surfaces the leader's open review queue (RP-23) without a click.
+  { name: 'proposals', label: t('tabs.proposals'), badge: proposals.openCount },
+  { name: 'timeline', label: t('tabs.timeline'), badge: 0 },
+  { name: 'stream', label: t('tabs.stream'), badge: 0 },
+  { name: 'completed', label: t('tabs.completed'), badge: 0 },
 ])
 
 useSwarm(spaceId)
@@ -75,7 +79,7 @@ function onAttention(name: string) {
             class="tab"
             :class="{ active: activeTab === tb.name }"
           >
-            {{ tb.label }}
+            {{ tb.label }}<span v-if="tb.badge" class="tabbadge">{{ tb.badge }}</span>
           </RouterLink>
         </nav>
         <main id="main" class="centerbody"><RouterView /></main>
@@ -134,6 +138,12 @@ function onAttention(name: string) {
   color: var(--color-text);
   border-color: var(--color-accent);
   background: var(--color-surface);
+}
+.tabbadge {
+  margin-left: 0.35rem;
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  color: var(--color-accent);
 }
 .centerbody {
   flex: 1;

@@ -3,6 +3,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useGateStore } from './gate'
 import { useStreamStore } from './stream'
 import { useLedgerStore } from './ledger'
+import { useProposalsStore } from './proposals'
 import { useSpaceStore } from './space'
 import type { AssistantTurn } from '@/lib/events'
 
@@ -68,5 +69,19 @@ describe('ledger + space getters', () => {
     ]
     useStreamStore().foldPhase({ Kind: 'tool_use_start', AgentID: 'a1', ToolUseStart: { Name: 'bash' } })
     expect(sp.merged[0].phase).toBe('executing')
+  })
+})
+
+describe('proposals store', () => {
+  it('counts only open proposals for the tab badge', () => {
+    const p = useProposalsStore()
+    p.list = [
+      { id: 1, proposer: 'qa', title: 'a', status: 'open', createdAt: 1 },
+      { id: 2, proposer: 'qa', title: 'b', status: 'accepted', createdAt: 2, decidedAt: 3, refTask: 9 },
+      { id: 3, proposer: 'dev', title: 'c', status: 'declined', createdAt: 4, decidedAt: 5 },
+    ]
+    expect(p.openCount).toBe(1)
+    p.reset()
+    expect(p.openCount).toBe(0)
   })
 })

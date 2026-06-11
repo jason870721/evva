@@ -22,6 +22,12 @@ const emit = defineEmits<{
   remove: []
 }>()
 const menu = ref(false)
+
+// Only a non-default stance earns a chip — the calm card stays calm for the
+// common case, and "bypass" (fully autonomous) reads as the caution it is.
+function permTone(mode: string): 'warning' | 'info' {
+  return mode === 'bypass' ? 'warning' : 'info'
+}
 </script>
 
 <template>
@@ -36,10 +42,16 @@ const menu = ref(false)
         {{ member.membership }}
       </EvBadge>
       <EvPill :tone="phaseClass(member)" :label="displayPhase(member) || member.run" />
+      <EvBadge v-if="member.permissionMode && member.permissionMode !== 'default'" :tone="permTone(member.permissionMode)">
+        {{ member.permissionMode }}
+      </EvBadge>
       <span v-if="member.phaseSince && phaseClass(member) !== 'idle'" class="since">{{ elapsed(member.phaseSince, now) }}</span>
       <span v-if="member.currentTask" class="task">#{{ member.currentTask }}</span>
     </div>
     <div class="l3"><EvContextBar :used="member.contextTokens" :limit="member.contextLimit" /></div>
+    <div v-if="member.tokensBudget" class="l3">
+      <EvContextBar :used="member.tokensToday || 0" :limit="member.tokensBudget" label="BDG" noun="tokens today" />
+    </div>
     <div v-if="member.cron" class="sched" :title="member.schedulePrompt">⏰ {{ describeCron(member.cron) }}</div>
 
     <div v-if="menu" class="menu" @click.stop>
