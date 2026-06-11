@@ -1063,6 +1063,36 @@ func (s *Service) Messages(id string) ([]webapi.MessageInfo, bool) {
 	return out, true
 }
 
+// Proposals lists the space's worker-filed work proposals (RP-23) — every
+// status, oldest first — the web's bottom-up inbox.
+func (s *Service) Proposals(id string) ([]webapi.ProposalInfo, bool) {
+	ent, ok := s.entry(id)
+	if !ok {
+		return nil, false
+	}
+	props, err := ent.space.Store.ListProposals("")
+	if err != nil {
+		s.log.Warn("swarm: list proposals", "space", id, "err", err)
+		return []webapi.ProposalInfo{}, true
+	}
+	out := make([]webapi.ProposalInfo, 0, len(props))
+	for _, p := range props {
+		pi := webapi.ProposalInfo{
+			ID: p.ID, Proposer: p.Proposer, Title: p.Title, Spec: p.Spec,
+			SuggestedAssignee: p.SuggestedAssignee, Status: string(p.Status),
+			DecidedBy: p.DecidedBy, DecideNote: p.DecideNote, CreatedAt: p.CreatedAt,
+		}
+		if p.RefTask != nil {
+			pi.RefTask = *p.RefTask
+		}
+		if p.DecidedAt != nil {
+			pi.DecidedAt = *p.DecidedAt
+		}
+		out = append(out, pi)
+	}
+	return out, true
+}
+
 // PendingGates returns the space's outstanding approval/question gate events in
 // their raw wire shape, so a reconnecting browser re-renders overlays for members
 // still blocked (RP-2 §3.3). false when the space id is unknown.

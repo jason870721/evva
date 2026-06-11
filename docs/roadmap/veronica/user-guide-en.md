@@ -57,7 +57,7 @@ Two commands:
 | | Leader (`agents/main/…`) | Worker (`agents/sub/…`) |
 | --- | --- | --- |
 | Owns | planning, assignment, verification | doing the work, reporting back |
-| Task tools | `task_create`, `task_assign`, `task_update_status`, `task_verify`, `task_list` | `my_tasks`, `task_get` (read-only) |
+| Task tools | `task_create`, `task_assign`, `task_update_status`, `task_verify`, `task_list`, `proposal_list`, `proposal_accept`, `proposal_decline` | `my_tasks`, `task_get` (read-only), `task_propose` (file work) |
 | Talk | `send_message`, `list_members` | `send_message`, `list_members` |
 | Writes the ledger? | **Yes** (sole writer) | No |
 
@@ -354,6 +354,19 @@ pick up their tasks, report back, and the board march to **completed**.
   → `verifying` → `task_verify` approve (→ `completed`) or reject (→ back to
   `running`). The state machine is enforced in SQLite; illegal moves are
   rejected.
+- **Worker task proposals (the bottom-up inlet).** When a worker discovers work
+  that should be TRACKED (a defect, a risk, a lead worth chasing), it files
+  `task_propose {title, spec, suggested_assignee?}` instead of burying it in
+  chat. The leader is notified and settles it with `proposal_accept` — which
+  becomes an assigned, `running` task in ONE atomic step, with the proposer
+  told "accepted → task #N" — or `proposal_decline`, whose reason is
+  MANDATORY and relayed to the proposer (closure enforced by schema, not
+  etiquette). `proposal_list` is re-queryable any time and `task_list` ends
+  with `Open proposals: N` when any wait. Workers still have ZERO write path
+  into the task ledger — the single-writer invariant holds untouched.
+  Proposals are three-state terminal (open → accepted/declined, no reopen);
+  re-raising means a new proposal, and the full decision history stays
+  readable at `GET /api/swarm/{id}/proposals` and in the retention archive.
 - **Messages.** `send_message {to, body}` (or `to: "all"` to broadcast) writes a
   durable row and pings the recipient's mailbox.
   - If the recipient is **idle**, it wakes up, reads the message, acts on it

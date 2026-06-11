@@ -14,6 +14,23 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Worker task proposals (RP-23).** The bottom-up work inlet: a worker that
+  discovers trackable work files `task_propose {title, spec,
+  suggested_assignee?}` — a new `proposals` table (migration
+  `0005_proposals.sql`), three terminal states (open → accepted | declined, no
+  reopen), leader notified with the content and the decide instructions. The
+  leader settles each with `proposal_accept` — ONE atomic store transaction
+  claims the proposal, inserts the task directly as `running`, and backfills
+  `ref_task`; proposer and assignee are both notified — or `proposal_decline`,
+  whose note is mandatory at the schema (the RP-12 closure discipline) and
+  relayed to the proposer. `proposal_list` is the leader's re-queryable inbox;
+  `task_list` ends with `Open proposals: N` when any wait; the worker protocol
+  teaches the inlet. Workers still have ZERO write path into the task ledger —
+  the single-writer invariant holds (regression-tested), and concurrent
+  decisions resolve to exactly one winner. `GET /api/swarm/{id}/proposals`
+  serves the web inbox (FE rendering deferred to the FE wave); decided
+  proposals ride the RP-16 retention archive; `ref_task` is deliberately NOT a
+  foreign key so the vacuum fixpoint stays untangled.
 - **Workflow watchdog (RP-22).** The ledger-level sibling of the RP-14 run
   watchdog — it catches work NOBODY is moving. Two new `settings:` fuses with
   stall-knob semantics (omit = default, `"0"` = off): `task_stale_threshold`

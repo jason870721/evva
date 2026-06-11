@@ -20,31 +20,32 @@ import (
 // read-only task views plus the common send_message/list_members.
 func TestToolNamesForRole(t *testing.T) {
 	leader := toolNamesForRole(agentdef.RoleLeader)
-	wantLeader := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList, toolScheduleSet, toolScheduleClear}
+	wantLeader := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList, toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline}
 	if !reflect.DeepEqual(leader, wantLeader) {
 		t.Fatalf("leader tools = %v\nwant %v", leader, wantLeader)
 	}
 
 	worker := toolNamesForRole(agentdef.RoleWorker)
-	wantWorker := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolMyTasks, toolTaskGet}
+	wantWorker := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolMyTasks, toolTaskGet, toolTaskPropose}
 	if !reflect.DeepEqual(worker, wantWorker) {
 		t.Fatalf("worker tools = %v\nwant %v", worker, wantWorker)
 	}
 
 	for _, n := range worker {
 		switch n {
-		case toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify:
+		case toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify,
+			toolProposalAccept, toolProposalDecline:
 			t.Errorf("worker must not hold write tool %q", n)
 		}
 	}
 }
 
 func TestSetForReturnsOptionPerTool(t *testing.T) {
-	if got := len(Set{}.For("leader", agentdef.RoleLeader, nil)); got != 11 {
-		t.Errorf("leader options = %d, want 11", got)
+	if got := len(Set{}.For("leader", agentdef.RoleLeader, nil)); got != 14 {
+		t.Errorf("leader options = %d, want 14", got)
 	}
-	if got := len(Set{}.For("w", agentdef.RoleWorker, nil)); got != 6 {
-		t.Errorf("worker options = %d, want 6", got)
+	if got := len(Set{}.For("w", agentdef.RoleWorker, nil)); got != 7 {
+		t.Errorf("worker options = %d, want 7", got)
 	}
 }
 
@@ -62,6 +63,7 @@ func TestPermissionClassification(t *testing.T) {
 		toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify,
 		toolScheduleSet, toolScheduleClear,
 		toolAlarmSet, toolAlarmClear,
+		toolTaskPropose, toolProposalList, toolProposalAccept, toolProposalDecline,
 	}
 	for _, n := range autoAllow {
 		if b := decide(n); b != permission.BehaviorAllow {

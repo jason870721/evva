@@ -314,7 +314,13 @@ func newTaskList(mc swarm.MemberContext) pubtools.Tool {
 			if err != nil {
 				return errf("task_list: %v", err), nil
 			}
-			return formatTasks("Tasks", tasks, offset, total, mc.Space.TaskStaleThreshold()), nil
+			res := formatTasks("Tasks", tasks, offset, total, mc.Space.TaskStaleThreshold())
+			// Surface waiting bottom-up work (RP-23) right where the leader
+			// already looks — re-queryable, so it survives context compaction.
+			if open, err := mc.Space.Store.CountProposals(store.ProposalOpen); err == nil && open > 0 {
+				res.Content += fmt.Sprintf("\nOpen proposals: %d — review with proposal_list.\n", open)
+			}
+			return res, nil
 		},
 	}
 }

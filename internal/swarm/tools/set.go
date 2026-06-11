@@ -28,6 +28,10 @@ const (
 	toolScheduleClear    = "schedule_clear"
 	toolAlarmSet         = "alarm_set"
 	toolAlarmClear       = "alarm_clear"
+	toolTaskPropose      = "task_propose"
+	toolProposalList     = "proposal_list"
+	toolProposalAccept   = "proposal_accept"
+	toolProposalDecline  = "proposal_decline"
 )
 
 // init classifies the swarm's coordination tools as auto-allow in
@@ -46,6 +50,7 @@ func init() {
 		toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify,
 		toolScheduleSet, toolScheduleClear,
 		toolAlarmSet, toolAlarmClear,
+		toolTaskPropose, toolProposalList, toolProposalAccept, toolProposalDecline,
 	} {
 		permission.ReadOnlyOrSelfTools[n] = true
 	}
@@ -79,9 +84,12 @@ func toolNamesForRole(role agentdef.Role) []string {
 	common := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear}
 	if role == agentdef.RoleLeader {
 		return append(common, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList,
-			toolScheduleSet, toolScheduleClear)
+			toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline)
 	}
-	return append(common, toolMyTasks, toolTaskGet)
+	// task_propose is the worker's ONLY work-inlet (RP-23): file trackable
+	// work without piercing the ledger's single-writer invariant. The leader
+	// doesn't get it — it just task_creates.
+	return append(common, toolMyTasks, toolTaskGet, toolTaskPropose)
 }
 
 // factories maps a tool name to its build factory. Each recovers the member's
@@ -100,6 +108,10 @@ var factories = map[string]func(pubtools.State) (pubtools.Tool, error){
 	toolScheduleClear:    bind(newScheduleClear),
 	toolAlarmSet:         bind(newAlarmSet),
 	toolAlarmClear:       bind(newAlarmClear),
+	toolTaskPropose:      bind(newTaskPropose),
+	toolProposalList:     bind(newProposalList),
+	toolProposalAccept:   bind(newProposalAccept),
+	toolProposalDecline:  bind(newProposalDecline),
 }
 
 // bind adapts a MemberContext tool constructor into a pkg/toolset factory: it

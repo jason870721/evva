@@ -101,6 +101,12 @@ func (f *fakeBackend) Messages(id string) ([]MessageInfo, bool) {
 	}
 	return []MessageInfo{}, true
 }
+func (f *fakeBackend) Proposals(id string) ([]ProposalInfo, bool) {
+	if !f.HasSpace(id) {
+		return nil, false
+	}
+	return []ProposalInfo{{ID: 1, Proposer: "w", Title: "fix it", Status: "open", CreatedAt: 1}}, true
+}
 func (f *fakeBackend) Transcript(id, agent string) ([]TranscriptEntry, bool) {
 	if !f.HasSpace(id) {
 		return nil, false
@@ -361,6 +367,13 @@ func TestRESTSnapshots(t *testing.T) {
 	getJSON(t, srv.URL+"/api/tasks?space=sp-a&status=completed&limit=5&offset=0&token=secret", &done)
 	if len(done.Tasks) != 1 || done.Tasks[0].Status != "completed" || done.Total != 7 {
 		t.Fatalf("paged completed = %+v", done)
+	}
+
+	// Proposal inbox (RP-23).
+	var props []ProposalInfo
+	getJSON(t, srv.URL+"/api/swarm/sp-a/proposals?token=secret", &props)
+	if len(props) != 1 || props[0].Proposer != "w" || props[0].Status != "open" {
+		t.Fatalf("proposals = %+v", props)
 	}
 
 	// Unknown space → 404.

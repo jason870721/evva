@@ -20,18 +20,20 @@ const archiveDirName = "archive"
 // ArchiveRecord is one line of an archive file. Exactly one of Message/Task is
 // set, per Kind. ArchivedAt is unix millis (when the vacuum pass ran).
 type ArchiveRecord struct {
-	Kind       string   `json:"kind"` // "message" | "task"
-	ArchivedAt int64    `json:"archived_at"`
-	Message    *Message `json:"message,omitempty"`
-	Task       *Task    `json:"task,omitempty"`
+	Kind       string    `json:"kind"` // "message" | "task" | "proposal"
+	ArchivedAt int64     `json:"archived_at"`
+	Message    *Message  `json:"message,omitempty"`
+	Task       *Task     `json:"task,omitempty"`
+	Proposal   *Proposal `json:"proposal,omitempty"`
 }
 
 // VacuumStats reports one retention pass. A dry run fills the counts and
 // leaves Files empty.
 type VacuumStats struct {
-	Messages int      // message rows archived + deleted
-	Tasks    int      // completed-task rows archived + deleted
-	Files    []string // archive files appended this pass
+	Messages  int      // message rows archived + deleted
+	Tasks     int      // completed-task rows archived + deleted
+	Proposals int      // decided-proposal rows archived + deleted (RP-23)
+	Files     []string // archive files appended this pass
 }
 
 // Vacuum archives-then-deletes consumed history older than cutoff (RP-16).
@@ -69,12 +71,16 @@ func (s *Store) Vacuum(cutoff time.Time, dryRun bool) (VacuumStats, error) {
 	if err != nil {
 		return VacuumStats{}, err
 	}
-	stats := VacuumStats{Messages: len(msgs), Tasks: len(tasks)}
-	if dryRun || len(msgs)+len(tasks) == 0 {
+	props, err := s.vacuumProposalsLocked(cut)
+	if err != nil {
+		return VacuumStats{}, err
+	}
+	stats := VacuumStats{Messages: len(msgs), Tasks: len(tasks), Proposals: len(props)}
+	if dryRun || len(msgs)+len(tasks)+len(props) == 0 {
 		return stats, nil
 	}
 
-	stats.Files, err = s.appendArchive(msgs, tasks)
+	stats.Files, err = s.appendArchive(msgs, tasks, props)
 	if err != nil {
 		return VacuumStats{}, fmt.Errorf("store: vacuum archive: %w", err)
 	}
@@ -101,6 +107,12 @@ func (s *Store) Vacuum(cutoff time.Time, dryRun bool) (VacuumStats, error) {
 			return VacuumStats{}, fmt.Errorf("store: vacuum delete task %d: %w", t.ID, err)
 		}
 	}
+	for _, p := range props {
+		if _, err := tx.Exec(`DELETE FROM proposals WHERE id = ?`, p.ID); err != nil {
+			_ = tx.Rollback()
+			return VacuumStats{}, fmt.Errorf("store: vacuum delete proposal %d: %w", p.ID, err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return VacuumStats{}, fmt.Errorf("store: vacuum commit: %w", err)
 	}
@@ -113,8 +125,33 @@ func (s *Store) Vacuum(cutoff time.Time, dryRun bool) (VacuumStats, error) {
 	if _, err := s.db.Exec(`VACUUM`); err != nil {
 		slog.Warn("swarm store: sqlite VACUUM failed", "err", err)
 	}
-	slog.Info("swarm store vacuumed", "messages", stats.Messages, "tasks", stats.Tasks, "files", stats.Files)
+	slog.Info("swarm store vacuumed", "messages", stats.Messages, "tasks", stats.Tasks, "proposals", stats.Proposals, "files", stats.Files)
 	return stats, nil
+}
+
+// vacuumProposalsLocked returns every DECIDED proposal whose decision is old
+// enough to clear (RP-23 riding the RP-16 window). Open proposals are
+// untouchable regardless of age — undecided work must stay on the board.
+// ref_task is a plain audit pointer (no FK), so proposals never pin tasks
+// and need no fixpoint pass. Caller holds s.mu.
+func (s *Store) vacuumProposalsLocked(cut int64) ([]Proposal, error) {
+	rows, err := s.db.Query(
+		`SELECT `+proposalCols+` FROM proposals
+		 WHERE status != ? AND decided_at IS NOT NULL AND decided_at <= ? ORDER BY id`,
+		string(ProposalOpen), cut)
+	if err != nil {
+		return nil, fmt.Errorf("store: vacuum scan proposals: %w", err)
+	}
+	defer rows.Close()
+	out := make([]Proposal, 0)
+	for rows.Next() {
+		p, err := scanProposal(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: vacuum scan proposal: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // vacuumMessagesLocked returns the full rows of every archivable message:
@@ -233,7 +270,7 @@ func (s *Store) vacuumTasksLocked(cut int64) ([]Task, error) {
 // its gzip writer per file, appending one self-contained gzip member —
 // concatenated members are what gzip readers (incl. ReadArchive and zcat)
 // expect, so the file stays readable across any number of vacuum passes.
-func (s *Store) appendArchive(msgs []Message, tasks []Task) ([]string, error) {
+func (s *Store) appendArchive(msgs []Message, tasks []Task, props []Proposal) ([]string, error) {
 	dir := filepath.Join(s.dir, archiveDirName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -248,6 +285,10 @@ func (s *Store) appendArchive(msgs []Message, tasks []Task) ([]string, error) {
 	for i := range tasks {
 		k := monthKey(tasks[i].CreatedAt)
 		byMonth[k] = append(byMonth[k], ArchiveRecord{Kind: "task", ArchivedAt: now, Task: &tasks[i]})
+	}
+	for i := range props {
+		k := monthKey(props[i].CreatedAt)
+		byMonth[k] = append(byMonth[k], ArchiveRecord{Kind: "proposal", ArchivedAt: now, Proposal: &props[i]})
 	}
 
 	months := make([]string, 0, len(byMonth))
