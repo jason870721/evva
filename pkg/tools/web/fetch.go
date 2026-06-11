@@ -147,11 +147,18 @@ func (t *FetchTool) Execute(ctx context.Context, logger *slog.Logger, input json
 		truncated = true
 	}
 
+	// The header and truncation marker are evva's own framing and stay OUTSIDE
+	// the envelope; only the page text — the part the outside world authored —
+	// is wrapped as untrusted (RP-21). An empty page gets no empty envelope.
 	header := fmt.Sprintf("[Fetched: %s (%s, %d chars)]\n\n", finalURL, summarizeContentType(contentType), len(text))
+	body := wrapUntrusted(finalURL, text)
+	if body == "" {
+		return tools.Result{Content: strings.TrimRight(header, "\n")}, nil
+	}
 	var out bytes.Buffer
-	out.Grow(len(header) + len(text) + 64)
+	out.Grow(len(header) + len(body) + 64)
 	out.WriteString(header)
-	out.WriteString(text)
+	out.WriteString(body)
 	if truncated {
 		fmt.Fprintf(&out, "\n\n[truncated — output limited to %d chars]", maxBytes)
 	}
