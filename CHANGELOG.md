@@ -14,6 +14,21 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Workflow watchdog (RP-22).** The ledger-level sibling of the RP-14 run
+  watchdog — it catches work NOBODY is moving. Two new `settings:` fuses with
+  stall-knob semantics (omit = default, `"0"` = off): `task_stale_threshold`
+  (default 24h) reminds the leader and the operator — once per task per stay
+  in a state, with a suggested action — when a task sits in
+  `running`/`verifying` too long (`suspended` is exempt; re-entering a state
+  restarts the clock); `mailbox_stale_threshold` (default 30m) alerts once per
+  backlog episode when a member's oldest unread message ages past the line —
+  frozen members are deliberately included, with the state named in the
+  notice. The sweep rides the supervisor's timer tick, throttled to a
+  10-minute cadence (two small SQL probes; `store.OldestUnread` is new).
+  `task_list`/`my_tasks`/`task_get` tag over-threshold tasks inline
+  (`⏳ stale 26h`); `/metrics` gains `tasksStale`/`mailboxStale` counters.
+  Anti-spam marks are in-memory: a still-stale task re-reminds once after a
+  service restart, by design.
 - **Untrusted-content framing for web results (RP-21).** `web_fetch` and
   `web_search` results now arrive wrapped in an
   `<untrusted-content source="…">` envelope (the fetched URL / `web_search`),

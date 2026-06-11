@@ -26,6 +26,11 @@ type spaceMetrics struct {
 	mu      sync.Mutex
 	started time.Time
 	members map[string]*MemberMetrics
+
+	// RP-22 workflow-watchdog tallies, space-level: one increment per stale
+	// reminder / backlog alert actually sent (not per sweep pass).
+	tasksStale   int64
+	mailboxStale int64
 }
 
 func newSpaceMetrics() *spaceMetrics {
@@ -78,6 +83,38 @@ func (m *spaceMetrics) countRun(name string, d time.Duration, clean bool) {
 	default:
 		mm.RunSeconds[3]++
 	}
+}
+
+// countTaskStale / countMailboxStale tally one workflow-watchdog notification
+// each (RP-22).
+func (m *spaceMetrics) countTaskStale() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.tasksStale++
+	m.mu.Unlock()
+}
+
+func (m *spaceMetrics) countMailboxStale() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.mailboxStale++
+	m.mu.Unlock()
+}
+
+// WorkflowStaleCounts reports the space's RP-22 watchdog tallies (stale-task
+// reminders, mailbox-backlog alerts). Exported for the metrics endpoint.
+func (sp *SwarmSpace) WorkflowStaleCounts() (tasksStale, mailboxStale int64) {
+	m := sp.metrics
+	if m == nil {
+		return 0, 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tasksStale, m.mailboxStale
 }
 
 // MetricsSnapshot copies every member's counters plus the space's start time

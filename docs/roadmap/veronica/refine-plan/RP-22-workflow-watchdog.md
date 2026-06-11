@@ -1,6 +1,15 @@
 # RP-22 — Workflow 級看門狗（task 卡齡 / 信箱積壓的機械偵測）
 
-> 狀態：**草案 / Draft（待 Johnny 拍板）** ｜ 階段：**第五波** ｜ 優先：**P1** ｜ 日期：2026-06-11
+> 狀態：**✅ 已完成（2026-06-11，feature/RP-22-workflow-watchdog）** ｜ 階段：**第五波** ｜ 優先：**P1** ｜ 日期：2026-06-11
+> 落地註記：掃描器掛在 supervisor timerTick（與 budget/stall/retention sweep 同點），以
+> `workflowSweepInterval`（10 分鐘，測試可縮）節流——非 service 級巡檢，因為通知走 `notifyOps`（durable
+> bus mail，leader + operator 同 RP-13/14 通道）而 bus 在 swarm 層。防刷屏標記全在記憶體、tick goroutine
+> 獨佔（vacuumDay 模式，無鎖）：task 以 (id, status, updated_at) 為 stay key——`updated_at` 只在狀態跃迁時
+> 變動，所以即是「進入現狀態的時刻」；mailbox 以 episode 為界（積壓清空即重置）。重啟後標記歸零 → 仍卡
+> 的 task 會再提醒一次（與 RP-14 同哲學，視為 feature）。對 ticket §2.3 的兩個微調：①「member 的積壓告
+> 警」不會寄回該 member 自己的信箱（leader 積壓 → 只給 operator），否則告警餵養積壓自身；②event log 不
+> 另造合成行——notifyOps 郵件本身 durable 可查、`/metrics` 有計數，與 RP-14 同口徑。`store.OldestUnread`
+> 排除 claimed（被折進 in-flight run 的信屬 RP-14 管轄）。
 > 觸發：Sunday swarm 重整。觀察到的模式：leader「不主動協調」時，task 卡在 `running`/`verifying` 沒人催、隊友回報石沉大海——**run 沒卡（RP-14 不會叫）、協議有教（RP-12 prompt 在）、但工作流死了，系統毫無感知**。
 > 關聯：[RP-14](RP-14-stuck-run-watchdog.md)（run 級 stall——本文是它的 ledger 級姊妹）、[RP-12](RP-12-advice-loop-closure.md)（協議級閉環——本文給它機械後盾）、[RP-1](RP-1-messaging-reliability.md)（unread 積壓偵測順手覆蓋其回歸）、[RP-17](RP-17-durable-event-log.md)（通知入 event log）
 > 請求者：Sunday。**無 Sunday-specific code。**

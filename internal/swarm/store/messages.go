@@ -367,3 +367,31 @@ func (s *Store) UnclaimFor(recipient string) error {
 	}
 	return nil
 }
+
+// OldestUnread reports, per recipient, the created_at (unix millis) of the
+// oldest message that is still unread AND unclaimed — the RP-22 mailbox
+// backlog probe. Claimed rows are excluded: they are folded into an in-flight
+// run, which is the RP-14 stall watchdog's territory, not a delivery backlog.
+func (s *Store) OldestUnread() (map[string]int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(
+		`SELECT recipient, MIN(created_at) FROM messages
+		 WHERE read_at IS NULL AND claimed_at IS NULL GROUP BY recipient`)
+	if err != nil {
+		return nil, fmt.Errorf("store: oldest unread: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]int64{}
+	for rows.Next() {
+		var recipient string
+		var oldest int64
+		if err := rows.Scan(&recipient, &oldest); err != nil {
+			return nil, fmt.Errorf("store: scan oldest unread: %w", err)
+		}
+		out[recipient] = oldest
+	}
+	return out, rows.Err()
+}

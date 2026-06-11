@@ -161,6 +161,8 @@ settings:
   # budget_stay_frozen: false     # true = a budget freeze survives the day rollover
   # stall_threshold: 10m          # alert when a member is busy longer; "0" off (omit = 10m)
   # stall_hard_timeout: 30m       # auto-cancel a run busy longer; 0/omit = off
+  # task_stale_threshold: 24h     # remind when a task sits in running/verifying longer; "0" off (omit = 24h)
+  # mailbox_stale_threshold: 30m  # alert when the oldest unread ages past this; "0" off (omit = 30m)
   # webhook_secret: "hunter2"     # require X-Evva-Webhook-Secret on event POSTs (see §10)
   # retention_days: 30            # archive+delete consumed history after N days; "0" = keep forever
   # event_log: true               # mirror events to .vero/events/ (daily jsonl); false = off
@@ -440,6 +442,30 @@ settings:
   returns to unread and retries on the next wake — **no work is lost**; if the
   same work hangs again it alerts and cancels again.
 - If the leader itself stalls, you still get the notice.
+
+**Workflow watchdog (stale tasks / mailbox backlog)**
+
+The stall watchdog catches a run that IS going but stuck; this one catches
+work that NOBODY is moving:
+
+```yaml
+settings:
+  task_stale_threshold: 24h     # task parked in running/verifying longer → remind; "0" off (omit = 24h)
+  mailbox_stale_threshold: 30m  # oldest unread older than this → alert; "0" off (omit = 30m)
+```
+
+- A task sitting in `running` or `verifying` past `task_stale_threshold` sends
+  the leader (and you) one `⏳ task stale` reminder **per stay in that state**,
+  with the task's details and a suggested action (chase the assignee / verify
+  the result). Re-entering the state restarts the clock and earns a fresh
+  reminder; `suspended` is exempt — that state IS deliberate parking.
+  `task_list` tags over-threshold tasks inline: `⏳ stale 26h`.
+- A member whose oldest unread message ages past `mailbox_stale_threshold`
+  raises one `📬 mailbox backlog` alert per backlog episode. Under the normal
+  wake chain this should never fire — so when it does, it usually means a
+  frozen or suspended member was forgotten (the notice names the state and the
+  fix), or message delivery regressed.
+- `/metrics` carries `tasksStale` / `mailboxStale` counters for both.
 
 **Time & timezones (since v1.4.5-beta.2)**
 

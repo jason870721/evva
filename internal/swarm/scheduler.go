@@ -532,6 +532,7 @@ func (s *Supervisor) timerTick(ctx context.Context) {
 			s.sweepBudgetDay(now)
 			s.sweepStalls(now)
 			s.sweepRetention(now)
+			s.sweepWorkflow(now)
 			s.fireDue(now)
 		}
 	}

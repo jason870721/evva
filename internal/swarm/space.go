@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
 	"github.com/johnny1110/evva/internal/swarm/bus"
@@ -317,6 +318,12 @@ func (sp *SwarmSpace) WebhookSecret() string {
 // retention disabled). Exported for the service's manual vacuum default (RP-16).
 func (sp *SwarmSpace) RetentionDays() int {
 	return sp.settings.RetentionDays // set once at construction, never mutated
+}
+
+// TaskStaleThreshold returns the space's RP-22 task-age reminder line (0 =
+// disabled). Exported so task_list can tag over-threshold tasks as stale.
+func (sp *SwarmSpace) TaskStaleThreshold() time.Duration {
+	return sp.settings.TaskStaleThreshold // set once at construction, never mutated
 }
 
 // ScheduleOrigin says where a member's live schedule came from: the manifest

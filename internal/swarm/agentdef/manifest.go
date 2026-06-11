@@ -70,6 +70,19 @@ type Settings struct {
 	// `event_log: false` turns the side-channel off entirely. Note the Go
 	// zero value is OFF — programmatic spaces opt in, yaml spaces opt out.
 	EventLog bool
+	// TaskStaleThreshold is the RP-22 workflow watchdog's ledger line: a task
+	// sitting in running/verifying longer than this raises one reminder to the
+	// leader (and the operator) per state entry. 0 = disabled; a manifest that
+	// omits the knob gets DefaultTaskStaleThreshold. suspended is exempt —
+	// that state IS deliberate parking.
+	TaskStaleThreshold time.Duration
+	// MailboxStaleThreshold is the RP-22 bus-health tripwire: a member whose
+	// oldest unread (unclaimed) message exceeds this age raises an alert —
+	// under the normal wake chain (level-triggered drain + rescan) it should
+	// never fire, so when it does it means a frozen/suspended member was
+	// forgotten or the wake chain regressed. 0 = disabled; omitted gets
+	// DefaultMailboxStaleThreshold.
+	MailboxStaleThreshold time.Duration
 }
 
 // DefaultStallThreshold is the alert line a manifest gets when it does not set
@@ -81,6 +94,18 @@ const DefaultStallThreshold = 10 * time.Minute
 // does not set settings.retention_days. A month keeps the web/API working set
 // small on a 24/7 swarm while the archive retains the full history.
 const DefaultRetentionDays = 30
+
+// DefaultTaskStaleThreshold is the task-age reminder line a manifest gets when
+// it does not set settings.task_stale_threshold. A day is long enough that
+// ordinary multi-hour work never pings, short enough that a card forgotten on
+// the board is surfaced the next morning.
+const DefaultTaskStaleThreshold = 24 * time.Hour
+
+// DefaultMailboxStaleThreshold is the unread-age tripwire a manifest gets when
+// it does not set settings.mailbox_stale_threshold. Half an hour: the wake
+// chain normally drains in seconds, so anything older signals a frozen or
+// broken member, not load.
+const DefaultMailboxStaleThreshold = 30 * time.Minute
 
 // scheduleYml is the on-disk schedule block shared by the manifest's leader and
 // workers (and mirrored by profile.yml). Exactly one of cron/every is set.
@@ -104,15 +129,17 @@ type manifestYml struct {
 	Leader   memberYml   `yaml:"leader"`
 	Workers  []memberYml `yaml:"workers,omitempty"`
 	Settings struct {
-		PermissionMode    string `yaml:"permission_mode,omitempty"`
-		MaxIterations     int    `yaml:"max_iterations,omitempty"`
-		DailyBudgetTokens int    `yaml:"daily_budget_tokens,omitempty"`
-		BudgetStayFrozen  bool   `yaml:"budget_stay_frozen,omitempty"`
-		StallThreshold    string `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
-		StallHardTimeout  string `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
-		WebhookSecret     string `yaml:"webhook_secret,omitempty"`
-		RetentionDays     string `yaml:"retention_days,omitempty"` // days; "" = default 30, "0" = off
-		EventLog          *bool  `yaml:"event_log,omitempty"`      // nil = default true
+		PermissionMode        string `yaml:"permission_mode,omitempty"`
+		MaxIterations         int    `yaml:"max_iterations,omitempty"`
+		DailyBudgetTokens     int    `yaml:"daily_budget_tokens,omitempty"`
+		BudgetStayFrozen      bool   `yaml:"budget_stay_frozen,omitempty"`
+		StallThreshold        string `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
+		StallHardTimeout      string `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
+		WebhookSecret         string `yaml:"webhook_secret,omitempty"`
+		RetentionDays         string `yaml:"retention_days,omitempty"`          // days; "" = default 30, "0" = off
+		EventLog              *bool  `yaml:"event_log,omitempty"`               // nil = default true
+		TaskStaleThreshold    string `yaml:"task_stale_threshold,omitempty"`    // duration; "" = default 24h, "0" = off
+		MailboxStaleThreshold string `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
 	} `yaml:"settings,omitempty"`
 }
 
@@ -195,20 +222,30 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest settings.retention_days: %w", err)
 	}
+	taskStale, err := parseStallDuration(y.Settings.TaskStaleThreshold, DefaultTaskStaleThreshold)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.task_stale_threshold: %w", err)
+	}
+	mailboxStale, err := parseStallDuration(y.Settings.MailboxStaleThreshold, DefaultMailboxStaleThreshold)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.mailbox_stale_threshold: %w", err)
+	}
 	m := Manifest{
 		Name:    y.Name,
 		Workdir: y.Workdir,
 		Leader:  Member{Agent: y.Leader.Agent, Schedule: leaderSched, BudgetTokens: y.Leader.BudgetTokens},
 		Settings: Settings{
-			PermissionMode:    y.Settings.PermissionMode,
-			MaxIterations:     y.Settings.MaxIterations,
-			DailyBudgetTokens: y.Settings.DailyBudgetTokens,
-			BudgetStayFrozen:  y.Settings.BudgetStayFrozen,
-			StallThreshold:    stall,
-			StallHardTimeout:  hard,
-			WebhookSecret:     strings.TrimSpace(y.Settings.WebhookSecret),
-			RetentionDays:     retention,
-			EventLog:          y.Settings.EventLog == nil || *y.Settings.EventLog,
+			PermissionMode:        y.Settings.PermissionMode,
+			MaxIterations:         y.Settings.MaxIterations,
+			DailyBudgetTokens:     y.Settings.DailyBudgetTokens,
+			BudgetStayFrozen:      y.Settings.BudgetStayFrozen,
+			StallThreshold:        stall,
+			StallHardTimeout:      hard,
+			WebhookSecret:         strings.TrimSpace(y.Settings.WebhookSecret),
+			RetentionDays:         retention,
+			EventLog:              y.Settings.EventLog == nil || *y.Settings.EventLog,
+			TaskStaleThreshold:    taskStale,
+			MailboxStaleThreshold: mailboxStale,
 		},
 	}
 	for _, w := range y.Workers {
@@ -275,6 +312,21 @@ func WriteManifest(path string, m Manifest) error {
 	if !m.Settings.EventLog { // default (true) omits; only an explicit off is written
 		off := false
 		y.Settings.EventLog = &off
+	}
+	// RP-22 stale fuses round-trip like the stall knobs: default omits, off = "0".
+	switch m.Settings.TaskStaleThreshold {
+	case DefaultTaskStaleThreshold: // omit
+	case 0:
+		y.Settings.TaskStaleThreshold = "0"
+	default:
+		y.Settings.TaskStaleThreshold = m.Settings.TaskStaleThreshold.String()
+	}
+	switch m.Settings.MailboxStaleThreshold {
+	case DefaultMailboxStaleThreshold: // omit
+	case 0:
+		y.Settings.MailboxStaleThreshold = "0"
+	default:
+		y.Settings.MailboxStaleThreshold = m.Settings.MailboxStaleThreshold.String()
 	}
 	b, err := yaml.Marshal(y)
 	if err != nil {

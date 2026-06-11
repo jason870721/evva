@@ -41,6 +41,16 @@ type Supervisor struct {
 	vacuumDay  string
 	vacuumBusy atomic.Bool
 
+	// RP-22 workflow-watchdog state — tick-goroutine-only, the vacuumDay
+	// pattern (tests that call the sweeps directly never Start the tick).
+	// lastWorkflowSweep throttles the ledger checks to workflowSweepInterval;
+	// the two maps are the anti-spam marks (one reminder per task stay, one
+	// alert per mailbox backlog episode) and reset on restart by design.
+	workflowSweepInterval time.Duration
+	lastWorkflowSweep     time.Time
+	staleTaskNotified     map[int64]staleTaskKey
+	mailboxAlerted        map[string]bool
+
 	// mu guards members + each member's schedule/nextDue (only the tick touches
 	// those). A member's volatile run state (suspended/cancelRun) is guarded by
 	// the member's own mutex; see memberRun.
@@ -78,10 +88,11 @@ func NewSupervisor(sp *SwarmSpace) *Supervisor {
 		// log) rather than io.Discard, so a swarm runs observable out of the
 		// box; SetLogger overrides it. The old discard default is why the
 		// run loop was invisible during debugging.
-		log:            slog.Default(),
-		tickInterval:   defaultTickInterval,
-		rescanInterval: defaultRescanInterval,
-		members:        make(map[string]*memberRun),
+		log:                   slog.Default(),
+		tickInterval:          defaultTickInterval,
+		rescanInterval:        defaultRescanInterval,
+		workflowSweepInterval: defaultWorkflowSweepInterval,
+		members:               make(map[string]*memberRun),
 	}
 	// Back-reference so the leader's schedule tools (which hold only the space)
 	// can reach this run engine via sp.SetMemberSchedule. One supervisor per

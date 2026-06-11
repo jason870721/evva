@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/johnny1110/evva/internal/swarm"
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
@@ -500,5 +501,49 @@ func TestFmtTokens(t *testing.T) {
 		if got := fmtTokens(in); got != want {
 			t.Errorf("fmtTokens(%d) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// RP-22: task_list tags tasks parked in running/verifying beyond the space's
+// task_stale_threshold — the inline twin of the watchdog reminder.
+func TestTaskListMarksStaleTasks(t *testing.T) {
+	loaded := []agentdef.Loaded{
+		{Def: agent.AgentDefinition{Name: "leader", SystemPrompt: "You are leader.", Model: stubModel}, Skills: skill.NewRegistry(), Role: agentdef.RoleLeader},
+		{Def: agent.AgentDefinition{Name: "worker-a", SystemPrompt: "You are worker-a.", Model: stubModel}, Skills: skill.NewRegistry(), Role: agentdef.RoleWorker},
+	}
+	m := agentdef.Manifest{Name: "team", Settings: agentdef.Settings{
+		PermissionMode: "bypass", MaxIterations: 5, TaskStaleThreshold: 10 * time.Millisecond,
+	}}
+	sp, err := swarm.NewSpace("t-stale", m, loaded, nil, stubCfg(t))
+	if err != nil {
+		t.Fatalf("NewSpace: %v", err)
+	}
+	t.Cleanup(sp.Shutdown)
+
+	id, err := sp.Store.CreateTask(store.Task{Title: "slow work", Spec: "s", Assignee: "worker-a", CreatedBy: "leader"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if err := sp.Store.TransitionTask(id, store.StatusRunning, store.Actor{Name: "leader", Role: store.RoleLeader}, ""); err != nil {
+		t.Fatalf("TransitionTask: %v", err)
+	}
+	time.Sleep(25 * time.Millisecond)
+
+	res := exec(t, newTaskList(leaderMC(sp)), `{}`)
+	if res.IsError {
+		t.Fatalf("task_list: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "⏳ stale") {
+		t.Errorf("task_list missing the stale tag:\n%s", res.Content)
+	}
+
+	// A pending task — even an old one — carries no tag (only running/verifying age).
+	if _, err := sp.Store.CreateTask(store.Task{Title: "queued", Spec: "s", Assignee: "worker-a", CreatedBy: "leader"}); err != nil {
+		t.Fatalf("CreateTask #2: %v", err)
+	}
+	time.Sleep(25 * time.Millisecond)
+	res = exec(t, newTaskList(leaderMC(sp)), `{"status":"pending"}`)
+	if strings.Contains(res.Content, "⏳ stale") {
+		t.Errorf("pending tasks must not be tagged:\n%s", res.Content)
 	}
 }

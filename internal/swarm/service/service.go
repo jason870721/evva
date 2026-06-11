@@ -1588,6 +1588,7 @@ func (s *Service) Metrics(ref string) (webapi.MetricsInfo, bool) {
 		HintsDropped: sp.Bus.HintsDropped(),
 		Members:      make(map[string]webapi.MemberMetricsInfo, len(members)),
 	}
+	mi.TasksStale, mi.MailboxStale = sp.WorkflowStaleCounts()
 	if !started.IsZero() {
 		mi.UptimeSecs = int64(time.Since(started).Seconds())
 	}

@@ -156,6 +156,8 @@ settings:
   # budget_stay_frozen: false     # true = 超额冻结跨日不自动解冻（需手动）
   # stall_threshold: 10m          # 成员忙超过即告警；"0" 关闭（省略 = 默认 10m）
   # stall_hard_timeout: 30m       # 忙超过即自动取消该次运行；0/省略 = 关闭
+  # task_stale_threshold: 24h     # task 停在 running/verifying 超过即提醒；"0" 关闭（省略 = 24h）
+  # mailbox_stale_threshold: 30m  # 最老未读信超龄即告警；"0" 关闭（省略 = 30m）
   # webhook_secret: "hunter2"     # 要求事件 POST 携带 X-Evva-Webhook-Secret（见 §10）
   # retention_days: 30            # 已消费历史 N 天后归档+删除；"0" = 永不删除
   # event_log: true               # 事件镜像到 .vero/events/（按日 jsonl）；false = 关闭
@@ -403,6 +405,25 @@ settings:
 - 开了 `stall_hard_timeout`，超时的运行会被取消：它认领中的邮件自动退回未读、下次唤醒
   重试 —— **不丢工作**；同一件事再挂住会再告警/再取消。
 - leader 自己卡死时，至少你会收到通知。
+
+**Workflow 看门狗（task 卡龄 / 信箱积压）**
+
+Stall 看门狗管「正在跑的卡住」；这个管「**没人推进**的卡住」：
+
+```yaml
+settings:
+  task_stale_threshold: 24h     # task 停留在 running/verifying 超过即提醒；"0" 关闭（省略 = 24h）
+  mailbox_stale_threshold: 30m  # 最老未读信超龄即告警；"0" 关闭（省略 = 30m）
+```
+
+- task 停在 `running` / `verifying` 超过 `task_stale_threshold`，leader（和你）收到
+  一封 `⏳ task stale` 提醒 —— **每次进入该状态最多一封**，附 task 细节与建议动作
+  （催 assignee / 验收结果）。状态推进后重新计时、再卡再提醒；`suspended` 豁免 ——
+  那是刻意停放。`task_list` 会对超龄 task 行内标注 `⏳ stale 26h`。
+- 成员最老未读信超过 `mailbox_stale_threshold`，每个积压期告警一次（`📬 mailbox
+  backlog`）。正常唤醒链下这不该发生 —— 一旦发生，通常是冻结/暂停的成员被遗忘
+  （通知会注明状态与建议处置），或投递链路出了回归。
+- `/metrics` 新增 `tasksStale` / `mailboxStale` 计数。
 
 **时间与时区（v1.4.5-beta.2 起）**
 

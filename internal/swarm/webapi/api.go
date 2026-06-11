@@ -300,11 +300,15 @@ type HealthInfo struct {
 // MetricsInfo is GET /api/swarm/{id}/metrics (RP-17): plain counters, no
 // timeseries — the user-side exporter (if any) owns history.
 type MetricsInfo struct {
-	UptimeSecs    int64                        `json:"uptimeSecs"`
-	EventsLogged  int64                        `json:"eventsLogged"`
-	EventsDropped int64                        `json:"eventsDropped"`
-	HintsDropped  int64                        `json:"hintsDropped"`
-	Members       map[string]MemberMetricsInfo `json:"members"`
+	UptimeSecs    int64 `json:"uptimeSecs"`
+	EventsLogged  int64 `json:"eventsLogged"`
+	EventsDropped int64 `json:"eventsDropped"`
+	HintsDropped  int64 `json:"hintsDropped"`
+	// TasksStale / MailboxStale count RP-22 workflow-watchdog notifications
+	// sent since the space started (stale-task reminders, backlog alerts).
+	TasksStale   int64                        `json:"tasksStale"`
+	MailboxStale int64                        `json:"mailboxStale"`
+	Members      map[string]MemberMetricsInfo `json:"members"`
 }
 
 // MemberMetricsInfo is one member's scheduler counters. RunSeconds buckets

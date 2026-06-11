@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/johnny1110/evva/internal/swarm"
 	"github.com/johnny1110/evva/internal/swarm/store"
@@ -32,9 +33,17 @@ func transitionError(tool string, err error) pubtools.Result {
 	}
 }
 
-func formatTask(t store.Task) string {
+// formatTask renders one ledger row. staleAfter > 0 tags tasks parked in
+// running/verifying beyond it with their age (RP-22) — the inline twin of the
+// watchdog's reminder, so a leader re-reading the board sees the same signal.
+func formatTask(t store.Task, staleAfter time.Duration) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "#%d [%s] %s (assignee: %s)", t.ID, t.Status, t.Title, t.Assignee)
+	if staleAfter > 0 && (t.Status == store.StatusRunning || t.Status == store.StatusVerifying) {
+		if age := time.Since(time.UnixMilli(t.UpdatedAt)); age >= staleAfter {
+			fmt.Fprintf(&b, " ⏳ stale %s", humanTaskAge(age))
+		}
+	}
 	if t.Spec != "" {
 		fmt.Fprintf(&b, "\n    spec: %s", t.Spec)
 	}
@@ -55,11 +64,24 @@ const (
 	taskListMaxLimit     = 50
 )
 
+// humanTaskAge renders a stale age board-style: days past 48h, else hours,
+// else minutes. Mirrors the watchdog's humanAge wording (internal/swarm).
+func humanTaskAge(d time.Duration) string {
+	switch {
+	case d >= 48*time.Hour:
+		return fmt.Sprintf("%dd%dh", int(d.Hours())/24, int(d.Hours())%24)
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+}
+
 // formatTasks renders a page of tasks. offset/total describe the window within
 // the full match set: when the page IS the whole set (offset 0, total == len) it
 // prints the plain "label (N)" header (unchanged for my_tasks); otherwise it
 // shows "showing A–B of TOTAL" and, if more remain, the next offset to page with.
-func formatTasks(label string, tasks []store.Task, offset, total int) pubtools.Result {
+func formatTasks(label string, tasks []store.Task, offset, total int, staleAfter time.Duration) pubtools.Result {
 	var b strings.Builder
 	end := offset + len(tasks)
 	if offset > 0 || total > len(tasks) {
@@ -72,7 +94,7 @@ func formatTasks(label string, tasks []store.Task, offset, total int) pubtools.R
 		fmt.Fprintf(&b, "%s (%d):\n", label, len(tasks))
 	}
 	for _, t := range tasks {
-		b.WriteString(formatTask(t))
+		b.WriteString(formatTask(t, staleAfter))
 		b.WriteByte('\n')
 	}
 	if end < total {
@@ -292,7 +314,7 @@ func newTaskList(mc swarm.MemberContext) pubtools.Tool {
 			if err != nil {
 				return errf("task_list: %v", err), nil
 			}
-			return formatTasks("Tasks", tasks, offset, total), nil
+			return formatTasks("Tasks", tasks, offset, total, mc.Space.TaskStaleThreshold()), nil
 		},
 	}
 }
@@ -313,7 +335,7 @@ func newMyTasks(mc swarm.MemberContext) pubtools.Tool {
 			// my_tasks stays unpaged (a worker's own set is small and called
 			// on-demand, not polled — RP-6 scopes paging to the leader's task_list):
 			// offset 0 + total == len prints the plain "Your tasks (N)" header.
-			return formatTasks("Your tasks", tasks, 0, len(tasks)), nil
+			return formatTasks("Your tasks", tasks, 0, len(tasks), mc.Space.TaskStaleThreshold()), nil
 		},
 	}
 }
@@ -340,7 +362,7 @@ func newTaskGet(mc swarm.MemberContext) pubtools.Tool {
 				}
 				return errf("task_get: %v", err), nil
 			}
-			return pubtools.Result{Content: formatTask(t), Metadata: t}, nil
+			return pubtools.Result{Content: formatTask(t, mc.Space.TaskStaleThreshold()), Metadata: t}, nil
 		},
 	}
 }

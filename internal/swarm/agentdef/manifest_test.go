@@ -312,3 +312,55 @@ func TestManifestEventLogKnob(t *testing.T) {
 		t.Fatal("explicit off lost in the round-trip")
 	}
 }
+
+// RP-22: the workflow-watchdog fuses parse with stall-knob semantics
+// ("" = default, "0" = off) and round-trip through WriteManifest.
+func TestManifestWorkflowStaleKnobs(t *testing.T) {
+	p := writeManifest(t, `
+name: watchful
+leader:
+  agent: lead
+settings:
+  task_stale_threshold: 6h
+  mailbox_stale_threshold: 15m
+`)
+	m, err := LoadManifest(p)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	if m.Settings.TaskStaleThreshold != 6*time.Hour || m.Settings.MailboxStaleThreshold != 15*time.Minute {
+		t.Errorf("stale knobs = %v/%v, want 6h/15m", m.Settings.TaskStaleThreshold, m.Settings.MailboxStaleThreshold)
+	}
+	out := filepath.Join(t.TempDir(), "evva-swarm.yml")
+	if err := WriteManifest(out, m); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+	if m2, err := LoadManifest(out); err != nil || m2.Settings.TaskStaleThreshold != 6*time.Hour || m2.Settings.MailboxStaleThreshold != 15*time.Minute {
+		t.Errorf("round-trip = %v/%v (err %v)", m2.Settings.TaskStaleThreshold, m2.Settings.MailboxStaleThreshold, err)
+	}
+
+	// Omitted → defaults; "0" → off, surviving a round-trip.
+	p = writeManifest(t, "name: bare\nleader:\n  agent: lead\n")
+	if m, err = LoadManifest(p); err != nil ||
+		m.Settings.TaskStaleThreshold != DefaultTaskStaleThreshold ||
+		m.Settings.MailboxStaleThreshold != DefaultMailboxStaleThreshold {
+		t.Errorf("defaults = %v/%v (err %v), want %v/%v", m.Settings.TaskStaleThreshold,
+			m.Settings.MailboxStaleThreshold, err, DefaultTaskStaleThreshold, DefaultMailboxStaleThreshold)
+	}
+	p = writeManifest(t, "name: off\nleader:\n  agent: lead\nsettings:\n  task_stale_threshold: \"0\"\n  mailbox_stale_threshold: \"0\"\n")
+	if m, err = LoadManifest(p); err != nil || m.Settings.TaskStaleThreshold != 0 || m.Settings.MailboxStaleThreshold != 0 {
+		t.Errorf("explicit off = %v/%v (err %v), want 0/0", m.Settings.TaskStaleThreshold, m.Settings.MailboxStaleThreshold, err)
+	}
+	if err := WriteManifest(out, m); err != nil {
+		t.Fatalf("WriteManifest(off): %v", err)
+	}
+	if m2, err := LoadManifest(out); err != nil || m2.Settings.TaskStaleThreshold != 0 || m2.Settings.MailboxStaleThreshold != 0 {
+		t.Errorf("off round-trip = %v/%v (err %v), want 0/0", m2.Settings.TaskStaleThreshold, m2.Settings.MailboxStaleThreshold, err)
+	}
+
+	// Garbage fails at load.
+	p = writeManifest(t, "name: bad\nleader:\n  agent: lead\nsettings:\n  task_stale_threshold: nonsense\n")
+	if _, err := LoadManifest(p); err == nil {
+		t.Error("task_stale_threshold garbage should fail to load")
+	}
+}
