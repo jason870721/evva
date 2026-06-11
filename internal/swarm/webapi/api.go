@@ -166,6 +166,11 @@ type MemberInfo struct {
 	PhaseSince  int64  `json:"phaseSince,omitempty"` // unix millis the phase was entered (RP-4 timing)
 	CurrentTask int64  `json:"currentTask"`
 	WhenToUse   string `json:"whenToUse,omitempty"`
+	// PermissionMode is the member's effective permission stance (manifest
+	// member override > space setting; RP-24): default | accept_edits |
+	// plan | bypass. "bypass" members run fully autonomous; "default"
+	// members queue approvals in the web inbox.
+	PermissionMode string `json:"permissionMode,omitempty"`
 	// ContextTokens / ContextLimit drive the per-member context-utilization meter
 	// (the web roster's CTX bar). ContextTokens is the input-token count of the
 	// member's most recent turn — how full its prompt is right now; ContextLimit

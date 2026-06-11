@@ -69,6 +69,7 @@ type rosterEntry struct {
 	phaseSince  int64     // unix millis the current phase was entered (for "stuck for N" timing)
 	currentTask int64
 	whenToUse   string
+	permMode    string // effective permission stance, fixed at construction (RP-24)
 	ctl         ui.Controller
 
 	// Token metering (RP-13), pushed by the supervisor at run boundaries (the
@@ -91,6 +92,10 @@ type MemberView struct {
 	PhaseSince  int64 // unix millis the current phase was entered
 	CurrentTask int64
 	WhenToUse   string
+	// PermissionMode is the member's effective permission stance (manifest
+	// member override > space setting; RP-24) — "bypass" runs fully
+	// autonomous, "default" queues approvals for a human.
+	PermissionMode string
 
 	Usage         llm.Usage // cumulative session tokens as of the last run boundary (RP-13)
 	LastTurnInput int       // most recent turn's input tokens (context pressure)
@@ -130,7 +135,7 @@ func newRoster() *Roster {
 
 // add inserts a member as active+idle. Names are unique within the space
 // (invariant #2 — per-space name scoping); a collision errors.
-func (r *Roster) add(name string, role agentdef.Role, whenToUse string, ctl ui.Controller) error {
+func (r *Roster) add(name string, role agentdef.Role, whenToUse, permMode string, ctl ui.Controller) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, dup := r.entries[name]; dup {
@@ -144,6 +149,7 @@ func (r *Roster) add(name string, role agentdef.Role, whenToUse string, ctl ui.C
 		phase:      PhaseReady,
 		phaseSince: time.Now().UnixMilli(),
 		whenToUse:  whenToUse,
+		permMode:   permMode,
 		ctl:        ctl,
 	}
 	r.entries[name] = e
@@ -235,18 +241,19 @@ func (r *Roster) Snapshot() []MemberView {
 	for _, name := range r.order {
 		e := r.entries[name]
 		out = append(out, MemberView{
-			Name:          e.name,
-			Role:          e.role,
-			Membership:    e.membership,
-			Run:           e.run,
-			Phase:         e.phase,
-			Tool:          e.tool,
-			PhaseSince:    e.phaseSince,
-			CurrentTask:   e.currentTask,
-			WhenToUse:     e.whenToUse,
-			Usage:         e.usage,
-			LastTurnInput: e.lastTurnInput,
-			DailyTokens:   e.dailyTokens,
+			Name:           e.name,
+			Role:           e.role,
+			Membership:     e.membership,
+			Run:            e.run,
+			Phase:          e.phase,
+			Tool:           e.tool,
+			PhaseSince:     e.phaseSince,
+			CurrentTask:    e.currentTask,
+			WhenToUse:      e.whenToUse,
+			PermissionMode: e.permMode,
+			Usage:          e.usage,
+			LastTurnInput:  e.lastTurnInput,
+			DailyTokens:    e.dailyTokens,
 		})
 	}
 	return out

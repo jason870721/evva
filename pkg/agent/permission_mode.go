@@ -29,11 +29,12 @@ const (
 	// orientation before committing to an approach.
 	PermissionPlan PermissionMode = "plan"
 
-	// PermissionBypass auto-allows every tool call with no prompting.
-	// Dangerous-command classification still happens and is logged but
-	// never blocks. Use only inside isolated containers, VMs, or
-	// downstream apps that have no approval UI surface — see
-	// WithHeadlessBypass.
+	// PermissionBypass auto-allows every tool call with no prompting —
+	// except calls matching an explicit deny rule, which are still
+	// rejected (deny rules bind in every mode). Dangerous-command
+	// classification still happens and is logged but never blocks. Use
+	// only inside isolated containers, VMs, or downstream apps that have
+	// no approval UI surface — see WithHeadlessBypass.
 	PermissionBypass PermissionMode = "bypass"
 )
 
@@ -77,6 +78,9 @@ func WithPermissionMode(m PermissionMode) Option {
 // will run any bash command the model emits, edit any file under its
 // workdir, and fetch any URL it decides to. Use only in trusted
 // environments (CI runners, sandboxed containers, ephemeral VMs).
+// Explicit deny rules in the permission store are the one exception:
+// they are still enforced under bypass, so a host can pre-seed hard
+// prohibitions for an otherwise fully autonomous agent.
 //
 // For an interactive host that wants real prompts, omit this option —
 // the default permission mode asks before each mutating call. Wire

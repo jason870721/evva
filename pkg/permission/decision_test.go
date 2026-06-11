@@ -13,13 +13,37 @@ func mkCall(name, cmd string) ToolCall {
 }
 
 func TestDecide_BypassAllowsEverything(t *testing.T) {
+	// No rules: bypass auto-allows whatever the model emits, dangerous or not.
+	d := Decide(mkCall("bash", "rm -rf /"), ModeBypass, NewStore(), Hint{IsDangerous: true}, "", "")
+	if d.Behavior != BehaviorAllow {
+		t.Errorf("bypass with no rules should allow; got %v (%s)", d.Behavior, d.Reason)
+	}
+}
+
+func TestDecide_DenyRulePiercesBypass(t *testing.T) {
+	// Deny rules are absolute (RP-24): bypass silences prompts, not
+	// prohibitions. This is what makes "bypass member + deny rules" a usable
+	// trust tier — fully autonomous except for the operator's hard fences.
 	store := NewStore()
 	store.ReplaceAll([]Rule{
 		{ToolName: "bash", Behavior: BehaviorDeny, Source: SourceProject},
 	})
 	d := Decide(mkCall("bash", "rm -rf /"), ModeBypass, store, Hint{}, "", "")
+	if d.Behavior != BehaviorDeny {
+		t.Errorf("deny rule should bind under bypass; got %v (%s)", d.Behavior, d.Reason)
+	}
+}
+
+func TestDecide_AskRuleDoesNotPierceBypass(t *testing.T) {
+	// Ask rules force a prompt where one is possible; bypass exists exactly so
+	// an unattended agent never blocks on one. Only deny pierces bypass.
+	store := NewStore()
+	store.ReplaceAll([]Rule{
+		{ToolName: "bash", Behavior: BehaviorAsk, Source: SourceProject},
+	})
+	d := Decide(mkCall("bash", "make deploy"), ModeBypass, store, Hint{}, "", "")
 	if d.Behavior != BehaviorAllow {
-		t.Errorf("bypass should allow even with deny rule; got %v", d.Behavior)
+		t.Errorf("ask rule should not block bypass; got %v (%s)", d.Behavior, d.Reason)
 	}
 }
 

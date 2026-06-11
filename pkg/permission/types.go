@@ -102,9 +102,11 @@ func pathWithin(root, abs string) bool {
 //     commands via the classifier. Any other non-safelist tool is denied
 //     outright (no prompt). Best for exploring a codebase before deciding
 //     what to change.
-//   - ModeBypass: every tool call runs with no prompting. Dangerous-command
-//     classification still happens and is logged, but never blocks. Use
-//     only inside isolated containers or VMs.
+//   - ModeBypass: every tool call runs with no prompting — except calls
+//     matching a deny rule, which are still rejected (deny rules bind in
+//     every mode; bypass silences prompts, not prohibitions). Dangerous-
+//     command classification still happens and is logged, but never blocks.
+//     Use only inside isolated containers or VMs.
 type Mode string
 
 const (

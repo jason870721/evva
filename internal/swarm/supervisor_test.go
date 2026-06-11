@@ -103,7 +103,7 @@ func ctlSpace(t *testing.T, members map[string]agentdef.Role) (*SwarmSpace, map[
 	ctls := make(map[string]*fakeController, len(members))
 	for name, role := range members {
 		fc := &fakeController{}
-		if err := sp.Roster.add(name, role, "", fc); err != nil {
+		if err := sp.Roster.add(name, role, "", "", fc); err != nil {
 			t.Fatalf("roster add %q: %v", name, err)
 		}
 		sp.Bus.Register(name)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/johnny1110/evva/pkg/permission"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,6 +33,13 @@ type Member struct {
 	// (RP-13): >0 = own daily cap, <0 = unlimited (exempt even when the space
 	// sets a default), 0 = inherit Settings.DailyBudgetTokens.
 	BudgetTokens int
+	// PermissionMode overrides the space-wide permission stance for this
+	// member (RP-24): default | accept_edits | plan | bypass; "" = inherit
+	// Settings.PermissionMode. The coarse trust knob layered over the
+	// member's fine-grained permissions.json rules (RP-11): the mode decides
+	// the broad stance, allow rules open holes in `default`, and deny rules
+	// bind in EVERY mode — bypass included.
+	PermissionMode string
 }
 
 // Settings are space-wide knobs from the manifest.
@@ -41,6 +49,9 @@ type Settings struct {
 	// DailyBudgetTokens is the per-member daily token cap (input+output, local
 	// day) — the RP-13 budget breaker. 0 = unlimited. A member that crosses it
 	// is frozen until the day rolls over (or the operator unfreezes it).
+	// Negative values normalize to 0 at manifest load (RP-24 §5): unlike the
+	// member-level knob there is nothing at space level to be exempt FROM, so
+	// any non-positive value just means "no cap".
 	DailyBudgetTokens int
 	// BudgetStayFrozen keeps a budget-frozen member frozen across the day
 	// rollover, requiring a manual unfreeze (default false = auto-unfreeze).
@@ -117,9 +128,10 @@ type scheduleYml struct {
 
 // memberYml is one leader/worker entry in evva-swarm.yml.
 type memberYml struct {
-	Agent        string       `yaml:"agent"`
-	Schedule     *scheduleYml `yaml:"schedule,omitempty"`
-	BudgetTokens int          `yaml:"budget_tokens,omitempty"`
+	Agent          string       `yaml:"agent"`
+	Schedule       *scheduleYml `yaml:"schedule,omitempty"`
+	BudgetTokens   int          `yaml:"budget_tokens,omitempty"`
+	PermissionMode string       `yaml:"permission_mode,omitempty"` // "" = inherit settings (RP-24)
 }
 
 // manifestYml is the on-disk schema for evva-swarm.yml (design §4.4).
@@ -180,6 +192,22 @@ func parseStallDuration(s string, def time.Duration) (time.Duration, error) {
 	return d, nil
 }
 
+// parsePermissionMode reads an optional permission_mode knob (settings-level
+// or member-level, RP-24): "" inherits, anything else must be one of the four
+// modes. Validated at load so a typo ("yolo") rejects the whole manifest at
+// register time instead of silently falling back to default deep inside
+// agent.New — the schedule-knob fail-fast precedent.
+func parsePermissionMode(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	if _, ok := permission.ParseMode(s); !ok {
+		return "", fmt.Errorf("invalid permission_mode %q (want default|accept_edits|plan|bypass)", s)
+	}
+	return s, nil
+}
+
 // parseScheduleYml turns an optional on-disk schedule block into a *Schedule,
 // validating the cron at load time (a bad spec fails the whole manifest, not the
 // first tick). nil block → nil schedule.
@@ -210,6 +238,14 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest leader %q schedule: %w", y.Leader.Agent, err)
 	}
+	settingsMode, err := parsePermissionMode(y.Settings.PermissionMode)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.permission_mode: %w", err)
+	}
+	leaderMode, err := parsePermissionMode(y.Leader.PermissionMode)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest leader %q permission_mode: %w", y.Leader.Agent, err)
+	}
 	stall, err := parseStallDuration(y.Settings.StallThreshold, DefaultStallThreshold)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest settings.stall_threshold: %w", err)
@@ -230,14 +266,19 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest settings.mailbox_stale_threshold: %w", err)
 	}
+	// Space-level budget: negatives normalize to 0 = unlimited (RP-24 §5).
+	// The member-level knob keeps its signed semantics (<0 = exempt); here
+	// there is no space default to be exempt from, so the sign is meaningless
+	// and an operator's `-1` plainly intends "no cap".
+	budget := max(y.Settings.DailyBudgetTokens, 0)
 	m := Manifest{
 		Name:    y.Name,
 		Workdir: y.Workdir,
-		Leader:  Member{Agent: y.Leader.Agent, Schedule: leaderSched, BudgetTokens: y.Leader.BudgetTokens},
+		Leader:  Member{Agent: y.Leader.Agent, Schedule: leaderSched, BudgetTokens: y.Leader.BudgetTokens, PermissionMode: leaderMode},
 		Settings: Settings{
-			PermissionMode:        y.Settings.PermissionMode,
+			PermissionMode:        settingsMode,
 			MaxIterations:         y.Settings.MaxIterations,
-			DailyBudgetTokens:     y.Settings.DailyBudgetTokens,
+			DailyBudgetTokens:     budget,
 			BudgetStayFrozen:      y.Settings.BudgetStayFrozen,
 			StallThreshold:        stall,
 			StallHardTimeout:      hard,
@@ -253,7 +294,11 @@ func LoadManifest(path string) (Manifest, error) {
 		if err != nil {
 			return Manifest{}, fmt.Errorf("agentdef: manifest worker %q schedule: %w", w.Agent, err)
 		}
-		m.Workers = append(m.Workers, Member{Agent: w.Agent, Schedule: ws, BudgetTokens: w.BudgetTokens})
+		wMode, err := parsePermissionMode(w.PermissionMode)
+		if err != nil {
+			return Manifest{}, fmt.Errorf("agentdef: manifest worker %q permission_mode: %w", w.Agent, err)
+		}
+		m.Workers = append(m.Workers, Member{Agent: w.Agent, Schedule: ws, BudgetTokens: w.BudgetTokens, PermissionMode: wMode})
 	}
 	if err := m.validate(); err != nil {
 		return Manifest{}, err
@@ -280,9 +325,9 @@ func toScheduleYml(s *Schedule) *scheduleYml {
 // emitted too, though runtime.json stays the live authority (RP-7).
 func WriteManifest(path string, m Manifest) error {
 	y := manifestYml{Name: m.Name, Workdir: m.Workdir}
-	y.Leader = memberYml{Agent: m.Leader.Agent, Schedule: toScheduleYml(m.Leader.Schedule), BudgetTokens: m.Leader.BudgetTokens}
+	y.Leader = memberYml{Agent: m.Leader.Agent, Schedule: toScheduleYml(m.Leader.Schedule), BudgetTokens: m.Leader.BudgetTokens, PermissionMode: m.Leader.PermissionMode}
 	for _, w := range m.Workers {
-		y.Workers = append(y.Workers, memberYml{Agent: w.Agent, Schedule: toScheduleYml(w.Schedule), BudgetTokens: w.BudgetTokens})
+		y.Workers = append(y.Workers, memberYml{Agent: w.Agent, Schedule: toScheduleYml(w.Schedule), BudgetTokens: w.BudgetTokens, PermissionMode: w.PermissionMode})
 	}
 	y.Settings.PermissionMode = m.Settings.PermissionMode
 	y.Settings.MaxIterations = m.Settings.MaxIterations

@@ -39,8 +39,9 @@ const httpRequestToolName = "http_request"
 //
 // Pipeline:
 //
-//  1. ModeBypass → allow (no rule lookup; bypass means bypass).
-//  2. Deny rules → deny (always win when not bypassed).
+//  1. Deny rules → deny (absolute — they bind in every mode, bypass included).
+//  2. ModeBypass → allow (no further rule lookup; bypass silences prompts,
+//     not prohibitions).
 //  3. Ask rules → ask (a user-forced prompt overrides mode auto-allow).
 //  4. ModePlan-only:
 //     - Write/Edit targeting <workdir>/.evva/plans/ → allow (plan-file carve-out).
@@ -57,14 +58,12 @@ const httpRequestToolName = "http_request"
 //  9. Allow rules → allow.
 //  10. Else → ask.
 //
-// The order ensures deny rules always win (step 2), user-forced asks
-// always show (step 3), and plan mode's hard ceiling is enforced before
-// the auto-allow paths can let a write through (step 4 before steps 5 / 8).
+// The order ensures deny rules always win (step 1 — even in bypass mode,
+// since bypass means "never prompt", not "ignore the operator's explicit
+// prohibitions"; RP-24), user-forced asks always show when prompting is
+// possible (step 3), and plan mode's hard ceiling is enforced before the
+// auto-allow paths can let a write through (step 4 before steps 5 / 8).
 func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir, memDir string) Decision {
-	if mode == ModeBypass {
-		return Decision{Behavior: BehaviorAllow, Reason: "bypass mode"}
-	}
-
 	if store != nil {
 		if r, ok := store.firstMatch(call, BehaviorDeny); ok {
 			return Decision{
@@ -72,6 +71,13 @@ func Decide(call ToolCall, mode Mode, store *Store, hint Hint, workdir, memDir s
 				Reason:   "denied by rule: " + FormatRule(r.ToolName, r.Content),
 			}
 		}
+	}
+
+	if mode == ModeBypass {
+		return Decision{Behavior: BehaviorAllow, Reason: "bypass mode"}
+	}
+
+	if store != nil {
 		if r, ok := store.firstMatch(call, BehaviorAsk); ok {
 			return Decision{
 				Behavior: BehaviorAsk,

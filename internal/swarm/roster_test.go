@@ -15,13 +15,13 @@ var _ bus.Membership = (*Roster)(nil)
 
 func TestRosterAddSnapshotAndDuplicate(t *testing.T) {
 	r := newRoster()
-	if err := r.add("leader", agentdef.RoleLeader, "leads", nil); err != nil {
+	if err := r.add("leader", agentdef.RoleLeader, "leads", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.add("worker", agentdef.RoleWorker, "works", nil); err != nil {
+	if err := r.add("worker", agentdef.RoleWorker, "works", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.add("leader", agentdef.RoleLeader, "", nil); err == nil {
+	if err := r.add("leader", agentdef.RoleLeader, "", "", nil); err == nil {
 		t.Fatal("want a duplicate-member error")
 	}
 
@@ -46,7 +46,7 @@ func TestRosterAddSnapshotAndDuplicate(t *testing.T) {
 
 func TestRosterStatusMutatorsReflectInSnapshot(t *testing.T) {
 	r := newRoster()
-	_ = r.add("w", agentdef.RoleWorker, "", nil)
+	_ = r.add("w", agentdef.RoleWorker, "", "", nil)
 
 	r.setRun("w", RunBusy)
 	r.setMembership("w", MembershipFrozen)
@@ -65,9 +65,9 @@ func TestRosterStatusMutatorsReflectInSnapshot(t *testing.T) {
 
 func TestRosterActiveMembersExcludesFrozen(t *testing.T) {
 	r := newRoster()
-	_ = r.add("a", agentdef.RoleWorker, "", nil)
-	_ = r.add("b", agentdef.RoleWorker, "", nil)
-	_ = r.add("c", agentdef.RoleWorker, "", nil)
+	_ = r.add("a", agentdef.RoleWorker, "", "", nil)
+	_ = r.add("b", agentdef.RoleWorker, "", "", nil)
+	_ = r.add("c", agentdef.RoleWorker, "", "", nil)
 
 	r.setMembership("b", MembershipFrozen)
 
@@ -78,7 +78,7 @@ func TestRosterActiveMembersExcludesFrozen(t *testing.T) {
 
 func TestRosterControllerLookup(t *testing.T) {
 	r := newRoster()
-	_ = r.add("w", agentdef.RoleWorker, "", nil)
+	_ = r.add("w", agentdef.RoleWorker, "", "", nil)
 	if _, ok := r.Controller("w"); !ok {
 		t.Error("Controller(w) should be present")
 	}

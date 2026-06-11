@@ -99,6 +99,13 @@ func newListMembers(mc swarm.MemberContext) pubtools.Tool {
 				if m.CurrentTask != 0 {
 					fmt.Fprintf(&b, " task#%d", m.CurrentTask)
 				}
+				// Effective permission stance (RP-24): bypass teammates can be
+				// fire-and-forgotten, default ones park in the approval queue
+				// until a human clicks — that changes delegation strategy, so
+				// it is always shown. Empty only on hand-built test rosters.
+				if m.PermissionMode != "" {
+					fmt.Fprintf(&b, " · perm %s", m.PermissionMode)
+				}
 				// Token meter (RP-13): cumulative session spend, plus today's
 				// counter against the member's daily budget when one is set.
 				if m.Usage.InputTokens+m.Usage.OutputTokens > 0 || m.DailyTokens > 0 {

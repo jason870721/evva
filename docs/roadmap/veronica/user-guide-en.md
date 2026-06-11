@@ -152,12 +152,16 @@ leader:
 workers:
   - agent: backend-dev      # → agents/sub/backend-dev/
   - agent: frontend-dev     # → agents/sub/frontend-dev/
+  # Any member (leader too) may override the permission stance individually;
+  # omit = inherit settings.permission_mode:
+  # - agent: trader
+  #   permission_mode: bypass
 
 settings:
   permission_mode: default  # default | accept_edits | plan | bypass
   max_iterations: 50        # per-run loop cap for each member
   # —— operational fuses (opt-in; see §8) ——
-  # daily_budget_tokens: 2000000  # per-member daily token cap (in+out); 0/omit = unlimited
+  # daily_budget_tokens: 2000000  # per-member daily token cap (in+out); 0/omit = unlimited (negatives read as 0)
   # budget_stay_frozen: false     # true = a budget freeze survives the day rollover
   # stall_threshold: 10m          # alert when a member is busy longer; "0" off (omit = 10m)
   # stall_hard_timeout: 30m       # auto-cancel a run busy longer; 0/omit = off
@@ -175,6 +179,18 @@ settings:
     them in the web UI.
   - `bypass` — no prompts; the agents run fully autonomously. Powerful, but only
     use it when you trust the workdir and the task.
+  - **Per-member override**: set `permission_mode:` on a leader/worker entry to
+    give a single member a different stance — real rosters like "analysts
+    default, trading desk bypass" read from one file. An invalid value rejects
+    the whole manifest at registration. The effective stance shows up in
+    `list_members` (`· perm bypass`) and on the web roster API
+    (`permissionMode`).
+  - **How the three layers stack**: the coarse stance (this knob) sets the broad
+    direction; a member's own `permissions.json` rules (per tool/method/URL)
+    punch allow-holes under `default`; **deny rules bind under EVERY stance —
+    bypass included**. Bypass switches off the prompts, not your explicit
+    prohibitions, so "trading desk on bypass + deny rules as the backstop" is a
+    supported composition.
 
 ### 5.3 Define the leader
 
@@ -264,8 +280,9 @@ when_to_use: "Backend: APIs, DB schema, migrations, server tests."
 # schedule:
 #   cron: "*/5 * * * *"     # every 5 minutes (LOCAL timezone; dialect: §11)
 #   # every: "30s"          # or a fixed interval
-# Optional: per-member token budget override (see §8): >0 own cap, -1 exempt, omit = inherit
-# budget_tokens: 250000
+# Note: the per-member token budget (budget_tokens) and permission stance
+# (permission_mode) overrides live on the member's entry in evva-swarm.yml
+# (see §5.2 / §8), NOT in this file.
 ```
 
 `agents/sub/backend-dev/tools/active.yml` — the real work tools a coder needs
@@ -417,7 +434,7 @@ A team running 24/7 needs two fuses. Both live under `settings:` in
 
 ```yaml
 settings:
-  daily_budget_tokens: 2000000   # per-member in+out token cap per LOCAL day; 0 = unlimited
+  daily_budget_tokens: 2000000   # per-member in+out token cap per LOCAL day; 0 = unlimited (negatives read as 0)
   budget_stay_frozen: false      # true = the freeze survives the day rollover (manual unfreeze)
 workers:
   - agent: watchdog
@@ -642,7 +659,10 @@ Stopping one never affects the other.
   endpoint hands it over), and the CLI reads the file. Rotation = restart.
 - In `permission_mode: default`, write/shell-class tools route through the
   approval overlay — you stay in the loop. Use `bypass` only when you trust the
-  task and the workdir.
+  task and the workdir. The stance can be tiered per member (§5.2): a real
+  roster is usually "researchers on default, the execution desk on bypass with
+  `permissions.json` deny rules as the backstop" — **deny still binds under
+  bypass** (bypass silences prompts, not prohibitions).
 
 ### Exposing the workstation beyond this machine (`--allow-remote`)
 

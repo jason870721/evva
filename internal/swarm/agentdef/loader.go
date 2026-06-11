@@ -32,6 +32,12 @@ type Loaded struct {
 	Schedule *Schedule             // nil when the profile declares no schedule
 	Effort   string                // profile effort pin (low|medium|high|ultra); applied at construction
 	Role     Role
+	// PermissionMode is the member's manifest permission-stance override
+	// ("" = inherit the space setting; RP-24). Manifest-only by design —
+	// trust tiering is a team-composition decision, so it lives in
+	// evva-swarm.yml where the whole roster's stances read in one file,
+	// not in each agent's own profile.yml.
+	PermissionMode string
 }
 
 // Warning is a non-fatal load issue (e.g. a malformed SKILL.md). Surfaced by
@@ -124,16 +130,17 @@ func (l *Loader) BuildAll(workdir string, m Manifest) ([]Loaded, []Warning, erro
 	loaded := make([]Loaded, 0, 1+len(m.Workers))
 	var warnings []Warning
 
-	add := func(dir string, role Role, manifestSched *Schedule) error {
+	add := func(dir string, role Role, mem Member) error {
 		one, err := l.Build(dir, role)
 		if err != nil {
 			return err
 		}
 		// Manifest schedule is authoritative over the agent's profile.yml (RP-7
 		// §3.7) — the whole team's cadence is declared in one versioned file.
-		if manifestSched != nil {
-			one.Schedule = manifestSched
+		if mem.Schedule != nil {
+			one.Schedule = mem.Schedule
 		}
+		one.PermissionMode = mem.PermissionMode
 		for _, w := range one.Skills.Warnings {
 			warnings = append(warnings, Warning{Agent: one.Def.Name, Msg: w})
 		}
@@ -141,11 +148,11 @@ func (l *Loader) BuildAll(workdir string, m Manifest) ([]Loaded, []Warning, erro
 		return nil
 	}
 
-	if err := add(filepath.Join(workdir, "agents", "main", m.Leader.Agent), RoleLeader, m.Leader.Schedule); err != nil {
+	if err := add(filepath.Join(workdir, "agents", "main", m.Leader.Agent), RoleLeader, m.Leader); err != nil {
 		return nil, nil, err
 	}
 	for _, wk := range m.Workers {
-		if err := add(filepath.Join(workdir, "agents", "sub", wk.Agent), RoleWorker, wk.Schedule); err != nil {
+		if err := add(filepath.Join(workdir, "agents", "sub", wk.Agent), RoleWorker, wk); err != nil {
 			return nil, nil, err
 		}
 	}

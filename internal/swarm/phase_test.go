@@ -87,7 +87,7 @@ func TestDisplayPhaseComposition(t *testing.T) {
 // list_members and the web), while still forwarding every event downstream.
 func TestSinkUpdatesRosterPhase(t *testing.T) {
 	r := newRoster()
-	if err := r.add("w", agentdef.RoleWorker, "", nil); err != nil {
+	if err := r.add("w", agentdef.RoleWorker, "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	out := make(chan SpacedEvent, 16)

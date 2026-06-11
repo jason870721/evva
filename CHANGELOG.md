@@ -12,6 +12,34 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Per-member `permission_mode` (RP-24).** The coarse trust knob between the
+  space-wide mode and RP-11's fine-grained `permissions.json` rules: any
+  leader/worker entry in `evva-swarm.yml` may set
+  `permission_mode: default | accept_edits | plan | bypass`, overriding
+  `settings.permission_mode` for that member only — "analysts default, trading
+  desk bypass" now composes in one manifest. Omitted = inherit (zero behavior
+  change); an invalid value rejects the whole manifest at registration, and
+  programmatic manifests fail at member construction (the effort-pin
+  precedent). The effective stance is surfaced everywhere an operator looks:
+  `list_members` lines carry `· perm bypass`, the web roster API carries
+  `permissionMode`.
+
+### Changed
+
+- **Deny rules now bind in EVERY permission mode — bypass included**
+  (`pkg/permission.Decide` reordered; previously bypass skipped all rule
+  lookup). Bypass still auto-allows everything else and never prompts (ask
+  rules deliberately do NOT pierce it), so unattended agents cannot block; but
+  an explicit deny rule is now an absolute fence, which is what makes "bypass
+  member + deny rules as the backstop" a usable trust tier — and matches the
+  reference harness's semantics.
+- **`settings.daily_budget_tokens` negatives normalize to 0 (unlimited) at
+  manifest load.** Previously undefined (the breaker happened to treat them as
+  unlimited); now documented and guaranteed. Member-level `budget_tokens`
+  keeps its signed semantics (`-1` = exempt).
+
 ## [v1.5.2-beta.1] — 2026-06-11
 
 ### Added

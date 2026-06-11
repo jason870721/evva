@@ -147,12 +147,15 @@ leader:
 workers:
   - agent: backend-dev      # → agents/sub/backend-dev/
   - agent: frontend-dev     # → agents/sub/frontend-dev/
+  # 任一成员（含 leader）可个别覆写权限档位；省略 = 继承 settings.permission_mode：
+  # - agent: trader
+  #   permission_mode: bypass
 
 settings:
   permission_mode: default  # default | accept_edits | plan | bypass
   max_iterations: 50        # 每个成员单次运行的循环上限
   # —— 运营保险丝（按需启用，详见 §8）——
-  # daily_budget_tokens: 2000000  # 每成员每日 token 上限（in+out）；0/省略 = 不限
+  # daily_budget_tokens: 2000000  # 每成员每日 token 上限（in+out）；0/省略 = 不限（负值按 0 处理）
   # budget_stay_frozen: false     # true = 超额冻结跨日不自动解冻（需手动）
   # stall_threshold: 10m          # 成员忙超过即告警；"0" 关闭（省略 = 默认 10m）
   # stall_hard_timeout: 30m       # 忙超过即自动取消该次运行；0/省略 = 关闭
@@ -168,6 +171,14 @@ settings:
   - `default` —— 危险工具（写文件、shell）会请求审批；你在 Web 界面里批准。
   - `bypass` —— 不弹审批；agent 完全自主运行。很强大，但只在你信任工作目录和
     任务时使用。
+  - **成员级覆写**：在 leader / worker 条目上写 `permission_mode:`，给单个成员设
+    不同档位 ——「分析员 default、执行台 bypass」这类真实编组一份文件讲清楚。非法值
+    在注册时整份 manifest 拒收。生效档位 leader 跑 `list_members` 看得到（`· perm
+    bypass`），Web 花名册 API 也带（`permissionMode`）。
+  - **三层叠加语义**：粗档位（本旋钮）定大方向；成员自己的 `permissions.json`
+    细规则（按工具/方法/URL 开洞或封口）在 `default` 下用 allow 开洞；**deny 规则
+    在任何档位都拦得住 —— bypass 也不例外**。bypass 关掉的是弹窗，不是你的明令禁止，
+    所以「执行台 bypass + deny 规则兜底」是受支持的编组方式。
 
 ### 5.3 定义 leader
 
@@ -247,8 +258,8 @@ when_to_use: "后端：API、数据库 schema、迁移、服务端测试。"
 # schedule:
 #   cron: "*/5 * * * *"     # 每 5 分钟（本地时区；方言见 §11）
 #   # every: "30s"          # 或固定间隔
-# 选填：个别 token 预算覆写（见 §8）：>0 自有上限、-1 完全豁免、省略 = 继承 settings
-# budget_tokens: 250000
+# 注意：个别 token 预算覆写（budget_tokens）和权限档位覆写（permission_mode）
+# 写在 evva-swarm.yml 的成员条目上（见 §5.2 / §8），不在这个文件里。
 ```
 
 `agents/sub/backend-dev/tools/active.yml` —— 程序员真正需要的干活工具
@@ -384,7 +395,7 @@ evva service stop
 
 ```yaml
 settings:
-  daily_budget_tokens: 2000000   # 每成员每天（本地日界线）in+out token 上限；0 = 不限
+  daily_budget_tokens: 2000000   # 每成员每天（本地日界线）in+out token 上限；0 = 不限（负值按 0 处理）
   budget_stay_frozen: false      # true = 跨日不自动解冻，须手动
 workers:
   - agent: watchdog
@@ -575,7 +586,9 @@ evva swarm ls            # 两个都列出，完全隔离
  （一个仅限 loopback 的 bootstrap 端点把 token 交给页面），CLI 直接读文件。
   轮换 = 重启。
 - 在 `permission_mode: default` 下，写/ shell 类工具会走审批弹窗 —— 你始终在环路里。
-  仅在你信任任务和工作目录时才用 `bypass`。
+  仅在你信任任务和工作目录时才用 `bypass`。档位可以按成员细分（§5.2）：真实编组
+  通常是「研究员 default、执行台 bypass + `permissions.json` deny 规则兜底」——
+  **deny 在 bypass 下依然生效**（bypass 只是不弹窗，不是无视禁令）。
 
 ### 把工作站暴露到本机之外（`--allow-remote`）
 

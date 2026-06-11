@@ -40,6 +40,13 @@ func TestExampleSwarmConstructs(t *testing.T) {
 	if len(roster) != 3 {
 		t.Fatalf("example roster has %d members, want 3", len(roster))
 	}
+	// Every member carries its effective permission stance on the wire (RP-24);
+	// agent.New's fallback chain guarantees it is never empty on a real space.
+	for _, m := range roster {
+		if m.PermissionMode == "" {
+			t.Errorf("member %q has no effective permission mode on the wire", m.Name)
+		}
+	}
 	names := map[string]string{} // name -> role
 	for _, m := range roster {
 		names[m.Name] = m.Role

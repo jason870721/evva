@@ -236,6 +236,20 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 		acfg.DefaultEffort = e
 	}
 
+	// Per-member permission stance (RP-24): the manifest's coarse trust knob,
+	// member field > settings — so "analysts default, trader bypass" composes
+	// in one space. The yaml path already fail-fasted on a bad value at
+	// LoadManifest; this guard covers programmatic manifests (the effort-pin
+	// precedent). Layering with RP-11 rules is decided in pkg/permission:
+	// deny rules bind in every mode, bypass included.
+	permMode := sp.settings.PermissionMode
+	if pm := strings.TrimSpace(ld.PermissionMode); pm != "" {
+		if !permission.Mode(pm).Valid() {
+			return fmt.Errorf("swarm: member %q: invalid permission_mode %q (want default|accept_edits|plan|bypass)", name, pm)
+		}
+		permMode = pm
+	}
+
 	// Bind this member's runtime identity onto its own config so the swarm
 	// custom tools (SPRD-1-7) can read who they belong to at build time — a
 	// shared WithCustomTool factory can't carry it in a closure.
@@ -284,7 +298,7 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 		AppConfig:       acfg,
 		Persona:         name,
 		Personas:        sp.reg,
-		PermissionMode:  sp.settings.PermissionMode,
+		PermissionMode:  permMode,
 		MaxIters:        sp.settings.MaxIterations,
 		PermissionStore: permStore,
 	}, opts...)
@@ -292,7 +306,10 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 		return fmt.Errorf("construct agent %q: %w", name, err)
 	}
 
-	if err := sp.Roster.add(name, ld.Role, ld.Def.WhenToUse, ag.Controller()); err != nil {
+	// Roster stores the TRUE effective stance read back off the agent —
+	// agent.New finishes the fallback chain (member > settings > app config >
+	// "default"), so an all-empty chain still displays its real mode.
+	if err := sp.Roster.add(name, ld.Role, ld.Def.WhenToUse, ag.PermissionModeName(), ag.Controller()); err != nil {
 		ag.Shutdown()
 		return err
 	}

@@ -12,8 +12,8 @@ import (
 // (entry + insertion-order slot), unlike freeze which keeps the seat.
 func TestRosterRemoveAndRoleOf(t *testing.T) {
 	r := newRoster()
-	_ = r.add("lead", agentdef.RoleLeader, "", nil)
-	_ = r.add("w", agentdef.RoleWorker, "", nil)
+	_ = r.add("lead", agentdef.RoleLeader, "", "", nil)
+	_ = r.add("w", agentdef.RoleWorker, "", "", nil)
 
 	if role, ok := r.roleOf("lead"); !ok || role != agentdef.RoleLeader {
 		t.Errorf("roleOf(lead) = %q,%v want leader,true", role, ok)

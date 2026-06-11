@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,48 @@ func TestNewSpaceConstructsRoster(t *testing.T) {
 	}
 	if snap[1].Role != agentdef.RoleWorker {
 		t.Errorf("worker role = %s", snap[1].Role)
+	}
+}
+
+// RP-24: a member-level permission_mode overrides the space setting; members
+// without one inherit it; the roster carries each member's effective stance
+// (read back off the constructed agent, so it reflects what the broker will
+// actually enforce).
+func TestPerMemberPermissionMode(t *testing.T) {
+	cfg := stubConfig(t)
+	loaded := testLoaded()
+	loaded[1].PermissionMode = "default" // worker-a pinned stricter than the bypass space
+	sp, err := NewSpace("space-pm", testManifest(), loaded, nil, cfg)
+	if err != nil {
+		t.Fatalf("NewSpace: %v", err)
+	}
+	defer sp.Shutdown()
+
+	got := map[string]string{}
+	for _, v := range sp.Roster.Snapshot() {
+		got[v.Name] = v.PermissionMode
+	}
+	if got["leader"] != "bypass" || got["worker-b"] != "bypass" {
+		t.Errorf("members without an override should inherit the space mode (bypass), got %v", got)
+	}
+	if got["worker-a"] != "default" {
+		t.Errorf("worker-a mode = %q, want default (member override beats settings)", got["worker-a"])
+	}
+}
+
+// RP-24: an invalid member permission_mode fails construction loudly (the
+// programmatic-manifest guard; the yaml path already rejects at LoadManifest).
+func TestPerMemberPermissionModeInvalid(t *testing.T) {
+	cfg := stubConfig(t)
+	loaded := testLoaded()
+	loaded[2].PermissionMode = "yolo"
+	sp, err := NewSpace("space-pm-bad", testManifest(), loaded, nil, cfg)
+	if err == nil {
+		sp.Shutdown()
+		t.Fatal("NewSpace should reject an invalid member permission_mode")
+	}
+	if !strings.Contains(err.Error(), "permission_mode") {
+		t.Errorf("err = %v, want a permission_mode error", err)
 	}
 }
 

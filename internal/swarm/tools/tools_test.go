@@ -179,6 +179,11 @@ func TestListMembers(t *testing.T) {
 			t.Errorf("list_members missing %q in: %s", name, res.Content)
 		}
 	}
+	// Effective permission stance is always surfaced (RP-24); realSpace's
+	// manifest sets the space to bypass and no member overrides it.
+	if !strings.Contains(res.Content, "perm bypass") {
+		t.Errorf("list_members missing the effective permission stance, got:\n%s", res.Content)
+	}
 }
 
 // --- task ledger -----------------------------------------------------------
