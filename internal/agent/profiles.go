@@ -311,6 +311,14 @@ func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config,
 	// names in so an opted-in persona advertises and can reach the live
 	// MCP catalog after a /profile switch.
 	deferred := append(append([]tools.ToolName{}, def.DeferredTools...), extraDeferred...)
+	// A deferred catalog is reachable only through tool_search — auto-mount
+	// it (RP-19) so a tools.yml that declares deferred tools but forgets to
+	// list tool_search doesn't ship a dead catalog. Mutating the local def
+	// copy (copy-on-append) keeps the registry's definition untouched and
+	// lets ComposeDiskMainPrompt's tools guide see the effective active set.
+	if len(deferred) > 0 && !slices.Contains(def.ActiveTools, tools.TOOL_SEARCH) {
+		def.ActiveTools = append(append([]tools.ToolName{}, def.ActiveTools...), tools.TOOL_SEARCH)
+	}
 	ctx.DeferredTools = deferredToolSpecs(deferred)
 	ctx.Model = string(model)
 	body := def.BuildSystemPrompt(ctx)

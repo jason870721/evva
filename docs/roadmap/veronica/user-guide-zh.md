@@ -210,6 +210,14 @@ advertise_skills: true
 > `active.yml`（與 `deferr.yml`）只放一般 evva 工具（`read`、`write`、`bash`…）。
 > 一個不需要額外 evva 工具的成員，`tools/` 整個省略即可。
 
+> **工具用法會自動教，不用你寫。** 每個成員的系統提示詞會自動生成一段 `# Tools`，
+> **只**涵蓋它 `active.yml` / `deferr.yml` 裡聲明的工具——每個工具一句使用準則、
+> 平行工具呼叫、deferred 工具 / `tool_search` 協議（僅當 `deferr.yml` 非空）、
+> `todo_write` 協議（僅當成員有 `todo_write`）。`system_prompt.md` 不必手寫工具
+> 教學，專心寫人設與領域知識即可。`deferr.yml` 裡的工具也會在提示詞中按名字公告，
+> 且只要 `deferr.yml` 非空，`tool_search` 會**自動掛載**——不用在 `active.yml`
+> 手列。
+
 ### 5.4 定义一个 worker
 
 `agents/sub/backend-dev/system_prompt.md`：

@@ -1,6 +1,13 @@
 # RP-19 — Disk persona 的工具系統接地（mechanics 注入 + deferred 公告 + tool_search 自動掛）
 
-> 狀態：**草案 / Draft（待 Johnny 拍板）** ｜ 階段：**第五波（swarm 即框架的成熟度）** ｜ 日期：2026-06-11
+> 狀態：**✅ 已完成（2026-06-11，feature/RP-19-disk-persona-tool-grounding）** ｜ 階段：**第五波（swarm 即框架的成熟度）** ｜ 日期：2026-06-11
+> 落地註記：Part B-2 的 `tool_search` 自動掛**沒有**做在 `registerDef`（swarm-policy seam），而是做在
+> `mainProfileFromDiskAgent`（`internal/agent/profiles.go`）——所有 disk main persona（swarm 成員與
+> `/profile` persona）共用的 seam，swarm 成員經 `agent.New` 流經此處，非 swarm persona 一併受益；
+> registry 裡的 def 維持作者原樣（profile 層效果，不改 persona 目錄）。curated 表 + 逐工具 gate 落在
+> `internal/agent/sysprompt/disk_tools_guide.go`；link test（AST 解析 `pkg/tools/name.go`）保證新增
+> builtin 工具必補準則。已知鄰接缺口（本 RP 不處理）：disk **subagent** 路徑（`spawn.go
+> profileFromDiskAgent`）沒有 compose、也沒有 tool_search 自動掛——deferr.yml 對 subagent 仍是死資料。
 > 觸發：Sunday swarm 重整（2026-06-11：friday/trader 決策執行分離 + 全員 prompt 重寫）。重寫過程發現：**8 個 agent 的 system_prompt.md 每一份都得手寫一節「工具櫃」**——教 tool_search 協議、平行呼叫、repl vs calc、todo_write 協議——這些是 harness 事實，不是 persona 個性，卻全落在 operator 肩上。
 > 關聯：[RP-10A](RP-10A-subtickets.md)（`registerDef` 強制設定的先例：`ensureTool(SKILL)`）、[RP-5](RP-5-member-prompt-env.md)（提示詞前綴位元穩定，本文所有注入都必須遵守）
 > 請求者：Sunday（swarm 的*使用者*）。**無 Sunday-specific code**——是 disk persona prompt 組裝的通用缺口。

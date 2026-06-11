@@ -221,6 +221,16 @@ member needs (the leader just reads files to verify the workers' output):
 > (and `deferr.yml`) are for the standard evva tools only (`read`, `write`,
 > `bash`, …). A member with no extra evva tools can simply omit `tools/`.
 
+> **Tool mechanics are taught automatically.** Each member's system prompt gets
+> a generated `# Tools` section covering exactly the tools its `active.yml` /
+> `deferr.yml` declare — a one-line usage note per tool, parallel tool calling,
+> the deferred-tool/`tool_search` protocol (only when `deferr.yml` is non-empty),
+> and the `todo_write` protocol (only when the member has `todo_write`). Don't
+> hand-write tool usage rules in `system_prompt.md`; spend it on persona and
+> domain. Tools in `deferr.yml` are also advertised by name in the prompt, and
+> `tool_search` is mounted automatically whenever `deferr.yml` is non-empty —
+> you don't need to list it in `active.yml`.
+
 ### 5.4 Define a worker
 
 `agents/sub/backend-dev/system_prompt.md`:

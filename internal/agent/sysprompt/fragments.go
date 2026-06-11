@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/johnny1110/evva/pkg/common"
+	"github.com/johnny1110/evva/pkg/tools"
 )
 
 // Fragments are the reusable building blocks composed by the main agent
@@ -310,16 +311,22 @@ func devFeedbackSection() string {
 // main-tier persona. body is the verbatim system_prompt.md the loader
 // captured; def carries the OmitMemory / AdvertiseSkills flags from
 // meta.yml. The result is identity + environment + (optional) memory +
-// body + (optional) skills + (optional) dev feedback, joined the same
-// way the built-in evva prompt is composed.
+// tools guide + body + (optional) skills + (optional) deferred catalog +
+// (optional) dev feedback, joined the same way the built-in evva prompt
+// is composed.
 //
 // Lives here (in the sysprompt package) so the section builders stay
 // package-private and disk-persona composition has a single seam.
 //
-// Disk personas DELIBERATELY skip the ref-ported sections (doing-tasks,
-// actions, tone, output-efficiency, system, session-specific-guidance).
-// Those would conflict with the persona's own definition; the persona
-// supplies its own conduct rules in body.
+// Disk personas DELIBERATELY skip the ref-ported conduct sections
+// (doing-tasks, actions, tone, output-efficiency, system,
+// session-specific-guidance). Those would conflict with the persona's own
+// definition; the persona supplies its own conduct rules in body. Harness
+// mechanics are a different matter (RP-19): how tool calling works does
+// not vary by persona and no operator should have to hand-write it, so
+// the per-tool-gated diskToolsGuideSection renders BEFORE body (harness
+// facts first, personality second) and the deferred-tool catalog renders
+// near the bottom, mirroring the main agent's section order.
 func ComposeDiskMainPrompt(body string, ctx PromptContext, def AgentDefinition) string {
 	var memProject, memGuidance, memIndex, skillsList string
 	if !def.OmitMemory {
@@ -332,14 +339,23 @@ func ComposeDiskMainPrompt(body string, ctx PromptContext, def AgentDefinition) 
 		// guidance, RP-10-3); ordinary disk personas keep the full one.
 		skillsList = skillsSection(ctx.Skills, def.LongRunning)
 	}
+	// ctx.DeferredTools is the authoritative deferred list (it already folds
+	// in MCP-discovered names) — the guide and the catalog must agree, so
+	// both read it rather than def.DeferredTools.
+	deferredNames := make([]tools.ToolName, 0, len(ctx.DeferredTools))
+	for _, s := range ctx.DeferredTools {
+		deferredNames = append(deferredNames, tools.ToolName(s.Name))
+	}
 	return joinSections(
 		identitySection(ctx),
 		environmentSection(ctx),
 		memProject,
 		memGuidance,
 		memIndex,
+		diskToolsGuideSection(def.ActiveTools, deferredNames),
 		body,
 		skillsList,
+		mainDeferredToolsSection(ctx.DeferredTools),
 		devSectionIfEnabled(ctx),
 	)
 }

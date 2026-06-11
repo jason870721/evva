@@ -12,7 +12,23 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
-## [v1.5.1-beta.2] — 2026-06-11
+### Added
+
+- **Disk personas are grounded in the tool system (RP-19).** A disk-loaded
+  main persona's system prompt now carries a generated `# Tools` mechanics
+  section gated per tool: a curated one-line usage guideline for each builtin
+  tool the persona's active/deferred lists actually declare (never for tools
+  it lacks), the always-on parallel-tool-call rule, the deferred/`tool_search`
+  protocol (only when deferred tools exist), and the `todo_write` protocol
+  (only when the persona has `todo_write`). The deferred catalog
+  (`<available-deferred-tools>`) is now rendered for disk personas — it was
+  built but never composed — and `tool_search` is auto-mounted into the active
+  set whenever the deferred list is non-empty, so a `deferr.yml` without a
+  hand-listed `tool_search` is no longer dead data. Output is a pure function
+  of the tool-name sets (bit-stable, prompt-cache safe for long-running swarm
+  members); a link test parses `pkg/tools/name.go` so adding a builtin tool
+  without a guideline fails CI. Swarm operators no longer hand-write tool
+  cabinets in `system_prompt.md`.
 
 ### Added
 
