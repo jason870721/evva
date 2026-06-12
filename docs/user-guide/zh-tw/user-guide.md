@@ -98,7 +98,7 @@
 | `/effort` | 設定思考強度（low / medium / high / ultra） |
 | `/compact` | 壓縮對話紀錄 — 可選 micro 或 full |
 | `/resume` | 還原此工作目錄下先前的工作階段 |
-| `/clear` | 清除對話紀錄（保留 banner） |
+| `/clear` | 開啟新工作階段 — 清空歷史/用量/待辦；舊階段仍可由 `/resume` 還原 |
 | `/exit`、`/quit` | 離開 |
 
 使用者安裝的技能（skills）也會出現在此清單中——任何放在 `~/.evva/skills/<name>/SKILL.md` 或 `<workdir>/.evva/skills/<name>/SKILL.md` 的技能都會以 `/<name>` 的形式出現在同一個建議面板。

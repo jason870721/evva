@@ -52,6 +52,7 @@ func (publicOnlyController) PermissionModeName() string                         
 func (publicOnlyController) CyclePermissionMode() string                           { return "" }
 func (publicOnlyController) RespondPermission(string, ui.PermissionDecision) error { return nil }
 func (publicOnlyController) RespondQuestion(string, ui.QuestionResponse) error     { return nil }
+func (publicOnlyController) ClearSession() error                                   { return nil }
 func (publicOnlyController) ListSessions() ([]ui.SessionInfo, []string)            { return nil, nil }
 func (publicOnlyController) ResumeSession(string) error                            { return nil }
 

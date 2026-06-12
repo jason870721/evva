@@ -19,6 +19,7 @@ const emit = defineEmits<{
   resume: []
   schedule: []
   skills: []
+  clear: []
   remove: []
 }>()
 const menu = ref(false)
@@ -61,6 +62,7 @@ function permTone(mode: string): 'warning' | 'info' {
       <button v-else-if="member.run === 'suspended'" @click="emit('resume'); menu = false">▶ resume</button>
       <button @click="emit('schedule'); menu = false">⏰ schedule</button>
       <button @click="emit('skills'); menu = false">✦ skills</button>
+      <button class="rm" @click="emit('clear'); menu = false">🧹 clear session</button>
       <button v-if="member.role !== 'leader'" class="rm" @click="emit('remove'); menu = false">🗑 remove</button>
     </div>
   </li>

@@ -344,6 +344,11 @@ func (a *agentAdapter) ListSessions() ([]ResumableSession, []string) {
 	return out, warnings
 }
 
+// ClearSession implements Agent.
+func (a *agentAdapter) ClearSession() error {
+	return a.inner.ClearSession()
+}
+
 // ResumeSession implements Agent.
 func (a *agentAdapter) ResumeSession(id string) error {
 	return a.inner.ResumeSession(id)

@@ -61,12 +61,18 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 		}
 	}
 
-	// SessionStart: fire once per agent lifetime, main agent only.
+	// SessionStart: fire once per session, main agent only — the first
+	// Run() after construction (source "startup") or after a /clear
+	// (source "clear"); Continue() (resume, iter-limit re-entry) does not.
 	// initialUserMessage is prepended as a synthetic user message;
 	// additionalContext is folded into the upcoming prompt.
-	a.sessionOnce.Do(func() {
+	if a.sessionStarted.CompareAndSwap(false, true) {
 		if !a.IsSubagent() && a.hookDispatcher.Has(hooks.EventSessionStart) {
-			initMsg, addCtx, he := a.hookDispatcher.FireSessionStart(ctx, "startup", string(a.profile.LLMModel))
+			source := a.sessionStartSource
+			if source == "" {
+				source = "startup"
+			}
+			initMsg, addCtx, he := a.hookDispatcher.FireSessionStart(ctx, source, string(a.profile.LLMModel))
 			if he != nil {
 				a.logger.Warn("hooks.sessionstart", "err", he)
 			}
@@ -77,7 +83,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 				prompt = prompt + "\n" + addCtx
 			}
 		}
-	})
+	}
 
 	// UserPromptSubmit: fire before the prompt lands. A blocking hook
 	// drops the prompt; additionalContext is appended.

@@ -16,7 +16,8 @@ type BasePayload struct {
 }
 
 // SessionStartPayload fires when an agent first runs. Source is "startup"
-// (initial Run) — "resume" / "clear" / "compact" reserved for later phases.
+// (initial Run) or "clear" (first Run after a /clear session wipe) —
+// "resume" / "compact" reserved for later phases.
 type SessionStartPayload struct {
 	BasePayload
 	Source string `json:"source"`

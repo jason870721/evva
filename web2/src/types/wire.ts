@@ -5,13 +5,16 @@
 export type RunState = 'idle' | 'busy' | 'suspended'
 export type TaskStatus = 'pending' | 'running' | 'suspended' | 'verifying' | 'completed'
 
-// SpaceInfo — GET /api/swarms (api.go:116).
+// SpaceInfo — GET /api/swarms (api.go:116). leader/busy are live-roster
+// reads: present only for running spaces.
 export interface SpaceInfo {
   id: string
   name: string
   workdir: string
   status: 'running' | 'stopped'
   members: number
+  leader?: string
+  busy?: number
 }
 
 // MemberInfo — GET /api/swarm/:id (api.go:127). AgentID is the event-stream

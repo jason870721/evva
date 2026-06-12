@@ -15,6 +15,7 @@ import (
 	"github.com/johnny1110/evva/internal/swarm/bus"
 	"github.com/johnny1110/evva/internal/swarm/store"
 	"github.com/johnny1110/evva/pkg/agent"
+	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/skill"
 )
 
@@ -443,6 +444,52 @@ func (s *Supervisor) Resume(name string) error {
 	s.sp.Roster.setRun(name, RunIdle)
 	m.mu.Unlock()
 	s.poke(m, wakeMessage)
+	return nil
+}
+
+// ClearMemberSession wipes one member's conversation to a blank slate while
+// the rest of the space keeps running: the live agent gets a fresh session
+// (empty history, zeroed usage, cleared todos, NEW agent id) and the member's
+// persisted snapshots are deleted, so neither the next wake nor a service
+// restart (Reload's latestSessionFor) resurrects the old context. Membership,
+// run status, schedule, skills, memory dir, and the budget meter all survive —
+// this clears the member's mind, not its seat.
+//
+// Holding m.mu across the clear is what makes it race-free against the run
+// engine: runOnce claims the run slot under the same mutex, so a wake that
+// fires mid-clear parks until the swap is done. A member with a run in
+// flight (cancelRun set) refuses with a "busy" error — suspend it or wait.
+func (s *Supervisor) ClearMemberSession(name string) error {
+	m := s.memberOf(name)
+	if m == nil {
+		return fmt.Errorf("swarm: clear session: unknown member %q", name)
+	}
+	ctl, ok := s.sp.Roster.Controller(name)
+	if !ok {
+		return fmt.Errorf("swarm: clear session: unknown member %q", name)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cancelRun != nil {
+		return fmt.Errorf("swarm: member %q is busy — suspend it or wait for the run to finish", name)
+	}
+	if err := ctl.ClearSession(); err != nil {
+		return fmt.Errorf("swarm: clear session %q: %w", name, err)
+	}
+	// nil cfg only on hand-built test spaces; production NewSpace requires one.
+	if s.sp.cfg != nil {
+		if err := agent.ResetPersonaSessions(s.sp.cfg.AppHome, s.sp.Workdir, name); err != nil {
+			// The live agent is already fresh; a leftover snapshot only matters
+			// at the next restart-resume. Surface it, don't fail the clear.
+			s.log.Warn("swarm: clear session: delete persisted snapshots", "member", name, "err", err)
+		}
+	}
+	// Reset the roster's cached token snapshot so the web/list_members shows a
+	// fresh context immediately instead of after the next run boundary. Today's
+	// budget spend is kept — tokens burned before the clear still count.
+	s.sp.Roster.setUsage(name, llm.Usage{}, 0, s.sp.dailyFor(name))
+	s.log.Info("swarm: member session cleared", "member", name)
 	return nil
 }
 

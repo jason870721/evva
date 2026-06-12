@@ -88,6 +88,12 @@ type Backend interface {
 	Unfreeze(spaceID, agent string) error
 	HaltAll(spaceID string) error
 
+	// ClearMemberSession wipes one member's conversation to a blank slate
+	// (fresh live session + persisted transcript deleted) while its seat —
+	// membership, schedule, skills, memory — survives. A busy member refuses
+	// with a "busy" error the handler maps to 409; suspend it or wait.
+	ClearMemberSession(spaceID, agent string) error
+
 	// Schedule CRUD (RP-8). The web path has NO self-guard — the operator may
 	// set/clear ANY member's schedule, including the leader's (the symmetric
 	// complement to the leader tool, which refuses to reschedule itself, RP-7).
@@ -158,13 +164,17 @@ type Backend interface {
 }
 
 // SpaceInfo is one row of GET /api/swarms. Status is "running" | "stopped"
-// (the list is like `docker ps -a` — stopped spaces are shown too).
+// (the list is like `docker ps -a` — stopped spaces are shown too). Leader /
+// Busy are live-roster reads, so they carry data only for running spaces —
+// a stopped space has no roster to inspect.
 type SpaceInfo struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Workdir string `json:"workdir"`
 	Status  string `json:"status"`
 	Members int    `json:"members"`
+	Leader  string `json:"leader,omitempty"` // leader member name
+	Busy    int    `json:"busy"`             // members with a run in flight
 }
 
 // MemberInfo mirrors swarm.MemberView on the wire (GET /api/swarm/:id).
@@ -616,6 +626,22 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 			respondErr(w, fn(r.URL.Query().Get("space"), r.PathValue("name")))
 		}))
 	}
+	// Clear one member's session: fresh context + new id, persisted transcript
+	// wiped; the seat (membership/schedule/skills/memory) survives. Not in the
+	// verb map above because a busy member's refusal is a 409, not a 500.
+	mux.Handle("POST /api/agents/{name}/clear", guard(func(w http.ResponseWriter, r *http.Request) {
+		err := b.ClearMemberSession(r.URL.Query().Get("space"), r.PathValue("name"))
+		switch {
+		case err == nil:
+			w.WriteHeader(http.StatusNoContent)
+		case strings.Contains(err.Error(), "unknown"):
+			http.Error(w, err.Error(), http.StatusNotFound)
+		case strings.Contains(err.Error(), "busy"):
+			http.Error(w, err.Error(), http.StatusConflict)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}))
 	// Author a new worker from the add-agent form (RP-8). Validation errors
 	// (bad/duplicate name, etc.) are operator input → 400.
 	mux.Handle("POST /api/members", guard(func(w http.ResponseWriter, r *http.Request) {

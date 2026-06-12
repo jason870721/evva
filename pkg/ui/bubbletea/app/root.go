@@ -729,10 +729,29 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 		a.slash.Reset()
 		return a, tea.Quit
 	case "/clear":
-		a.transcript.Reset()
 		a.input.Reset()
 		a.slash.Reset()
-		a.state.SetHint("")
+		// Start a NEW session (fresh history/usage/todos, new id) — the
+		// old one stays on disk for /resume. The transcript only resets
+		// when the agent-side clear actually happened; a clear refused
+		// mid-run keeps the scrollback so nothing silently vanishes.
+		if a.controller != nil {
+			if err := a.controller.ClearSession(); err != nil {
+				a.state.SetHint("clear: " + err.Error())
+				a.view.MarkDirty()
+				return a, nil
+			}
+		}
+		a.transcript.Reset()
+		// Clear any parked terminal state (iter-limit / error) — the run
+		// it belonged to is gone with the old session.
+		a.state.OnRunDone(nil, false)
+		if a.controller != nil {
+			a.status.SetAgentID(a.controller.AgentID())
+			a.status.SetUsage(a.controller.Usage())
+			a.status.SetContext(0, status.ContextLimitFor(a.controller.Model()))
+			a.state.SetHint("new session started · /resume lists the old one")
+		}
 		a.view.MarkDirty()
 		return a, nil
 	case "/config":

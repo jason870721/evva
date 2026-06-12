@@ -220,6 +220,14 @@ type Controller interface {
 	// KindQuestionNeeded event payload.
 	RespondQuestion(id string, resp QuestionResponse) error
 
+	// ClearSession starts a fresh conversation under the same persona,
+	// LLM, and tools: empty history, zeroed usage, cleared todos, and a
+	// new session id. The old session's snapshot stays on disk and
+	// remains loadable via ResumeSession. Returns ErrRunInProgress (via
+	// the agent layer) when a Run is in flight — the TUI's /clear
+	// surfaces that as a hint rather than retrying.
+	ClearSession() error
+
 	// ListSessions enumerates persisted sessions scoped to the agent's
 	// current workdir, sorted by last-write time descending. The
 	// /resume picker calls this to populate its rows. Warnings carries

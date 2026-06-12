@@ -35,6 +35,7 @@ type fakeBackend struct {
 	msgs          [][3]string // {space, to, body}
 	perms         [][6]string // {space, agent, reqId, behavior, reason, ruleTool}
 	suspends      [][2]string
+	clears        [][2]string       // {space, agent} — ClearMemberSession calls
 	schedules     [][4]string       // {space, agent, cron, prompt}  (cron="" => clear)
 	creates       []MemberSpec      // CreateMember calls
 	removes       [][3]string       // {space, agent, deleteDir}
@@ -150,6 +151,18 @@ func (f *fakeBackend) Resume(string, string) error   { return nil }
 func (f *fakeBackend) Freeze(string, string) error   { return nil }
 func (f *fakeBackend) Unfreeze(string, string) error { return nil }
 func (f *fakeBackend) HaltAll(string) error          { return nil }
+func (f *fakeBackend) ClearMemberSession(space, agent string) error {
+	if !f.HasSpace(space) {
+		return errUnknownSpace
+	}
+	if agent == "busy-bee" {
+		return errors.New("swarm: member \"busy-bee\" is busy — suspend it or wait for the run to finish")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.clears = append(f.clears, [2]string{space, agent})
+	return nil
+}
 
 func (f *fakeBackend) SetSchedule(space, agent, cron, prompt string) error {
 	if !f.HasSpace(space) {
@@ -444,6 +457,21 @@ func TestRESTCommands(t *testing.T) {
 	}
 	if len(fake.suspends) != 1 {
 		t.Fatalf("suspend not recorded: %+v", fake.suspends)
+	}
+
+	// Member session clear: idle member → 204 and recorded; busy member → 409
+	// (not a 500 — it's an expected refusal); unknown space → 404.
+	if s := post(t, srv.URL+"/api/agents/worker-a/clear?space=sp-a&token=secret", nil); s != http.StatusNoContent {
+		t.Fatalf("clear status = %d, want 204", s)
+	}
+	if len(fake.clears) != 1 || fake.clears[0] != [2]string{"sp-a", "worker-a"} {
+		t.Fatalf("clear not recorded: %+v", fake.clears)
+	}
+	if s := post(t, srv.URL+"/api/agents/busy-bee/clear?space=sp-a&token=secret", nil); s != http.StatusConflict {
+		t.Fatalf("busy clear status = %d, want 409", s)
+	}
+	if s := post(t, srv.URL+"/api/agents/worker-a/clear?space=nope&token=secret", nil); s != http.StatusNotFound {
+		t.Fatalf("unknown-space clear status = %d, want 404", s)
 	}
 
 	// Operator → member message (flat comms). Replies the durable message id —

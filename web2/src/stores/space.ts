@@ -51,6 +51,16 @@ export const useSpaceStore = defineStore('space', {
       await api[verb](id, name)
       await this.refresh()
     },
+    // Clear one member's session (fresh context, new agent id). The refresh
+    // re-reads the roster's new agentId, so the member's console naturally
+    // switches to the (empty) new stream. Errors (409 busy) propagate to the
+    // caller's confirm dialog.
+    async clearMember(name: string) {
+      const id = useConnectionStore().spaceId
+      if (!id) return
+      await api.clearMember(id, name)
+      await this.refresh()
+    },
     // Membership editing (RP-8). Errors propagate to the caller (the dialog shows
     // them inline); a success refreshes the roster.
     async createMember(spec: MemberSpec) {

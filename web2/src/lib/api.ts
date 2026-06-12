@@ -79,6 +79,9 @@ export function createApi(getToken: () => string) {
     resume: (id: string, agent: string) => req<null>('POST', `/api/agents/${enc(agent)}/resume?space=${enc(id)}`),
     freeze: (id: string, agent: string) => req<null>('POST', `/api/agents/${enc(agent)}/freeze?space=${enc(id)}`),
     unfreeze: (id: string, agent: string) => req<null>('POST', `/api/agents/${enc(agent)}/unfreeze?space=${enc(id)}`),
+    // Clear one member's session: fresh context + new agent id, persisted
+    // transcript wiped; the seat (schedule/skills/memory) survives. 409 = busy.
+    clearMember: (id: string, agent: string) => req<null>('POST', `/api/agents/${enc(agent)}/clear?space=${enc(id)}`),
     // Membership editing (RP-8). The leader is unique — neither targets it.
     createMember: (id: string, spec: MemberSpec) => req<null>('POST', `/api/members?space=${enc(id)}`, spec),
     removeMember: (id: string, agent: string, deleteDir: boolean) =>

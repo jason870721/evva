@@ -221,10 +221,14 @@ type Agent struct {
 	// the `running` CAS.
 	runStartUsage llm.Usage
 
-	// sessionOnce ensures SessionStart fires exactly once per agent
-	// lifetime — the first Run() call triggers it; Continue() (resume,
-	// iter-limit re-entry) does not.
-	sessionOnce sync.Once
+	// sessionStarted latches the SessionStart hook: the first Run() call
+	// fires it; Continue() (resume, iter-limit re-entry) does not.
+	// Unlike a sync.Once it is resettable — ClearSession arms it again
+	// with sessionStartSource = "clear" so hooks can tell a fresh boot
+	// from a mid-session wipe. sessionStartSource is a plain field, but
+	// only mutated while no Run is in flight (the a.session pattern).
+	sessionStarted     atomic.Bool
+	sessionStartSource string
 
 	// sessionCreatedAt is the wall-clock time the current session began
 	// (first persistSession call after agent creation or after a /resume
@@ -996,6 +1000,37 @@ func (a *Agent) SwitchLLM(provider constant.LLMProvider, model constant.Model) e
 	a.session = session.New()
 	a.applyRuntimeLLMParams()
 	a.logger.Info("agent: llm switched", "provider", provider.Name, "model", string(model))
+	return nil
+}
+
+// ClearSession starts a fresh conversation under the SAME persona, LLM
+// client, and tool wiring: empty history, zeroed usage, cleared todos, and
+// a NEW session id — so the next persistSession writes a new snapshot file
+// instead of overwriting the old one, which stays on disk and remains
+// loadable via /resume. The SessionStart hook latch is re-armed with
+// source "clear" (the reserved source in hooks.SessionStartPayload), so
+// hooks can tell a mid-session wipe from a process boot.
+//
+// MUST be called while no Run is in flight — returns ErrRunInProgress
+// otherwise, mirroring SwitchLLM / ResumeSnapshot. Subagents cannot clear
+// (their transcripts are ephemeral and parent-owned by design).
+func (a *Agent) ClearSession() error {
+	if a.IsSubagent() {
+		return fmt.Errorf("agent: only the root agent can clear its session")
+	}
+	if a.running.Load() {
+		return ErrRunInProgress
+	}
+
+	oldID := a.ID
+	a.session = session.New()
+	a.ID = common.GenUUID()
+	a.sessionCreatedAt = time.Time{}
+	a.toolState.TodoStore().Clear()
+	a.sessionStartSource = "clear"
+	a.sessionStarted.Store(false)
+
+	a.logger.Info("agent: session cleared", "old", oldID, "new", a.ID)
 	return nil
 }
 

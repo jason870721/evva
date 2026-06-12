@@ -25,6 +25,7 @@ const schedFor = ref<MemberInfo | null>(null)
 const skillsFor = ref('')
 const showEvents = ref(false)
 const removing = ref('')
+const clearing = ref('')
 const err = ref('')
 
 async function cmd(verb: 'freeze' | 'unfreeze' | 'suspend' | 'resume', name: string) {
@@ -64,6 +65,16 @@ async function doRemove(deleteDir: boolean) {
     err.value = errMsg(e)
   }
 }
+async function doClear() {
+  const name = clearing.value
+  clearing.value = ''
+  if (!name) return
+  try {
+    await space.clearMember(name)
+  } catch (e) {
+    err.value = errMsg(e) // 409 busy lands here: "suspend it or wait"
+  }
+}
 </script>
 
 <template>
@@ -90,6 +101,7 @@ async function doRemove(deleteDir: boolean) {
         @resume="cmd('resume', m.name)"
         @schedule="schedFor = m"
         @skills="skillsFor = m.name"
+        @clear="clearing = m.name"
         @remove="removing = m.name"
       />
       <li v-if="!space.merged.length" class="dim">no members yet</li>
@@ -117,6 +129,15 @@ async function doRemove(deleteDir: boolean) {
       checkbox-label="Also delete its on-disk definition (cannot be re-added without recreating)"
       @confirm="doRemove"
       @cancel="removing = ''"
+    />
+    <ConfirmDialog
+      v-if="clearing"
+      :title="`Clear ${clearing}'s session?`"
+      :message="`${clearing} starts over with a blank context — its conversation history is wiped (a busy member refuses; suspend it first). Schedule, skills, and memory files are kept.`"
+      confirm-label="Clear session"
+      :danger="true"
+      @confirm="doClear"
+      @cancel="clearing = ''"
     />
   </EvPanel>
 </template>

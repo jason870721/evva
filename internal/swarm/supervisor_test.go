@@ -24,6 +24,7 @@ type fakeController struct {
 	ui.Controller
 	runs     atomic.Int32
 	inFlight atomic.Int32
+	clears   atomic.Int32
 	block    bool                // Run blocks until ctx is cancelled (models a long run)
 	doPanic  bool                // Run panics every time (models a crashing agent)
 	onRun    func(prompt string) // optional: invoked inside Run (e.g. to inject mid-run mail)
@@ -58,6 +59,16 @@ func (f *fakeController) Run(ctx context.Context, prompt string) (string, error)
 		return "", ctx.Err()
 	}
 	return "ok", nil
+}
+
+// ClearSession satisfies the supervisor's member-clear seam: zero the scripted
+// usage (a real agent swaps in a fresh session) and count the call.
+func (f *fakeController) ClearSession() error {
+	f.clears.Add(1)
+	f.mu.Lock()
+	f.usage = llm.Usage{}
+	f.mu.Unlock()
+	return nil
 }
 
 // Usage / LastTurnInputTokens satisfy the supervisor's RP-13 metering reads.

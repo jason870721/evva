@@ -91,7 +91,7 @@ Available commands:
 | `/effort` | set thinking effort (low / medium / high / ultra) |
 | `/compact` | compact the transcript — pick micro or full |
 | `/resume` | resume a previous session from this workdir |
-| `/clear` | clear the transcript (keeps the banner) |
+| `/clear` | start a new session — fresh history/usage/todos; the old session stays in `/resume` |
 | `/exit`, `/quit` | quit |
 
 User-installed skills appear here too — anything you've dropped in `~/.evva/skills/<name>/SKILL.md` or `<workdir>/.evva/skills/<name>/SKILL.md` shows up as `/<name>` in the same panel.

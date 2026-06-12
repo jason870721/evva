@@ -36,3 +36,43 @@ func TestResetWorkdirSessions(t *testing.T) {
 		t.Errorf("empty appHome should no-op, got: %v", err)
 	}
 }
+
+func TestResetPersonaSessions(t *testing.T) {
+	appHome := t.TempDir()
+	workdir := t.TempDir()
+	slug := memdir.ProjectKey(workdir)
+
+	save := func(id, persona string) {
+		t.Helper()
+		err := session.Save(appHome, &session.Snapshot{
+			Version: session.SnapshotVersion, SessionID: id,
+			Workdir: workdir, WorkdirSlug: slug, Profile: persona,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	save("a1", "alice")
+	save("a2", "alice")
+	save("b1", "bob")
+
+	if err := ResetPersonaSessions(appHome, workdir, "alice"); err != nil {
+		t.Fatalf("ResetPersonaSessions: %v", err)
+	}
+
+	entries, _, err := session.List(appHome, slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Snapshot.Profile != "bob" {
+		t.Errorf("after persona reset: want only bob's snapshot, got %d entries", len(entries))
+	}
+
+	// Idempotent + empty-input no-ops, like the workdir-wide sibling.
+	if err := ResetPersonaSessions(appHome, workdir, "alice"); err != nil {
+		t.Errorf("second reset should be a no-op, got: %v", err)
+	}
+	if err := ResetPersonaSessions(appHome, workdir, ""); err != nil {
+		t.Errorf("empty persona should no-op, got: %v", err)
+	}
+}

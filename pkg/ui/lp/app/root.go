@@ -467,10 +467,25 @@ func (a *App) handleSubmit(m SubmitMsg) (tea.Model, tea.Cmd) {
 		a.slash.Reset()
 		return a, tea.Quit
 	case "/clear":
-		a.transcript.Reset()
 		a.input.Reset()
 		a.slash.Reset()
-		a.state.SetHint("")
+		// Start a NEW session (fresh history/usage/todos, new id) — the old
+		// one stays on disk for /resume. Refused mid-run; the scrollback
+		// survives a refused clear so nothing silently vanishes.
+		if a.controller != nil {
+			if err := a.controller.ClearSession(); err != nil {
+				a.state.SetHint("clear: " + err.Error())
+				a.view.MarkDirty()
+				return a, nil
+			}
+		}
+		a.transcript.Reset()
+		a.state.OnRunDone(nil, false)
+		if a.controller != nil {
+			a.status.SetUsage(a.controller.Usage())
+			a.status.SetContext(0, status.ContextLimitFor(a.controller.Model()))
+			a.state.SetHint("new session started · /resume lists the old one")
+		}
 		a.view.MarkDirty()
 		return a, nil
 	case "/config":

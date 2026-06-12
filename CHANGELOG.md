@@ -12,7 +12,35 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
-## [v1.7.1-beta.1] — 2026-06-12
+### Added
+
+- **`/clear` starts a NEW session (TUI).** Previously `/clear` only wiped the
+  visible transcript; the LLM history kept accumulating. It now calls the new
+  `Controller.ClearSession()`: empty history, zeroed usage, cleared todos, and
+  a fresh session id under the same persona/LLM/tools — the old session's
+  snapshot stays on disk and remains loadable via `/resume`. Refused with a
+  hint while a run is in flight. Both the bubbletea and lp UIs are wired; the
+  status bar (usage, context meter, agent id) resets on the spot. The
+  SessionStart hook latch is re-armed, so the next run fires SessionStart with
+  the previously-reserved `source: "clear"`. New public surface (additive):
+  `pkg/ui.Controller.ClearSession`, `pkg/agent.Agent.ClearSession`, and
+  `pkg/agent.ResetPersonaSessions` (per-persona complement of
+  `ResetWorkdirSessions`).
+- **Swarm web: per-member "clear session" (agent card ⋯ menu).** Wipes one
+  member's mind while its seat survives — fresh live context + new agent id,
+  persisted snapshots deleted (so a restart-resume can't resurrect the old
+  transcript), roster token meter zeroed; membership, schedule, skills, memory
+  files, and today's budget spend are kept. Race-free against the run engine
+  (the clear holds the member's run-slot mutex); a busy member refuses → 409
+  with "suspend it or wait". `POST /api/agents/{name}/clear`, audited into the
+  event log as a `session_clear` line (the operator-action pattern).
+- **Swarm web: lifecycle buttons on the swarm list.** Every card on the landing
+  page now carries `▶ run` / `■ stop`, `↺ reset`, and `🗑 remove` (the last two
+  behind the graded confirm dialog) — previously stopped spaces only offered
+  start, and reset/remove required entering the space first. The card itself
+  was rebuilt: status dot + badges (running/stopped, N busy), leader name,
+  live member count, workdir, and id, with an "open →" hover affordance.
+  `SpaceInfo` gains `leader` + `busy` (live-roster reads, running spaces only).
 
 ### Added
 

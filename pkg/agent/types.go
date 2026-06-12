@@ -112,6 +112,12 @@ type Agent interface {
 	// AskUserQuestion tool goroutine.
 	RespondQuestion(id string, resp QuestionResponse) error
 
+	// ClearSession starts a fresh conversation under the same persona,
+	// LLM, and tools: empty history, zeroed usage, cleared todos, and a
+	// new session id. The old session's snapshot stays on disk and
+	// remains loadable via ResumeSession. Errors when a Run is in flight.
+	ClearSession() error
+
 	// ListSessions enumerates persisted sessions for the agent's workdir,
 	// sorted by mtime descending. The second return is a slice of
 	// non-fatal warnings collected while scanning (corrupt files, etc.).

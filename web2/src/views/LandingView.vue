@@ -7,6 +7,7 @@ import { errMsg } from '../lib/util'
 import EvButton from '../components/base/EvButton.vue'
 import EvPanel from '../components/base/EvPanel.vue'
 import EvBadge from '../components/base/EvBadge.vue'
+import ConfirmDialog from '../components/safety/ConfirmDialog.vue'
 import ThemeToggle from '../shell/ThemeToggle.vue'
 import type { SpaceInfo } from '../types/wire'
 
@@ -14,7 +15,16 @@ const router = useRouter()
 const session = useSessionStore()
 const spaces = useSpacesStore()
 const draft = ref('')
-const busy = ref('')
+const busy = ref('') // space id with a lifecycle call in flight (disables its buttons)
+
+// Graded confirm for the destructive per-card actions (the SpaceMenu pattern).
+interface Confirm {
+  title: string
+  message: string
+  confirmLabel: string
+  action: () => Promise<void>
+}
+const confirm = ref<Confirm | null>(null)
 
 function connect() {
   const t = draft.value.trim()
@@ -30,15 +40,40 @@ function enter(s: SpaceInfo) {
   if (s.status === 'stopped') return
   router.push({ name: 'board', params: { spaceId: s.id } })
 }
-async function start(s: SpaceInfo) {
+async function lifecycle(s: SpaceInfo, action: () => Promise<void>) {
   busy.value = s.id
   try {
-    await spaces.run(s.id)
+    await action()
   } catch (e) {
     spaces.error = errMsg(e)
   } finally {
     busy.value = ''
   }
+}
+const start = (s: SpaceInfo) => lifecycle(s, () => spaces.run(s.id))
+const stop = (s: SpaceInfo) => lifecycle(s, () => spaces.stop(s.id))
+function askReset(s: SpaceInfo) {
+  confirm.value = {
+    title: `Reset ${s.name || s.id}?`,
+    message:
+      'Wipes the task ledger, all messages, and every agent context, then rebuilds under the same id. This cannot be undone.',
+    confirmLabel: 'Reset',
+    action: () => lifecycle(s, () => spaces.reset(s.id)),
+  }
+}
+function askRemove(s: SpaceInfo) {
+  confirm.value = {
+    title: `Remove ${s.name || s.id}?`,
+    message:
+      "Forgets the space entirely (its registration is dropped). The workdir's data stays on disk; register it again to bring it back.",
+    confirmLabel: 'Remove',
+    action: () => lifecycle(s, () => spaces.remove(s.id)),
+  }
+}
+async function doConfirm() {
+  const a = confirm.value?.action
+  confirm.value = null
+  if (a) await a()
 }
 
 onMounted(async () => {
@@ -96,21 +131,62 @@ onMounted(async () => {
           :class="{ stopped: s.status === 'stopped' }"
           @click="enter(s)"
         >
-          <div class="name">
-            {{ s.name || s.id }}
+          <div class="head">
+            <span class="statusdot" :class="s.status" aria-hidden="true" />
+            <span class="name">{{ s.name || s.id }}</span>
             <EvBadge :tone="s.status === 'running' ? 'success' : 'neutral'">{{ s.status }}</EvBadge>
+            <EvBadge v-if="s.busy" tone="info">{{ s.busy }} busy</EvBadge>
+            <span v-if="s.status === 'running'" class="open">open →</span>
           </div>
-          <div class="meta">
-            <span>{{ s.members }} member{{ s.members === 1 ? '' : 's' }}</span>
-            <span class="path">{{ s.workdir }}</span>
-          </div>
-          <div class="id">{{ s.id }}</div>
-          <div v-if="s.status === 'stopped'" class="startrow" @click.stop>
-            <EvButton size="sm" :loading="busy === s.id" @click="start(s)">▶ start</EvButton>
+          <dl class="facts">
+            <template v-if="s.status === 'running'">
+              <div class="fact">
+                <dt>members</dt>
+                <dd>{{ s.members }}</dd>
+              </div>
+              <div v-if="s.leader" class="fact">
+                <dt>leader</dt>
+                <dd>👑 {{ s.leader }}</dd>
+              </div>
+            </template>
+            <div class="fact wide">
+              <dt>workdir</dt>
+              <dd class="mono" :title="s.workdir">{{ s.workdir }}</dd>
+            </div>
+            <div class="fact wide">
+              <dt>id</dt>
+              <dd class="mono faint">{{ s.id }}</dd>
+            </div>
+          </dl>
+          <div class="btnrow" @click.stop>
+            <EvButton
+              v-if="s.status === 'stopped'"
+              size="sm"
+              variant="primary"
+              :loading="busy === s.id"
+              @click="start(s)"
+            >
+              ▶ run
+            </EvButton>
+            <EvButton v-else size="sm" :loading="busy === s.id" @click="stop(s)">■ stop</EvButton>
+            <EvButton size="sm" :disabled="busy === s.id" @click="askReset(s)">↺ reset</EvButton>
+            <EvButton size="sm" variant="danger" :disabled="busy === s.id" @click="askRemove(s)">
+              🗑 remove
+            </EvButton>
           </div>
         </li>
       </ul>
     </template>
+
+    <ConfirmDialog
+      v-if="confirm"
+      :title="confirm.title"
+      :message="confirm.message"
+      :confirm-label="confirm.confirmLabel"
+      :danger="true"
+      @confirm="doConfirm"
+      @cancel="confirm = null"
+    />
   </div>
 </template>
 
@@ -159,7 +235,7 @@ h1 {
   gap: var(--sp-3);
 }
 .skelcard {
-  height: 4.5rem;
+  height: 7rem;
   border-radius: var(--r-lg);
   background: linear-gradient(90deg, var(--color-surface) 25%, var(--color-surface-2) 50%, var(--color-surface) 75%);
   background-size: 200% 100%;
@@ -187,41 +263,94 @@ h1 {
   padding: var(--sp-3) var(--sp-4);
   cursor: pointer;
   background: var(--color-surface);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .spaces li:hover {
   border-color: var(--color-accent);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
 }
 .spaces li.stopped {
-  opacity: 0.65;
+  opacity: 0.72;
   cursor: default;
 }
 .spaces li.stopped:hover {
   border-color: var(--color-line);
+  box-shadow: none;
 }
-.name {
-  font-weight: 600;
+.head {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
 }
-.meta {
-  display: flex;
-  gap: var(--sp-4);
-  color: var(--color-text-muted);
-  font-size: var(--fs-sm);
-  margin-top: 0.2rem;
+.statusdot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex: none;
 }
-.path {
-  font-family: var(--font-mono);
+.statusdot.running {
+  background: var(--color-success, #3fb950);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-success, #3fb950) 60%, transparent);
 }
-.id {
-  font-family: var(--font-mono);
+.statusdot.stopped {
+  background: var(--color-text-faint);
+}
+.name {
+  font-weight: 600;
+}
+.open {
+  margin-left: auto;
   font-size: var(--fs-xs);
   color: var(--color-text-faint);
-  margin-top: 0.35rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
-.startrow {
-  margin-top: var(--sp-2);
+.spaces li:hover .open {
+  opacity: 1;
+  color: var(--color-accent);
+}
+.facts {
+  margin: var(--sp-2) 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--sp-5);
+  row-gap: 0.2rem;
+}
+.fact {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.fact.wide {
+  flex-basis: 100%;
+}
+.fact dt {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-faint);
+  flex: none;
+}
+.fact dd {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.faint {
+  font-size: var(--fs-xs);
+  color: var(--color-text-faint);
+}
+.btnrow {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
 }
 code {
   background: var(--color-surface-2);

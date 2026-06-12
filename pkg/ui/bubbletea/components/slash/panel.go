@@ -47,7 +47,7 @@ var builtins = []Command{
 	{Name: "/mcp", Desc: "list configured MCP servers and their status"},
 	{Name: "/resume", Desc: "resume a previous session from this workdir"},
 	{Name: "/update", Desc: "check for updates and install the latest version"},
-	{Name: "/clear", Desc: "clear the transcript"},
+	{Name: "/clear", Desc: "start a new session · old one stays in /resume"},
 	{Name: "/exit", Desc: "quit evva"},
 }
 

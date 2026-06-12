@@ -901,9 +901,19 @@ func (s *Service) ListSpaces() []webapi.SpaceInfo {
 	defer s.mu.RUnlock()
 	out := make([]webapi.SpaceInfo, 0, len(s.spaces))
 	for _, ent := range s.spaces {
-		members := 0
+		members, busy := 0, 0
+		leader := ""
 		if ent.live() {
-			members = len(ent.space.Roster.Snapshot())
+			views := ent.space.Roster.Snapshot()
+			members = len(views)
+			for _, v := range views {
+				if v.Run == swarm.RunBusy {
+					busy++
+				}
+				if v.Role == agentdef.RoleLeader {
+					leader = v.Name
+				}
+			}
 		}
 		out = append(out, webapi.SpaceInfo{
 			ID:      ent.id,
@@ -911,6 +921,8 @@ func (s *Service) ListSpaces() []webapi.SpaceInfo {
 			Workdir: ent.workdir,
 			Status:  string(ent.status),
 			Members: members,
+			Leader:  leader,
+			Busy:    busy,
 		})
 	}
 	return out
@@ -1227,6 +1239,24 @@ func (s *Service) Unfreeze(id, agent string) error {
 	return s.superCmd(id, agent, (*swarm.Supervisor).Unfreeze)
 }
 
+// ClearMemberSession wipes one member's conversation (operator action): fresh
+// live session + persisted snapshots deleted, roster/schedule/memory intact.
+// A busy member refuses (the handler maps it to 409). Audited into the event
+// log like operator schedule edits — a vanished context with no trace would
+// be the hardest "what happened overnight" to reconstruct.
+func (s *Service) ClearMemberSession(id, agent string) error {
+	ent, ok := s.entry(id)
+	if !ok {
+		return fmt.Errorf("swarm: unknown space %q", id)
+	}
+	if err := ent.super.ClearMemberSession(agent); err != nil {
+		return err
+	}
+	s.log.Info("swarm: member session cleared by operator", "space", ent.name, "member", agent)
+	s.auditSessionClear(ent, agent)
+	return nil
+}
+
 // SetSchedule / ClearSchedule are the operator's schedule controls (RP-8). Unlike
 // the leader tool (RP-7), there is NO self-guard: the operator may set or clear
 // ANY member's schedule, including the leader's — the web is the one place a
@@ -1277,6 +1307,31 @@ type scheduleChangeEvent struct {
 	Cron   string `json:"cron,omitempty"`
 	Prompt string `json:"prompt,omitempty"`
 	Source string `json:"source"` // "operator" — the web is the only non-tool writer
+}
+
+// sessionClearEvent is the synthetic event-log line for an operator clearing
+// a member's session — the scheduleChangeEvent pattern: an operator action
+// with no tool_use event to self-audit through gets its own line.
+type sessionClearEvent struct {
+	Kind   string `json:"kind"` // "session_clear"
+	Member string `json:"member"`
+	Source string `json:"source"` // "operator" — the web is the only writer
+}
+
+// auditSessionClear mirrors one operator session clear into the space's
+// event log. Best-effort like every event-log write.
+func (s *Service) auditSessionClear(ent *spaceEntry, member string) {
+	log, ok := s.eventLogFor(ent.id)
+	if !ok {
+		return
+	}
+	payload, err := json.Marshal(wireEvent{SpaceID: ent.id, Event: sessionClearEvent{
+		Kind: "session_clear", Member: member, Source: "operator",
+	}})
+	if err != nil {
+		return
+	}
+	log.Offer(payload)
 }
 
 // auditScheduleChange mirrors one operator schedule edit into the space's
