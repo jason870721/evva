@@ -1198,6 +1198,21 @@ func (a *Agent) SetPermissionMode(m permission.Mode) {
 	}
 }
 
+// SetPermissionModeName is the name-keyed, validating flavor of
+// SetPermissionMode for callers that carry the mode as a wire string (the
+// swarm web's per-member switch, future SDK control surfaces). Unlike
+// SetPermissionMode — which silently ignores unknown values to keep the
+// system in a known-good state — this returns an error, so an operator's
+// typo surfaces as a 400 instead of a silent no-op.
+func (a *Agent) SetPermissionModeName(name string) error {
+	m := permission.Mode(name)
+	if !m.Valid() {
+		return fmt.Errorf("agent: invalid permission mode %q (want default|accept_edits|plan|bypass)", name)
+	}
+	a.SetPermissionMode(m)
+	return nil
+}
+
 // PermissionStore exposes the shared rule store. Returns nil if the
 // caller didn't install one (tests, headless CLI runs).
 func (a *Agent) PermissionStore() *permission.Store { return a.permissionStore }

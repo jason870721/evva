@@ -104,6 +104,11 @@ type Agent interface {
 	// returns the new mode name.
 	CyclePermissionMode() string
 
+	// SetPermissionModeName sets the permission stance directly by wire
+	// name ("default", "accept_edits", "plan", "bypass"). Errors on
+	// unknown names. Safe to call mid-run.
+	SetPermissionModeName(name string) error
+
 	// RespondPermission delivers the user's approval/denial back to
 	// the blocked tool goroutine.
 	RespondPermission(id string, decision PermissionDecision) error

@@ -94,6 +94,13 @@ type Backend interface {
 	// with a "busy" error the handler maps to 409; suspend it or wait.
 	ClearMemberSession(spaceID, agent string) error
 
+	// SetMemberPermissionMode switches one member's permission stance
+	// ("default" | "accept_edits" | "plan" | "bypass") at runtime. Applies
+	// to the live gate immediately (mid-run included) and persists as a
+	// runtime override until the space is freshly re-registered. An invalid
+	// mode is operator input → 400; unknown space/member → 404.
+	SetMemberPermissionMode(spaceID, agent, mode string) error
+
 	// Schedule CRUD (RP-8). The web path has NO self-guard — the operator may
 	// set/clear ANY member's schedule, including the leader's (the symmetric
 	// complement to the leader tool, which refuses to reschedule itself, RP-7).
@@ -656,6 +663,17 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 	mux.Handle("DELETE /api/agents/{name}", guard(func(w http.ResponseWriter, r *http.Request) {
 		deleteDir := r.URL.Query().Get("deleteDir") == "true"
 		respondInputErr(w, b.RemoveMember(r.URL.Query().Get("space"), r.PathValue("name"), deleteDir))
+	}))
+	// Switch a member's permission stance (default | accept_edits | plan |
+	// bypass). Live immediately; persists as a runtime override. Bad mode → 400.
+	mux.Handle("POST /api/agents/{name}/permission_mode", guard(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Mode string `json:"mode"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		respondInputErr(w, b.SetMemberPermissionMode(r.URL.Query().Get("space"), r.PathValue("name"), body.Mode))
 	}))
 	// Schedule CRUD (RP-8). Operator may target ANY member, including the leader.
 	mux.Handle("POST /api/agents/{name}/schedule", guard(func(w http.ResponseWriter, r *http.Request) {

@@ -36,6 +36,7 @@ type fakeBackend struct {
 	perms         [][6]string // {space, agent, reqId, behavior, reason, ruleTool}
 	suspends      [][2]string
 	clears        [][2]string       // {space, agent} — ClearMemberSession calls
+	permModes     [][3]string       // {space, agent, mode} — SetMemberPermissionMode calls
 	schedules     [][4]string       // {space, agent, cron, prompt}  (cron="" => clear)
 	creates       []MemberSpec      // CreateMember calls
 	removes       [][3]string       // {space, agent, deleteDir}
@@ -151,6 +152,20 @@ func (f *fakeBackend) Resume(string, string) error   { return nil }
 func (f *fakeBackend) Freeze(string, string) error   { return nil }
 func (f *fakeBackend) Unfreeze(string, string) error { return nil }
 func (f *fakeBackend) HaltAll(string) error          { return nil }
+func (f *fakeBackend) SetMemberPermissionMode(space, agent, mode string) error {
+	if !f.HasSpace(space) {
+		return errUnknownSpace
+	}
+	switch mode {
+	case "default", "accept_edits", "plan", "bypass":
+	default:
+		return errors.New("agent: invalid permission mode")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.permModes = append(f.permModes, [3]string{space, agent, mode})
+	return nil
+}
 func (f *fakeBackend) ClearMemberSession(space, agent string) error {
 	if !f.HasSpace(space) {
 		return errUnknownSpace
@@ -472,6 +487,24 @@ func TestRESTCommands(t *testing.T) {
 	}
 	if s := post(t, srv.URL+"/api/agents/worker-a/clear?space=nope&token=secret", nil); s != http.StatusNotFound {
 		t.Fatalf("unknown-space clear status = %d, want 404", s)
+	}
+
+	// Permission-mode switch: valid mode → 204 and recorded; bad mode is
+	// operator input → 400; unknown space → 404.
+	body = bytes.NewBufferString(`{"mode":"accept_edits"}`)
+	if s := post(t, srv.URL+"/api/agents/worker-a/permission_mode?space=sp-a&token=secret", body); s != http.StatusNoContent {
+		t.Fatalf("permission_mode status = %d, want 204", s)
+	}
+	if len(fake.permModes) != 1 || fake.permModes[0] != [3]string{"sp-a", "worker-a", "accept_edits"} {
+		t.Fatalf("permission mode not recorded: %+v", fake.permModes)
+	}
+	body = bytes.NewBufferString(`{"mode":"yolo"}`)
+	if s := post(t, srv.URL+"/api/agents/worker-a/permission_mode?space=sp-a&token=secret", body); s != http.StatusBadRequest {
+		t.Fatalf("bad-mode status = %d, want 400", s)
+	}
+	body = bytes.NewBufferString(`{"mode":"bypass"}`)
+	if s := post(t, srv.URL+"/api/agents/worker-a/permission_mode?space=nope&token=secret", body); s != http.StatusNotFound {
+		t.Fatalf("unknown-space permission_mode status = %d, want 404", s)
 	}
 
 	// Operator → member message (flat comms). Replies the durable message id —

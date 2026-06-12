@@ -209,6 +209,13 @@ type Controller interface {
 	// returns the new mode name. Wraps around at the end of the cycle.
 	CyclePermissionMode() string
 
+	// SetPermissionModeName sets the permission stance directly by wire
+	// name ("default", "accept_edits", "plan", "bypass") — the random-access
+	// complement of CyclePermissionMode for callers that present modes as a
+	// picker (the swarm web's per-member switch). Errors on unknown names.
+	// Safe to call mid-run: the gate reads the mode per tool call.
+	SetPermissionModeName(name string) error
+
 	// RespondPermission delivers the user's approval/denial back to
 	// the blocked tool goroutine. id is the RequestID from the
 	// KindApprovalNeeded event payload. Returns an error only when

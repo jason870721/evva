@@ -26,6 +26,8 @@ const skillsFor = ref('')
 const showEvents = ref(false)
 const removing = ref('')
 const clearing = ref('')
+// bypass means fully autonomous — it alone goes through a confirm.
+const bypassing = ref('')
 const err = ref('')
 
 async function cmd(verb: 'freeze' | 'unfreeze' | 'suspend' | 'resume', name: string) {
@@ -75,6 +77,26 @@ async function doClear() {
     err.value = errMsg(e) // 409 busy lands here: "suspend it or wait"
   }
 }
+async function applyPermMode(name: string, mode: string) {
+  try {
+    await space.setPermissionMode(name, mode)
+  } catch (e) {
+    err.value = errMsg(e)
+  }
+}
+function onPermMode(name: string, mode: string) {
+  if (mode === 'bypass') {
+    bypassing.value = name
+    return
+  }
+  void applyPermMode(name, mode)
+}
+async function doBypass() {
+  const name = bypassing.value
+  bypassing.value = ''
+  if (!name) return
+  await applyPermMode(name, 'bypass')
+}
 </script>
 
 <template>
@@ -103,6 +125,7 @@ async function doClear() {
         @skills="skillsFor = m.name"
         @clear="clearing = m.name"
         @remove="removing = m.name"
+        @perm-mode="(mode: string) => onPermMode(m.name, mode)"
       />
       <li v-if="!space.merged.length" class="dim">no members yet</li>
     </ul>
@@ -138,6 +161,15 @@ async function doClear() {
       :danger="true"
       @confirm="doClear"
       @cancel="clearing = ''"
+    />
+    <ConfirmDialog
+      v-if="bypassing"
+      :title="`Set ${bypassing} to bypass?`"
+      :message="`${bypassing} runs fully autonomous — every tool call executes without approval (deny rules still bind). Applies immediately, mid-run included, and survives restarts until the swarm is freshly re-registered.`"
+      confirm-label="Set bypass"
+      :danger="true"
+      @confirm="doBypass"
+      @cancel="bypassing = ''"
     />
   </EvPanel>
 </template>

@@ -21,8 +21,14 @@ const emit = defineEmits<{
   skills: []
   clear: []
   remove: []
+  permMode: [mode: string]
 }>()
 const menu = ref(false)
+
+// The three stances the card offers (plan is a TUI flow, not a swarm one).
+// bypass is the caution path — the Roster routes it through a confirm.
+const PERM_MODES = ['default', 'accept_edits', 'bypass'] as const
+const permLabel = (m: string) => (m === 'accept_edits' ? 'accept edits' : m)
 
 // Only a non-default stance earns a chip — the calm card stays calm for the
 // common case, and "bypass" (fully autonomous) reads as the caution it is.
@@ -62,6 +68,20 @@ function permTone(mode: string): 'warning' | 'info' {
       <button v-else-if="member.run === 'suspended'" @click="emit('resume'); menu = false">▶ resume</button>
       <button @click="emit('schedule'); menu = false">⏰ schedule</button>
       <button @click="emit('skills'); menu = false">✦ skills</button>
+      <div class="perm">
+        <span class="permlabel">🛡 permission</span>
+        <div class="permopts">
+          <button
+            v-for="m in PERM_MODES"
+            :key="m"
+            :class="{ cur: (member.permissionMode || 'default') === m, risky: m === 'bypass' }"
+            :disabled="(member.permissionMode || 'default') === m"
+            @click="emit('permMode', m); menu = false"
+          >
+            {{ (member.permissionMode || 'default') === m ? '✓ ' : '' }}{{ permLabel(m) }}
+          </button>
+        </div>
+      </div>
       <button class="rm" @click="emit('clear'); menu = false">🧹 clear session</button>
       <button v-if="member.role !== 'leader'" class="rm" @click="emit('remove'); menu = false">🗑 remove</button>
     </div>
@@ -163,5 +183,44 @@ function permTone(mode: string): 'warning' | 'info' {
 .menu .rm {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+}
+.perm {
+  border: 1px solid var(--color-line);
+  border-radius: var(--r-sm);
+  padding: 0.25rem 0.45rem 0.35rem;
+  background: var(--color-surface);
+}
+.permlabel {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+  margin-bottom: 0.25rem;
+}
+.permopts {
+  display: flex;
+  gap: 0.25rem;
+}
+.permopts button {
+  flex: 1;
+  text-align: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--r-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  padding: 0.15rem 0.3rem;
+  white-space: nowrap;
+}
+.permopts button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+.permopts button.cur {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  cursor: default;
+}
+.permopts button.risky:not(.cur) {
+  color: var(--color-warning, #d29922);
 }
 </style>

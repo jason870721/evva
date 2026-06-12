@@ -12,6 +12,24 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Swarm web: per-member permission-mode switch (agent card ⋯ menu).** The
+  card's menu gains a `🛡 permission` section offering `default` /
+  `accept edits` / `bypass` (current stance ticked; switching TO bypass goes
+  through the graded confirm — it means fully autonomous). The switch lands on
+  the live gate immediately (the mode is read per tool call, so mid-run
+  included), updates the roster chip, and persists to `runtime.json` as a
+  RUNTIME OVERRIDE — overrides only, never construction-time seeds, so a
+  manifest edit stays authoritative for members the operator never touched
+  (the RP-20 schedules lesson applied from day one). Restart rebuilds reapply
+  it; a fresh `evva swarm .` register discards it. `POST
+  /api/agents/{name}/permission_mode` (bad mode → 400), audited into the
+  event log as a `perm_mode_change` line. New public surface (additive):
+  `pkg/ui.Controller.SetPermissionModeName`,
+  `pkg/agent.Agent.SetPermissionModeName` — the random-access complement of
+  `CyclePermissionMode`.
+
 ## [v1.7.2] — 2026-06-13
 
 ### Added

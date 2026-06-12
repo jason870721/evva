@@ -451,6 +451,7 @@ func (s *Service) register(id, name string, m agentdef.Manifest, loaded []agentd
 		if err := sp.DiscardRuntimeSchedules(); err != nil {
 			s.log.Warn("swarm: discard runtime schedules on register failed — stale overrides may apply", "id", id, "err", err)
 		}
+		sp.DiscardRuntimePermModes()
 	}
 
 	// Restore any prior on-disk state (transcripts, unread mail, frozen
@@ -1307,6 +1308,49 @@ type scheduleChangeEvent struct {
 	Cron   string `json:"cron,omitempty"`
 	Prompt string `json:"prompt,omitempty"`
 	Source string `json:"source"` // "operator" — the web is the only non-tool writer
+}
+
+// SetMemberPermissionMode switches one member's permission stance (operator
+// action): applies to the live gate immediately, persists as a runtime
+// override (restart rebuilds reapply it; a fresh register reverts to the
+// manifest). Audited like schedule edits — a member silently going bypass
+// would be the worst kind of invisible.
+func (s *Service) SetMemberPermissionMode(id, agent, mode string) error {
+	ent, ok := s.entry(id)
+	if !ok {
+		return fmt.Errorf("swarm: unknown space %q", id)
+	}
+	if err := ent.super.SetMemberPermissionMode(agent, mode); err != nil {
+		return err
+	}
+	s.log.Info("swarm: member permission mode set by operator", "space", ent.name, "member", agent, "mode", mode)
+	s.auditPermModeChange(ent, agent, mode)
+	return nil
+}
+
+// permModeChangeEvent is the synthetic event-log line for an operator
+// permission-mode switch — the scheduleChangeEvent pattern.
+type permModeChangeEvent struct {
+	Kind   string `json:"kind"` // "perm_mode_change"
+	Member string `json:"member"`
+	Mode   string `json:"mode"`
+	Source string `json:"source"` // "operator" — the web is the only writer
+}
+
+// auditPermModeChange mirrors one operator permission-mode switch into the
+// space's event log. Best-effort like every event-log write.
+func (s *Service) auditPermModeChange(ent *spaceEntry, member, mode string) {
+	log, ok := s.eventLogFor(ent.id)
+	if !ok {
+		return
+	}
+	payload, err := json.Marshal(wireEvent{SpaceID: ent.id, Event: permModeChangeEvent{
+		Kind: "perm_mode_change", Member: member, Mode: mode, Source: "operator",
+	}})
+	if err != nil {
+		return
+	}
+	log.Offer(payload)
 }
 
 // sessionClearEvent is the synthetic event-log line for an operator clearing

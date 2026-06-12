@@ -81,6 +81,13 @@ type SwarmSpace struct {
 	// allocated in registerPersonaDef.
 	personaMembers map[string]bool
 
+	// permOverrides holds RUNTIME-SET permission-mode switches (web per-member
+	// control) — overrides ONLY, never the construction-time seeds, so a
+	// manifest edit stays authoritative for members the operator never touched
+	// (the RP-20 schedules lesson). Persisted into runtime.json (PermModes) and
+	// reapplied by Reload; a fresh register discards it. Lazily allocated.
+	permOverrides map[string]string
+
 	// budgets holds manifest member-level daily-budget overrides (RP-13);
 	// members without an entry inherit settings.DailyBudgetTokens. meter is the
 	// live daily ledger the supervisor feeds at run boundaries (see usage.go).
@@ -507,6 +514,32 @@ func (sp *SwarmSpace) dropScheduleEntry(name string) {
 	sp.mu.Unlock()
 }
 
+// recordPermOverride remembers a runtime permission-mode switch so
+// persistRuntime carries it into runtime.json and a restart rebuild reapplies
+// it. Override-only by design — construction-time seeds never land here.
+func (sp *SwarmSpace) recordPermOverride(name, mode string) {
+	sp.mu.Lock()
+	if sp.permOverrides == nil {
+		sp.permOverrides = map[string]string{}
+	}
+	sp.permOverrides[name] = mode
+	sp.mu.Unlock()
+}
+
+// DiscardRuntimePermModes wipes every runtime permission-mode override so the
+// manifest is authoritative again — DiscardRuntimeSchedules' sibling, called
+// by the service on a FRESH register only; restart rebuilds keep them.
+func (sp *SwarmSpace) DiscardRuntimePermModes() {
+	sp.mu.Lock()
+	sp.permOverrides = nil
+	sp.mu.Unlock()
+	rs := loadRuntime(sp.Workdir)
+	if rs.PermModes != nil {
+		rs.PermModes = nil
+		writeRuntime(sp.Workdir, rs)
+	}
+}
+
 // DiscardRuntimeSchedules wipes every runtime schedule override — the store
 // rows and the legacy runtime.json field — so the manifest is authoritative
 // again. The service calls it on a FRESH register (`evva swarm .`), the
@@ -814,6 +847,7 @@ func (sp *SwarmSpace) removeAgent(name string) {
 	delete(sp.agents, name)
 	delete(sp.schedules, name)
 	delete(sp.schedMeta, name)
+	delete(sp.permOverrides, name)
 	sp.mu.Unlock()
 	if ag != nil {
 		ag.Shutdown()

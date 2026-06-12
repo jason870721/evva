@@ -61,6 +61,13 @@ export const useSpaceStore = defineStore('space', {
       await api.clearMember(id, name)
       await this.refresh()
     },
+    // Switch a member's permission stance (default | accept_edits | bypass).
+    async setPermissionMode(name: string, mode: string) {
+      const id = useConnectionStore().spaceId
+      if (!id) return
+      await api.setPermissionMode(id, name, mode)
+      await this.refresh()
+    },
     // Membership editing (RP-8). Errors propagate to the caller (the dialog shows
     // them inline); a success refreshes the roster.
     async createMember(spec: MemberSpec) {

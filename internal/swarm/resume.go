@@ -44,6 +44,13 @@ type runtimeState struct {
 	UsageDay     string            `json:"usage_day,omitempty"`
 	UsageDaily   map[string]int    `json:"usage_daily,omitempty"`
 	BudgetFrozen map[string]string `json:"budget_frozen,omitempty"`
+
+	// PermModes holds RUNTIME permission-mode overrides (the web's per-member
+	// switch) — overrides ONLY, never construction-time seeds, so the manifest
+	// stays authoritative for members the operator never touched (the RP-20
+	// schedules lesson applied from day one). Reload reapplies entries for
+	// members still on the roster; a fresh register discards the field.
+	PermModes map[string]string `json:"perm_modes,omitempty"`
 }
 
 func runtimePath(workdir string) string {
@@ -72,6 +79,10 @@ func (sp *SwarmSpace) persistRuntime() {
 	if len(sp.meter.frozen) > 0 {
 		rs.BudgetFrozen = make(map[string]string, len(sp.meter.frozen))
 		maps.Copy(rs.BudgetFrozen, sp.meter.frozen)
+	}
+	if len(sp.permOverrides) > 0 {
+		rs.PermModes = make(map[string]string, len(sp.permOverrides))
+		maps.Copy(rs.PermModes, sp.permOverrides)
 	}
 	sp.mu.Unlock()
 	writeRuntime(sp.Workdir, rs)
@@ -178,6 +189,16 @@ func (sp *SwarmSpace) Reload() {
 		}
 		if rt.Membership[name] == string(MembershipFrozen) {
 			sp.Roster.setMembership(name, MembershipFrozen)
+		}
+		// Reapply a runtime permission-mode override (web switch) over the
+		// construction-time seed. Members no longer on the roster simply
+		// don't iterate here — their stale override drops at the next
+		// persistRuntime, which snapshots the live map re-seeded below.
+		if mode, ok := rt.PermModes[name]; ok {
+			if err := ag.SetPermissionModeName(mode); err == nil {
+				sp.Roster.setPermMode(name, mode)
+				sp.recordPermOverride(name, mode)
+			}
 		}
 	}
 

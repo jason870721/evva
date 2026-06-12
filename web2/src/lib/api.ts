@@ -82,6 +82,10 @@ export function createApi(getToken: () => string) {
     // Clear one member's session: fresh context + new agent id, persisted
     // transcript wiped; the seat (schedule/skills/memory) survives. 409 = busy.
     clearMember: (id: string, agent: string) => req<null>('POST', `/api/agents/${enc(agent)}/clear?space=${enc(id)}`),
+    // Switch a member's permission stance. Live immediately (mid-run included);
+    // persists as a runtime override until the space is freshly re-registered.
+    setPermissionMode: (id: string, agent: string, mode: string) =>
+      req<null>('POST', `/api/agents/${enc(agent)}/permission_mode?space=${enc(id)}`, { mode }),
     // Membership editing (RP-8). The leader is unique — neither targets it.
     createMember: (id: string, spec: MemberSpec) => req<null>('POST', `/api/members?space=${enc(id)}`, spec),
     removeMember: (id: string, agent: string, deleteDir: boolean) =>

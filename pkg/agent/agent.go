@@ -272,6 +272,10 @@ func (a *agentAdapter) PermissionModeName() string { return a.inner.PermissionMo
 
 func (a *agentAdapter) CyclePermissionMode() string { return a.inner.CyclePermissionMode() }
 
+func (a *agentAdapter) SetPermissionModeName(name string) error {
+	return a.inner.SetPermissionModeName(name)
+}
+
 func (a *agentAdapter) RespondPermission(id string, dec PermissionDecision) error {
 	pd := permission.Decision{Reason: dec.Reason}
 	if dec.Behavior == "allow" {

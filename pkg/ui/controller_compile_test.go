@@ -50,6 +50,7 @@ func (publicOnlyController) MCPServers() []ui.MCPServerInfo                     
 func (publicOnlyController) Compact(context.Context, string) error                 { return nil }
 func (publicOnlyController) PermissionModeName() string                            { return "" }
 func (publicOnlyController) CyclePermissionMode() string                           { return "" }
+func (publicOnlyController) SetPermissionModeName(string) error                    { return nil }
 func (publicOnlyController) RespondPermission(string, ui.PermissionDecision) error { return nil }
 func (publicOnlyController) RespondQuestion(string, ui.QuestionResponse) error     { return nil }
 func (publicOnlyController) ClearSession() error                                   { return nil }

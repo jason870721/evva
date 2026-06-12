@@ -372,6 +372,17 @@ func (e *rosterEntry) setPhase(p RunPhase, tool string) {
 	e.phase, e.tool = p, tool
 }
 
+// setPermMode updates the roster's cached permission stance after a runtime
+// switch (web per-member control), so list_members and the web chip reflect
+// the live mode instead of the construction-time snapshot.
+func (r *Roster) setPermMode(name, mode string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if e, ok := r.entries[name]; ok {
+		e.permMode = mode
+	}
+}
+
 // setMembership updates a member's membership (freeze/unfreeze; SPRD-1-6).
 func (r *Roster) setMembership(name string, m Membership) {
 	r.mu.Lock()

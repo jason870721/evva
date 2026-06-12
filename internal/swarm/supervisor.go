@@ -447,6 +447,28 @@ func (s *Supervisor) Resume(name string) error {
 	return nil
 }
 
+// SetMemberPermissionMode switches one member's permission stance at runtime
+// (the web's per-member control): the live gate reads the mode per tool call,
+// so the switch applies immediately — mid-run included (the TUI Shift+Tab
+// precedent; no busy guard needed). The roster's display cache follows, and
+// the switch is recorded as a runtime override in runtime.json so a restart
+// rebuild reapplies it (a fresh register discards it — manifest authority).
+// An invalid mode errors (→ 400 at the web layer); unknown member → 404.
+func (s *Supervisor) SetMemberPermissionMode(name, mode string) error {
+	ctl, ok := s.sp.Roster.Controller(name)
+	if !ok {
+		return fmt.Errorf("swarm: permission mode: unknown member %q", name)
+	}
+	if err := ctl.SetPermissionModeName(mode); err != nil {
+		return err
+	}
+	s.sp.Roster.setPermMode(name, mode)
+	s.sp.recordPermOverride(name, mode)
+	s.sp.persistRuntime()
+	s.log.Info("swarm: member permission mode set", "member", name, "mode", mode)
+	return nil
+}
+
 // ClearMemberSession wipes one member's conversation to a blank slate while
 // the rest of the space keeps running: the live agent gets a fresh session
 // (empty history, zeroed usage, cleared todos, NEW agent id) and the member's
