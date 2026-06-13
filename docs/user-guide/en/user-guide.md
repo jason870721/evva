@@ -163,7 +163,7 @@ Opens a flat list of every `(provider, model)` pair the binary knows about, curs
 │                                                              │
 │   ollama / qwen3.6                                           │
 │   anthropic / claude-sonnet-4-6                              │
-│   anthropic / claude-opus-4-7                                │
+│   anthropic / claude-opus-4-8                                │
 │ ▶ deepseek / deepseek-v4-pro  (current)                      │
 │   deepseek / deepseek-v4-flash                               │
 │   openai / gpt-5.4-mini                                      │
@@ -249,9 +249,9 @@ The picker lists the 10 most-recently-touched sessions per page, sorted by last-
 │ with the saved one.                                          │
 │                                                              │
 │ ▶ wire up the /resume slash command and overlay              │
-│     5m ago · evva · 42 msgs · claude-opus-4-7                │
+│     5m ago · evva · 42 msgs · claude-opus-4-8                │
 │   port the typed-memory directory + relevance recall         │
-│     2h ago · evva · 87 msgs · claude-opus-4-7                │
+│     2h ago · evva · 87 msgs · claude-opus-4-8                │
 │   verify the multi-platform release workflow                 │
 │     1d ago · evva · 18 msgs · deepseek-v4-pro                │
 │   …                                                          │

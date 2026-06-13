@@ -21,7 +21,7 @@ func TestRecallTarget_PerActiveProvider(t *testing.T) {
 		wantModel  constant.Model
 		wantEffort int
 	}{
-		{"anthropic", constant.ANTHROPIC, constant.OPUS_4_7, "high", constant.SONNET_4_6, mediumEffort()},
+		{"anthropic", constant.ANTHROPIC, constant.OPUS_4_8, "high", constant.SONNET_4_6, mediumEffort()},
 		{"deepseek", constant.DEEPSEEK, constant.DEEPSEEK_V4_PRO, "ultra", constant.DEEPSEEK_V4_FLASH, mediumEffort()},
 		{"openai", constant.OPENAI, constant.GPT_5_5, "low", constant.GPT_5_4_MINI, mediumEffort()},
 		// Ollama mirrors the main agent: active model + the main agent's effort.

@@ -70,7 +70,7 @@ type PromptContext struct {
 	WorkDir  string // absolute path of the current working directory.
 	EvvaHome string // ~/.evva — where skills, memory, and config live.
 	Env      string // "dev" | "prod" — dev gates the feedback section.
-	Model    string // canonical model id ("claude-opus-4-7", "deepseek-chat", ...). Empty = skip the model line in env block.
+	Model    string // canonical model id ("claude-opus-4-8", "deepseek-chat", ...). Empty = skip the model line in env block.
 
 	// Catalogs
 	Skills         []SkillRef         // advertised skill list; empty = skip the section.

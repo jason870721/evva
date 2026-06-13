@@ -56,7 +56,7 @@ func TestSwitchLLMClearsSessionAndUpdatesProfile(t *testing.T) {
 		t.Fatalf("pre-swap session len: want 1, got %d", got)
 	}
 
-	if err := a.SwitchLLM(constant.ANTHROPIC, constant.OPUS_4_7); err != nil {
+	if err := a.SwitchLLM(constant.ANTHROPIC, constant.OPUS_4_8); err != nil {
 		t.Fatalf("SwitchLLM: %v", err)
 	}
 
@@ -66,8 +66,8 @@ func TestSwitchLLMClearsSessionAndUpdatesProfile(t *testing.T) {
 	if a.profile.LLMProvider.Name != constant.ANTHROPIC.Name {
 		t.Errorf("profile provider: want anthropic, got %s", a.profile.LLMProvider.Name)
 	}
-	if a.profile.LLMModel != constant.OPUS_4_7 {
-		t.Errorf("profile model: want %s, got %s", constant.OPUS_4_7, a.profile.LLMModel)
+	if a.profile.LLMModel != constant.OPUS_4_8 {
+		t.Errorf("profile model: want %s, got %s", constant.OPUS_4_8, a.profile.LLMModel)
 	}
 	if a.llm.Name() != constant.ANTHROPIC.Name {
 		t.Errorf("llm.Name(): want anthropic, got %s", a.llm.Name())

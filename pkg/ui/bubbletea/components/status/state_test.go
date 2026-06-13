@@ -208,7 +208,7 @@ func TestResolveHintPriority(t *testing.T) {
 func TestStatusBarComposeSmokeTest(t *testing.T) {
 	s := NewState()
 	bar := New(s)
-	bar.SetModel("claude-opus-4-7")
+	bar.SetModel("claude-opus-4-8")
 	bar.SetAgentID("a1b2c3d4e5f6")
 	bar.SetUsage(llm.Usage{InputTokens: 1234, OutputTokens: 5678})
 	bar.SetContext(20000, 200000)
@@ -218,7 +218,7 @@ func TestStatusBarComposeSmokeTest(t *testing.T) {
 		t.Fatal("Compose returned empty output")
 	}
 	plain := stripANSIForTest(out)
-	for _, want := range []string{"READY", "EVVA", "claude-opus-4-7", "IN", "OUT", "CTX", "10.0%", "a1b2c3d4"} {
+	for _, want := range []string{"READY", "EVVA", "claude-opus-4-8", "IN", "OUT", "CTX", "10.0%", "a1b2c3d4"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("status bar missing %q\n   plain: %q", want, plain)
 		}

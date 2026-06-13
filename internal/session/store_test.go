@@ -18,7 +18,7 @@ func newSnapshot(id, slug, prompt string) *Snapshot {
 		WorkdirSlug:     slug,
 		Profile:         "evva",
 		Provider:        "anthropic",
-		Model:           "claude-opus-4-7",
+		Model:           "claude-opus-4-8",
 		CreatedAt:       time.Now().UTC(),
 		UpdatedAt:       time.Now().UTC(),
 		FirstUserPrompt: prompt,

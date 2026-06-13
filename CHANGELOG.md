@@ -12,6 +12,15 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- **Anthropic big-tier model upgraded to Claude Opus 4.8.** The `anthropic`
+  provider's level-2 ("big") model is now `claude-opus-4-8` (was
+  `claude-opus-4-7`); `/model` and per-member `model:` pins switch to 4.8.
+  Public surface: `pkg/constant.OPUS_4_7` is renamed to
+  `pkg/constant.OPUS_4_8` (value `claude-opus-4-8`). Same API surface as 4.7
+  (adaptive thinking only), so no request-shape changes.
+
 ## [v1.7.3-beta.1] — 2026-06-13
 
 ### Added

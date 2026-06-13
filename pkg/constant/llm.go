@@ -12,7 +12,7 @@ type LLMProvider struct {
 // Models are ordered by price
 var (
 	OLLAMA    = LLMProvider{Name: "ollama", ApiUrl: "http://localhost:11434", Models: []Model{QWEN_3_6}}
-	ANTHROPIC = LLMProvider{Name: "anthropic", ApiUrl: "https://api.anthropic.com", Models: []Model{SONNET_4_6, OPUS_4_7}}
+	ANTHROPIC = LLMProvider{Name: "anthropic", ApiUrl: "https://api.anthropic.com", Models: []Model{SONNET_4_6, OPUS_4_8}}
 	DEEPSEEK  = LLMProvider{Name: "deepseek", ApiUrl: "https://api.deepseek.com", Models: []Model{DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO}}
 	// OPENAI — all currently listed models are reasoning-class (gpt-5 / o-series).
 	// If a non-reasoning model (gpt-4*, gpt-3.5*) is added here later, update
@@ -28,7 +28,7 @@ const (
 
 	// ANTHROPIC
 	SONNET_4_6 Model = "claude-sonnet-4-6"
-	OPUS_4_7   Model = "claude-opus-4-7"
+	OPUS_4_8   Model = "claude-opus-4-8"
 
 	// DEEPSEEK
 	DEEPSEEK_V4_FLASH Model = "deepseek-v4-flash"
@@ -100,7 +100,7 @@ func (p LLMProvider) ModelForLevel(level int) Model {
 var MODEL_CONTEXT_SIZE = map[Model]int{
 	QWEN_3_6:          262_144,
 	SONNET_4_6:        500_000,
-	OPUS_4_7:          500_000,
+	OPUS_4_8:          500_000,
 	DEEPSEEK_V4_FLASH: 1_000_000,
 	DEEPSEEK_V4_PRO:   1_000_000,
 	GPT_5_4_MINI:      400_000,

@@ -168,7 +168,7 @@ display_thinking 設定是什麼？」「把 auto-memory 關掉」「將 max_ite
 │                                                              │
 │   ollama / qwen3.6                                           │
 │   anthropic / claude-sonnet-4-6                              │
-│   anthropic / claude-opus-4-7                                │
+│   anthropic / claude-opus-4-8                                │
 │ ▶ deepseek / deepseek-v4-pro  (current)                      │
 │   deepseek / deepseek-v4-flash                               │
 │   openai / gpt-5.4-mini                                      │
@@ -253,9 +253,9 @@ display_thinking 設定是什麼？」「把 auto-memory 關掉」「將 max_ite
 │ 還原會清除目前的對話畫面，並以儲存的版本取代。               │
 │                                                              │
 │ ▶ 串接 /resume slash 指令與 overlay                          │
-│     5m ago · evva · 42 msgs · claude-opus-4-7                │
+│     5m ago · evva · 42 msgs · claude-opus-4-8                │
 │   移植型別化記憶目錄 + 相關性召回                            │
-│     2h ago · evva · 87 msgs · claude-opus-4-7                │
+│     2h ago · evva · 87 msgs · claude-opus-4-8                │
 │   驗證跨平台 release 工作流                                  │
 │     1d ago · evva · 18 msgs · deepseek-v4-pro                │
 │   …                                                          │
