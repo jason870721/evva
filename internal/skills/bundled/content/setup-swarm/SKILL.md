@@ -2,6 +2,30 @@
 
 Use this skill when the user wants to CREATE or SCAFFOLD a multi-agent swarm team: "set up a swarm", "create a swarm team", "scaffold a swarm", "add swarm agents", "how do I make a swarm", "I need a team of agents", "setup-swarm". Also use it when the user asks for a ready-made swarm template ("is there a sample swarm", "swarm examples"), for help UNDERSTANDING swarm structure — the directory layout, the manifest, the agent definition files — or CONFIGURING a swarm's guardrails: permission modes, token budgets, watchdogs, retention, shared skills, external webhooks. Do NOT use for runtime operations (`evva swarm run/stop/rm/reset`) on an already-registered space.
 
+## Live reference (always current — fetch it)
+
+This skill ships inside the binary, so it can drift behind the runtime. A complete, always-current
+**agent-guide** lives in the repo. Whenever you have a web tool (`web_fetch` / `web_search`), pull the
+relevant pages before and during a build so you work from the latest manifest fields, tool catalog,
+and patterns — don't rely solely on this snapshot.
+
+| Use | URL |
+| --- | --- |
+| Browse | `https://github.com/Johnny1110/EVVA/tree/main/docs/user-guide/agent-guide` |
+| Fetch raw markdown | `https://raw.githubusercontent.com/Johnny1110/EVVA/main/docs/user-guide/agent-guide/<path>` |
+
+Start with `…/agent-guide/README.md`, then fetch what the current step needs:
+
+- **Deciding each member's tools** → `tools/catalog.md` (every tool, with which suit a swarm member)
+  and `tools/recipes-by-role.md` (ready-made sets per role). This is the part most worth fetching —
+  assigning the right tools is what lets each member do its job.
+- **Manifest fields** → `building/manifest.md`. **Personas** → `building/personas.md`.
+- **Team shapes / examples** → `patterns/topologies.md`, `patterns/examples.md`.
+- **Guardrails** → `building/permissions.md`, `building/scheduling-and-guardrails.md`.
+
+If you have no web access, the steps below are a solid baseline — but say so, and suggest the user
+review the live guide for advanced features.
+
 ## Before you start
 
 Ask the user two questions (use `ask_user_question` if the answer isn't clear):
@@ -135,7 +159,7 @@ You implement code changes: read the task spec, write the implementation,
 run the tests, and report back when done. Favor simple, working solutions.
 ```
 
-**`tools/active.yml`** — tools exposed to the LLM in every turn. The swarm auto-injects its own collaboration tools (`task_create`/`task_assign`/`task_verify` for the leader, `my_tasks`/`task_get` for workers, plus `send_message`/`list_members` for all, plus `skill`). Only list DOMAIN tools here:
+**`tools/active.yml`** — tools exposed to the LLM in every turn. The swarm auto-injects its own collaboration tools (`task_create`/`task_assign`/`task_verify` for the leader, `my_tasks`/`task_get` for workers, plus `send_message`/`list_members` for all, plus `skill`). Only list DOMAIN tools here — to choose them well, fetch the live `tools/catalog.md` (every tool, and which suit a swarm member) and `tools/recipes-by-role.md` (ready-made sets per role) from the agent-guide:
 
 ```yaml
 # Leader's and workers' active.yml alike
