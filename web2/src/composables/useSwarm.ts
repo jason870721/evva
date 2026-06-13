@@ -25,6 +25,11 @@ export function useSwarm(spaceId: Ref<string>) {
 
   let poll: ReturnType<typeof setInterval> | null = null
   let clock: ReturnType<typeof setInterval> | null = null
+  // Tracks whether the socket has already reached 'open' on this connection. A
+  // later return to 'open' is therefore a RE-connect (the service bounced or the
+  // link dropped) — the trigger for resync(). Cleared by stop() so a deliberate
+  // restart's first 'open' is treated as initial, not a reconnect.
+  let wasOpen = false
 
   async function start() {
     conn.setSpace(spaceId.value)
@@ -45,6 +50,7 @@ export function useSwarm(spaceId: Ref<string>) {
   function stop() {
     if (poll) clearInterval(poll)
     if (clock) clearInterval(clock)
+    wasOpen = false
     conn.close()
     stream.reset()
     gate.reset()
@@ -52,6 +58,21 @@ export function useSwarm(spaceId: Ref<string>) {
     ledger.reset()
     mail.reset()
     proposals.reset()
+  }
+
+  // resync re-pulls the read side after a reconnect. Events emitted while the
+  // socket was down are NOT replayed (the hub only fans to connected clients, and
+  // gates aside, nothing is rebroadcast on reconnect), so the live stream is stale
+  // — most visibly after `service stop && start`, which rebuilds every space.
+  // Re-fetch the snapshots, then reseed the console from each member's persisted
+  // transcript (the same fidelity as a fresh page load), so the firehose and
+  // roster reflect post-restart reality without the operator opening each member.
+  // Gates are NOT touched here — connection.open()'s onStatus re-hydrates them on
+  // every 'open', reconnect included.
+  async function resync() {
+    await Promise.all([space.refresh(), ledger.refresh(), mail.refresh(), proposals.refresh()])
+    stream.reset()
+    await stream.hydrateFromTranscripts(space.roster)
   }
 
   onMounted(start)
@@ -64,6 +85,31 @@ export function useSwarm(spaceId: Ref<string>) {
     () => {
       stop()
       void start()
+    },
+  )
+
+  // Switching the active space (the TopBar SpaceSwitcher) only changes the route
+  // param — WorkspaceView is reused, not remounted, so onMounted never re-fires.
+  // Tear the old space's IO down and bootstrap the new one, or the shell keeps
+  // streaming the previous swarm while only the picker label changes.
+  watch(spaceId, (next, prev) => {
+    if (next === prev) return
+    stop()
+    void start()
+  })
+
+  // The socket reconnects itself after a drop (ws.ts backoff loop). A return to
+  // 'open' AFTER a prior open means the service bounced or the link blipped while
+  // the component stayed mounted — resync so the stale read side catches up. The
+  // first 'open' of a fresh start() is the initial connect and must NOT resync
+  // (start() already hydrated); stop() clears wasOpen so a deliberate restart's
+  // open reads as initial too.
+  watch(
+    () => conn.status,
+    (s) => {
+      if (s !== 'open') return
+      if (wasOpen) void resync()
+      wasOpen = true
     },
   )
 }
