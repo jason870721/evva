@@ -1,11 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useGateStore } from './gate'
 import { useStreamStore } from './stream'
+import { useConnectionStore } from './connection'
 import { useLedgerStore } from './ledger'
 import { useProposalsStore } from './proposals'
 import { useSpaceStore } from './space'
+import { api } from '@/lib/apiClient'
 import type { AssistantTurn } from '@/lib/events'
+import type { MemberInfo } from '@/types/wire'
 
 // Store-layer glue around the (separately node-tested) pure reducers. Runs under
 // Vitest so bundler resolution + aliases work (FE-8 testing finish).
@@ -51,6 +54,46 @@ describe('stream store', () => {
     s.foldPhase({ Kind: 'tool_use_start', AgentID: 'a1', ToolUseStart: { Name: 'bash' } })
     expect(s.livePhases['a1'].phase).toBe('executing')
     expect(s.livePhases['a1'].tool).toBe('bash')
+  })
+})
+
+// Reconnect re-hydrate (the `service stop && start` fix): rehydrate must REPLACE
+// the stale console with persisted truth, but never blank it on a reconnect blip
+// (WS opens before the space is reconciled → REST reads fail/empty).
+describe('stream store · reconnect rehydrate', () => {
+  const roster: MemberInfo[] = [
+    { name: 'qa', agentId: 'a1', role: 'worker', membership: 'active', run: 'idle', currentTask: 0, contextTokens: 0, contextLimit: 0 },
+  ]
+  beforeEach(() => useConnectionStore().setSpace('S1'))
+  afterEach(() => vi.restoreAllMocks())
+
+  it('replaces the console with the persisted transcript on a real reconnect', async () => {
+    const s = useStreamStore()
+    s.turns = [{ type: 'assistant', agentId: 'a1', text: 'partial…', open: true }]
+    vi.spyOn(api, 'transcript').mockResolvedValue([
+      { role: 'user', text: 'go' },
+      { role: 'assistant', text: 'complete answer' },
+    ])
+    await s.rehydrateFromTranscripts(roster)
+    expect(s.turns.length).toBe(1)
+    expect((s.turns[0] as AssistantTurn).text).toBe('complete answer')
+  })
+
+  it('keeps existing turns when the blip read throws (space not reconciled yet)', async () => {
+    const s = useStreamStore()
+    s.turns = [{ type: 'assistant', agentId: 'a1', text: 'keep me', open: false }]
+    vi.spyOn(api, 'transcript').mockRejectedValue(new Error('404 not running'))
+    await s.rehydrateFromTranscripts(roster)
+    expect(s.turns.length).toBe(1)
+    expect((s.turns[0] as AssistantTurn).text).toBe('keep me')
+  })
+
+  it('keeps existing turns when transcripts come back empty (no blanking)', async () => {
+    const s = useStreamStore()
+    s.turns = [{ type: 'assistant', agentId: 'a1', text: 'keep me', open: false }]
+    vi.spyOn(api, 'transcript').mockResolvedValue([])
+    await s.rehydrateFromTranscripts(roster)
+    expect((s.turns[0] as AssistantTurn).text).toBe('keep me')
   })
 })
 

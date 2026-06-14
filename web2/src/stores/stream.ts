@@ -6,6 +6,30 @@ import { api } from '../lib/apiClient'
 import { errMsg } from '../lib/util'
 import { useConnectionStore } from './connection'
 
+// collectSeeds reads each member's persisted transcript and flattens its
+// assistant turns into a seed list — the persisted-truth view used to (re)hydrate
+// the console. A per-member fetch failure is skipped so the rest still seed; the
+// whole call resolves to whatever it could gather (possibly empty). Shared by the
+// two hydrate entry points so seed-on-empty and replace-on-reconnect stay in step.
+async function collectSeeds(id: string, roster: MemberInfo[]): Promise<Turn[]> {
+  const seeded: Turn[] = []
+  for (const m of roster) {
+    if (!m.agentId) continue
+    let tr: TranscriptEntry[] = []
+    try {
+      tr = (await api.transcript(id, m.name)) || []
+    } catch {
+      continue
+    }
+    for (const e of tr) {
+      if (e.role === 'assistant' && e.text) {
+        seeded.push({ type: 'assistant', agentId: m.agentId, text: e.text, open: false })
+      }
+    }
+  }
+  return seeded
+}
+
 // stream holds the demuxed chat turns + the live per-agent phase map, both folded
 // from the WS event stream by the FE-1 reducers (which are pinned by events.test).
 export const useStreamStore = defineStore('stream', {
@@ -56,27 +80,28 @@ export const useStreamStore = defineStore('stream', {
       this.livePhases = {}
     },
     // Best-effort: seed the console from each member's persisted transcript so a
-    // reload/reconnect doesn't show empty. Only seeds an empty console (never
-    // clobbers turns the live stream already delivered). Mirrors v1 hydrateConsole.
+    // reload doesn't show empty. Only seeds an EMPTY console (never clobbers turns
+    // the live stream already delivered). Mirrors v1 hydrateConsole.
     async hydrateFromTranscripts(roster: MemberInfo[]) {
       const id = useConnectionStore().spaceId
       if (!id) return
-      const seeded: Turn[] = []
-      for (const m of roster) {
-        if (!m.agentId) continue
-        let tr: TranscriptEntry[] = []
-        try {
-          tr = (await api.transcript(id, m.name)) || []
-        } catch {
-          continue
-        }
-        for (const e of tr) {
-          if (e.role === 'assistant' && e.text) {
-            seeded.push({ type: 'assistant', agentId: m.agentId, text: e.text, open: false })
-          }
-        }
-      }
+      const seeded = await collectSeeds(id, roster)
       if (seeded.length && !this.turns.length) this.turns = seeded
+    },
+    // Reconnect path: after the WS drops and comes back (most visibly across a
+    // `service stop && start`, which rebuilds the space and resumes agents that
+    // then sit idle), the live turns are stale and the gap's events were never
+    // replayed. REPLACE the console with the persisted truth — but only when the
+    // transcripts actually returned something, so a reconnect BLIP (the WS opens,
+    // then the service rejects it because the space isn't reconciled yet, so the
+    // fetch fails/empties) leaves the existing turns intact instead of blanking
+    // the stream. This is the non-destructive successor to reset()+hydrate, whose
+    // empty window blanked the console on every flaky reconnect.
+    async rehydrateFromTranscripts(roster: MemberInfo[]) {
+      const id = useConnectionStore().spaceId
+      if (!id) return
+      const seeded = await collectSeeds(id, roster)
+      if (seeded.length) this.turns = seeded
     },
   },
 })
