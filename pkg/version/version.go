@@ -15,7 +15,7 @@ import "fmt"
 // release. As of v1.0.0 the Stable-tier surface promise in
 // docs/contributing/sdk-stability.md is in force: breaking changes to Stable
 // packages require a major bump.
-const Version = "v1.7.4-beta.2"
+const Version = "v1.7.4"
 
 // BuildStamp is an optional build-identifying string populated at link
 // time via -ldflags. Empty for `go build` / `go run` invocations off
