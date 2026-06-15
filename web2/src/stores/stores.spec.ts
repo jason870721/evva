@@ -115,6 +115,36 @@ describe('ledger + space getters', () => {
   })
 })
 
+// The bug this guards: the inspector is reused across members (no :key), so a
+// component-local busy flag bled onto whoever you switched to mid-compact. The
+// flag now lives in the store keyed by member.
+describe('space store · per-member compaction', () => {
+  beforeEach(() => useConnectionStore().setSpace('S1'))
+  afterEach(() => vi.restoreAllMocks())
+
+  it('marks only the compacting member busy, then clears it', async () => {
+    const sp = useSpaceStore()
+    vi.spyOn(api, 'roster').mockResolvedValue([])
+    let release!: () => void
+    vi.spyOn(api, 'compactMember').mockReturnValue(new Promise<null>((res) => (release = () => res(null))))
+
+    const done = sp.compactMember('qa', 'full')
+    expect(sp.isCompacting('qa')).toBe(true)
+    expect(sp.isCompacting('dev')).toBe(false) // a sibling stays clickable
+
+    release()
+    await done
+    expect(sp.isCompacting('qa')).toBe(false)
+  })
+
+  it('clears the busy flag even when the compact is refused (409)', async () => {
+    const sp = useSpaceStore()
+    vi.spyOn(api, 'compactMember').mockRejectedValue(new Error('409 busy'))
+    await expect(sp.compactMember('qa', 'full')).rejects.toThrow('busy')
+    expect(sp.isCompacting('qa')).toBe(false)
+  })
+})
+
 describe('proposals store', () => {
   it('counts only open proposals for the tab badge', () => {
     const p = useProposalsStore()

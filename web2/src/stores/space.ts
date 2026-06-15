@@ -16,6 +16,12 @@ export const useSpaceStore = defineStore('space', {
     roster: [] as MemberInfo[],
     now: Date.now(),
     error: '',
+    // Per-member compaction in-flight flags. A full compact is a multi-second
+    // LLM call, so its busy state has to outlive whichever component triggered
+    // it: the inspector is reused across members (no :key), so a component-local
+    // flag bled onto whatever member you switched to mid-compact. Keying it by
+    // member name here disables only the compacting member's own buttons.
+    compacting: {} as Record<string, boolean>,
   }),
   getters: {
     merged(state): MemberInfo[] {
@@ -33,6 +39,10 @@ export const useSpaceStore = defineStore('space', {
       const m = state.roster.find((x) => x.role === 'leader')
       return m?.name || state.roster[0]?.name || ''
     },
+    // True while the named member has a compaction request in flight. Reactive
+    // per member, so switching the inspector never inherits another member's
+    // busy state.
+    isCompacting: (state) => (name: string) => !!state.compacting[name],
   },
   actions: {
     async refresh() {
@@ -68,8 +78,13 @@ export const useSpaceStore = defineStore('space', {
     async compactMember(name: string, kind: 'micro' | 'full') {
       const id = useConnectionStore().spaceId
       if (!id) return
-      await api.compactMember(id, name, kind)
-      await this.refresh()
+      this.compacting[name] = true
+      try {
+        await api.compactMember(id, name, kind)
+        await this.refresh()
+      } finally {
+        this.compacting[name] = false
+      }
     },
     // Switch a member's permission stance (default | accept_edits | bypass).
     async setPermissionMode(name: string, mode: string) {
@@ -155,6 +170,7 @@ export const useSpaceStore = defineStore('space', {
     },
     reset() {
       this.roster = []
+      this.compacting = {}
     },
   },
 })

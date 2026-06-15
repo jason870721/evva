@@ -12,6 +12,17 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swarm web: a member's `🗜 compact context` busy state no longer bleeds onto
+  other members.** The in-flight flag lived in the member inspector component,
+  which is reused across members (no `:key`), so kicking off a multi-second
+  `full` compact on one worker left every member you then switched to with its
+  compact buttons disabled until the call returned. The flag now lives in the
+  space store keyed by member name (`isCompacting(name)`), so it disables only
+  the compacting member's own controls; a sibling stays clickable and switching
+  back still shows the original member as busy. No `pkg/*` surface change.
+
 ## [v1.7.5-beta.2] — 2026-06-15
 
 ### Added

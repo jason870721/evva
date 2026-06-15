@@ -27,8 +27,10 @@ const transcript = ref<TranscriptEntry[]>([])
 const memory = ref<MemoryFileInfo[]>([])
 // Compact control (Live tab): the backend refuses a member with a run in flight
 // (409), so pre-disable while busy; `full` is lossy (it replaces the transcript
-// with a summary brief) and so asks to confirm first.
-const cBusy = ref(false)
+// with a summary brief) and so asks to confirm first. The in-flight flag lives
+// in the store keyed by member — this inspector is reused across members (no
+// :key), so a local flag would bleed onto whoever you switched to mid-compact.
+const cBusy = computed(() => space.isCompacting(props.member))
 const cErr = ref('')
 const confirmFull = ref(false)
 const running = computed(() => entry.value?.run === 'busy')
@@ -60,15 +62,13 @@ function openStream() {
 }
 
 async function doCompact(kind: 'micro' | 'full') {
-  cBusy.value = true
+  const target = props.member // capture: the inspector may retarget mid-call
   cErr.value = ''
   try {
-    await space.compactMember(props.member, kind)
-    confirmFull.value = false
+    await space.compactMember(target, kind)
+    if (props.member === target) confirmFull.value = false
   } catch (e) {
-    cErr.value = errMsg(e)
-  } finally {
-    cBusy.value = false
+    if (props.member === target) cErr.value = errMsg(e)
   }
 }
 </script>
