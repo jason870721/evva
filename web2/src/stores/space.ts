@@ -7,6 +7,12 @@ import { useConnectionStore } from './connection'
 import { useStreamStore } from './stream'
 import { useUiStore } from './ui'
 
+// Outcome of a bulk action fanned out across members: the per-member endpoints
+// are independent (the supervisor locks per member), so we run them concurrently
+// and report which landed vs which were refused (e.g. a member that went busy
+// mid-flight → 409).
+export type BulkResult = { ok: string[]; failed: { name: string; error: string }[] }
+
 // space holds the polled roster (structure) and overlays the live event-derived
 // phase from the stream store (freshness) — the store-side twin of v1
 // SpaceView.mergedRoster. `now` ticks (driven by useSwarm) so elapsed clocks stay
@@ -22,6 +28,12 @@ export const useSpaceStore = defineStore('space', {
     // flag bled onto whatever member you switched to mid-compact. Keying it by
     // member name here disables only the compacting member's own buttons.
     compacting: {} as Record<string, boolean>,
+    // Per-member in-flight flags for the other roster ops, same rationale as
+    // `compacting`: clear (a session wipe) and the lifecycle verbs
+    // (suspend/resume/freeze/unfreeze) each get a member-keyed flag so a card
+    // shows its own spinner during a bulk fan-out without bleeding onto siblings.
+    clearing: {} as Record<string, boolean>,
+    acting: {} as Record<string, boolean>,
   }),
   getters: {
     merged(state): MemberInfo[] {
@@ -43,6 +55,10 @@ export const useSpaceStore = defineStore('space', {
     // per member, so switching the inspector never inherits another member's
     // busy state.
     isCompacting: (state) => (name: string) => !!state.compacting[name],
+    isClearing: (state) => (name: string) => !!state.clearing[name],
+    // Any roster op in flight for this member — drives the card's spinner.
+    memberBusy: (state) => (name: string) =>
+      !!state.compacting[name] || !!state.clearing[name] || !!state.acting[name],
   },
   actions: {
     async refresh() {
@@ -85,6 +101,58 @@ export const useSpaceStore = defineStore('space', {
       } finally {
         this.compacting[name] = false
       }
+    },
+    // Fan `op` out across `names` concurrently (the per-member endpoints are
+    // independent), refresh the roster once at the end, and report which
+    // succeeded vs failed. Callers pre-filter by eligibility (a busy member
+    // can't be cleared/compacted); allSettled still catches the member that
+    // goes busy between the filter and the request → a 409 lands in `failed`.
+    async bulkRun(names: string[], op: (name: string) => Promise<void>): Promise<BulkResult> {
+      const settled = await Promise.allSettled(names.map((n) => op(n)))
+      await this.refresh()
+      const ok: string[] = []
+      const failed: { name: string; error: string }[] = []
+      settled.forEach((r, i) => {
+        if (r.status === 'fulfilled') ok.push(names[i])
+        else failed.push({ name: names[i], error: errMsg(r.reason) })
+      })
+      return { ok, failed }
+    },
+    bulkCompact(names: string[], kind: 'micro' | 'full'): Promise<BulkResult> {
+      const id = useConnectionStore().spaceId
+      if (!id) return Promise.resolve({ ok: [], failed: [] })
+      return this.bulkRun(names, async (n) => {
+        this.compacting[n] = true
+        try {
+          await api.compactMember(id, n, kind)
+        } finally {
+          this.compacting[n] = false
+        }
+      })
+    },
+    bulkClear(names: string[]): Promise<BulkResult> {
+      const id = useConnectionStore().spaceId
+      if (!id) return Promise.resolve({ ok: [], failed: [] })
+      return this.bulkRun(names, async (n) => {
+        this.clearing[n] = true
+        try {
+          await api.clearMember(id, n)
+        } finally {
+          this.clearing[n] = false
+        }
+      })
+    },
+    bulkCmd(verb: 'suspend' | 'resume' | 'freeze' | 'unfreeze', names: string[]): Promise<BulkResult> {
+      const id = useConnectionStore().spaceId
+      if (!id) return Promise.resolve({ ok: [], failed: [] })
+      return this.bulkRun(names, async (n) => {
+        this.acting[n] = true
+        try {
+          await api[verb](id, n)
+        } finally {
+          this.acting[n] = false
+        }
+      })
     },
     // Switch a member's permission stance (default | accept_edits | bypass).
     async setPermissionMode(name: string, mode: string) {
@@ -171,6 +239,8 @@ export const useSpaceStore = defineStore('space', {
     reset() {
       this.roster = []
       this.compacting = {}
+      this.clearing = {}
+      this.acting = {}
     },
   },
 })

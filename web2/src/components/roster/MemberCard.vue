@@ -7,12 +7,23 @@ import { agentColor } from '@/lib/colors'
 import EvPill from '@/components/base/EvPill.vue'
 import EvBadge from '@/components/base/EvBadge.vue'
 import EvContextBar from '@/components/base/EvContextBar.vue'
+import EvSpinner from '@/components/base/EvSpinner.vue'
 
 // Calm resting card (RP-4 H10): identity / role / phase / task / schedule always
 // visible; controls hidden behind a ⋯ menu. The leader is never removable.
-defineProps<{ member: MemberInfo; selected: boolean; now: number }>()
+// In select mode the card becomes a checkbox row: a click toggles selection
+// instead of opening the member, and the per-member ⋯ menu is hidden.
+const props = defineProps<{
+  member: MemberInfo
+  selected: boolean
+  now: number
+  selectMode?: boolean
+  checked?: boolean
+  busy?: boolean
+}>()
 const emit = defineEmits<{
   select: []
+  toggle: []
   freeze: []
   unfreeze: []
   suspend: []
@@ -24,6 +35,11 @@ const emit = defineEmits<{
   permMode: [mode: string]
 }>()
 const menu = ref(false)
+
+function onCardClick() {
+  if (props.selectMode) emit('toggle')
+  else emit('select')
+}
 
 // The three stances the card offers (plan is a TUI flow, not a swarm one).
 // bypass is the caution path — the Roster routes it through a confirm.
@@ -38,11 +54,20 @@ function permTone(mode: string): 'warning' | 'info' {
 </script>
 
 <template>
-  <li class="card" :class="{ sel: selected }" @click="emit('select')">
+  <li class="card" :class="{ sel: selected, picked: selectMode && checked }" @click="onCardClick">
     <div class="l1">
+      <input
+        v-if="selectMode"
+        class="pick"
+        type="checkbox"
+        :checked="checked"
+        :aria-label="`select ${member.name}`"
+        @click.stop="emit('toggle')"
+      />
       <span class="name"><span class="dot" :style="{ background: agentColor(member.name) }" />{{ member.name }}</span>
       <span class="role" :class="member.role">{{ member.role }}</span>
-      <button class="more" aria-label="member actions" @click.stop="menu = !menu">⋯</button>
+      <span v-if="busy" class="cspin"><EvSpinner :size="12" /></span>
+      <button v-if="!selectMode" class="more" aria-label="member actions" @click.stop="menu = !menu">⋯</button>
     </div>
     <div class="l2">
       <EvBadge v-if="member.membership !== 'active'" :tone="member.membership === 'frozen' ? 'frozen' : 'warning'">
@@ -99,6 +124,18 @@ function permTone(mode: string): 'warning' | 'info' {
 .card:hover,
 .card.sel {
   border-color: var(--color-accent);
+}
+.card.picked {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+.pick {
+  cursor: pointer;
+  margin: 0;
+}
+.cspin {
+  margin-left: auto;
+  display: inline-flex;
 }
 .l1 {
   display: flex;

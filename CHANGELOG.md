@@ -12,6 +12,22 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Swarm web: multi-select bulk roster actions.** The roster gains a `✓ select`
+  mode that turns member cards into checkbox rows and surfaces a bulk action bar:
+  **clear session**, **compact** (micro / full), and the lifecycle verbs
+  **suspend / resume / freeze / unfreeze**. Each button acts only on the selected
+  members eligible for it (clear/compact skip a member with a run in flight; the
+  lifecycle verbs are state-gated) and shows its live count; `idle` / `none`
+  shortcuts help target a subset. Actions fan the existing per-member endpoints
+  out concurrently (the supervisor locks per member), refresh once, and report a
+  summary (`compacted 3 · skipped 1 (...)`) so a member that goes busy mid-flight
+  is surfaced rather than silently dropped. Destructive bulk ops (clear, full
+  compact) confirm first, escalating to a type-to-confirm phrase past 4 members.
+  No new `pkg/*` surface or backend endpoint — pure web2 (store `bulkClear` /
+  `bulkCompact` / `bulkCmd` + per-member in-flight flags).
+
 ### Fixed
 
 - **Swarm web: a member's `🗜 compact context` busy state no longer bleeds onto

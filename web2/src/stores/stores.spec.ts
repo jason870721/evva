@@ -145,6 +145,50 @@ describe('space store · per-member compaction', () => {
   })
 })
 
+// Bulk ops fan the per-member endpoints out concurrently (the supervisor locks
+// per member), refresh once, and report ok vs failed so a member that goes busy
+// mid-flight (409) is surfaced rather than silently dropped.
+describe('space store · bulk ops', () => {
+  beforeEach(() => useConnectionStore().setSpace('S1'))
+  afterEach(() => vi.restoreAllMocks())
+
+  it('fans bulkCompact across members and reports all ok', async () => {
+    const sp = useSpaceStore()
+    vi.spyOn(api, 'roster').mockResolvedValue([])
+    const spy = vi.spyOn(api, 'compactMember').mockResolvedValue(null)
+    const r = await sp.bulkCompact(['a', 'b', 'c'], 'micro')
+    expect([...r.ok].sort()).toEqual(['a', 'b', 'c'])
+    expect(r.failed).toEqual([])
+    expect(spy).toHaveBeenCalledTimes(3)
+    expect(sp.memberBusy('a')).toBe(false) // flags cleared after
+  })
+
+  it('reports per-member failures from the fan-out (409 busy)', async () => {
+    const sp = useSpaceStore()
+    vi.spyOn(api, 'roster').mockResolvedValue([])
+    vi.spyOn(api, 'clearMember').mockImplementation((_id, name) =>
+      name === 'b' ? Promise.reject(new Error('409 busy')) : Promise.resolve(null),
+    )
+    const r = await sp.bulkClear(['a', 'b'])
+    expect(r.ok).toEqual(['a'])
+    expect(r.failed).toEqual([{ name: 'b', error: '409 busy' }])
+  })
+
+  it('marks each member busy during a bulk fan-out, then clears them', async () => {
+    const sp = useSpaceStore()
+    vi.spyOn(api, 'roster').mockResolvedValue([])
+    let release!: () => void
+    vi.spyOn(api, 'suspend').mockReturnValue(new Promise<null>((res) => (release = () => res(null))))
+    const done = sp.bulkCmd('suspend', ['a', 'b'])
+    expect(sp.memberBusy('a')).toBe(true)
+    expect(sp.memberBusy('b')).toBe(true)
+    release()
+    await done
+    expect(sp.memberBusy('a')).toBe(false)
+    expect(sp.memberBusy('b')).toBe(false)
+  })
+})
+
 describe('proposals store', () => {
   it('counts only open proposals for the tab badge', () => {
     const p = useProposalsStore()
