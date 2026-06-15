@@ -12,6 +12,24 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Swarm web: proactive per-member context compaction.** The member detail
+  panel (the sidecard's **Live** tab) gains a `🗜 compact context` control with
+  two kinds, mirroring the solo TUI's `/compact`: **micro** (free, instant —
+  elides the bodies of older tool results) and **full** (one LLM call that
+  replaces the transcript with a short context brief; lossy, so it asks to
+  confirm). The member must be idle — a running member is refused (suspend it
+  first). The compaction reuses the existing `KindCompacting` /
+  `KindCompactingEnd` events, so the member's live stream narrates it and the
+  CTX meter drops to reflect the freed budget. `POST
+  /api/agents/{name}/compact` (busy → 409, bad kind → 400, unknown → 404),
+  wired Supervisor → Service mirroring the `ClearMemberSession` chain; the full
+  path runs under the supervisor's long-lived context so the summarization
+  survives a client disconnect. No new `pkg/*` surface
+  (`ui.Controller.Compact` / `agent.Agent.Compact` already existed). User guide
+  updated (en + 正體中文).
+
 ## [v1.7.4] — 2026-06-14
 
 ### Added

@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ type fakeController struct {
 	runs     atomic.Int32
 	inFlight atomic.Int32
 	clears   atomic.Int32
+	compacts atomic.Int32
 	block    bool                // Run blocks until ctx is cancelled (models a long run)
 	doPanic  bool                // Run panics every time (models a crashing agent)
 	onRun    func(prompt string) // optional: invoked inside Run (e.g. to inject mid-run mail)
@@ -33,9 +35,10 @@ type fakeController struct {
 	// tests can script a member's burn rate. Set before Start; read-only after.
 	usagePerRun llm.Usage
 
-	mu      sync.Mutex
-	prompts []string
-	usage   llm.Usage
+	mu              sync.Mutex
+	prompts         []string
+	usage           llm.Usage
+	lastCompactKind string
 }
 
 func (f *fakeController) Run(ctx context.Context, prompt string) (string, error) {
@@ -79,6 +82,27 @@ func (f *fakeController) Usage() llm.Usage {
 }
 
 func (f *fakeController) LastTurnInputTokens() int { return f.usagePerRun.InputTokens }
+
+// Compact satisfies the supervisor's CompactMember seam: validate the kind like
+// the real agent (so the unknown-kind path is exercised) and record the call.
+func (f *fakeController) Compact(ctx context.Context, kind string) error {
+	switch kind {
+	case "micro", "full":
+	default:
+		return fmt.Errorf("agent: unknown compact kind %q", kind)
+	}
+	f.compacts.Add(1)
+	f.mu.Lock()
+	f.lastCompactKind = kind
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeController) lastKind() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastCompactKind
+}
 
 func (f *fakeController) lastPrompt() string {
 	f.mu.Lock()

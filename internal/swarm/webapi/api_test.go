@@ -36,6 +36,7 @@ type fakeBackend struct {
 	perms         [][6]string // {space, agent, reqId, behavior, reason, ruleTool}
 	suspends      [][2]string
 	clears        [][2]string       // {space, agent} — ClearMemberSession calls
+	compacts      [][3]string       // {space, agent, kind} — CompactMember calls
 	permModes     [][3]string       // {space, agent, mode} — SetMemberPermissionMode calls
 	schedules     [][4]string       // {space, agent, cron, prompt}  (cron="" => clear)
 	creates       []MemberSpec      // CreateMember calls
@@ -176,6 +177,25 @@ func (f *fakeBackend) ClearMemberSession(space, agent string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.clears = append(f.clears, [2]string{space, agent})
+	return nil
+}
+func (f *fakeBackend) CompactMember(space, agent, kind string) error {
+	if !f.HasSpace(space) {
+		return errUnknownSpace
+	}
+	if agent == "busy-bee" {
+		return errors.New("swarm: member \"busy-bee\" is busy — suspend it or wait for the run to finish")
+	}
+	switch kind {
+	case "micro", "full":
+	default:
+		// Mirrors Agent.Compact's error, which contains BOTH "unknown" and
+		// "kind" — the handler must test "kind" first so this maps to 400, not 404.
+		return errors.New("agent: unknown compact kind")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.compacts = append(f.compacts, [3]string{space, agent, kind})
 	return nil
 }
 
@@ -505,6 +525,34 @@ func TestRESTCommands(t *testing.T) {
 	body = bytes.NewBufferString(`{"mode":"bypass"}`)
 	if s := post(t, srv.URL+"/api/agents/worker-a/permission_mode?space=nope&token=secret", body); s != http.StatusNotFound {
 		t.Fatalf("unknown-space permission_mode status = %d, want 404", s)
+	}
+
+	// Context compaction: valid micro/full → 204 and recorded; a bad kind is
+	// operator input → 400 (the handler tests "kind" before "unknown", so the
+	// agent's "unknown compact kind" error doesn't fall through to 404); a busy
+	// member → 409; unknown space → 404.
+	body = bytes.NewBufferString(`{"kind":"micro"}`)
+	if s := post(t, srv.URL+"/api/agents/worker-a/compact?space=sp-a&token=secret", body); s != http.StatusNoContent {
+		t.Fatalf("compact status = %d, want 204", s)
+	}
+	if len(fake.compacts) != 1 || fake.compacts[0] != [3]string{"sp-a", "worker-a", "micro"} {
+		t.Fatalf("compact not recorded: %+v", fake.compacts)
+	}
+	body = bytes.NewBufferString(`{"kind":"full"}`)
+	if s := post(t, srv.URL+"/api/agents/worker-a/compact?space=sp-a&token=secret", body); s != http.StatusNoContent {
+		t.Fatalf("full compact status = %d, want 204", s)
+	}
+	body = bytes.NewBufferString(`{"kind":"bogus"}`)
+	if s := post(t, srv.URL+"/api/agents/worker-a/compact?space=sp-a&token=secret", body); s != http.StatusBadRequest {
+		t.Fatalf("bad-kind compact status = %d, want 400", s)
+	}
+	body = bytes.NewBufferString(`{"kind":"full"}`)
+	if s := post(t, srv.URL+"/api/agents/busy-bee/compact?space=sp-a&token=secret", body); s != http.StatusConflict {
+		t.Fatalf("busy compact status = %d, want 409", s)
+	}
+	body = bytes.NewBufferString(`{"kind":"micro"}`)
+	if s := post(t, srv.URL+"/api/agents/worker-a/compact?space=nope&token=secret", body); s != http.StatusNotFound {
+		t.Fatalf("unknown-space compact status = %d, want 404", s)
 	}
 
 	// Operator → member message (flat comms). Replies the durable message id —

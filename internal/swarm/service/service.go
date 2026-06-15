@@ -1258,6 +1258,24 @@ func (s *Service) ClearMemberSession(id, agent string) error {
 	return nil
 }
 
+// CompactMember compacts one member's live context on operator command (the
+// web's per-member /compact): kind "micro" elides older tool-result bodies with
+// no LLM call, "full" replaces the transcript with a summary brief via one call.
+// A busy member refuses (handler → 409); an unknown kind errors (→ 400). Unlike
+// ClearMemberSession no synthetic audit line is written — the compaction emits
+// KindCompacting/KindCompactingEnd events that already land in the event log.
+func (s *Service) CompactMember(id, agent, kind string) error {
+	ent, ok := s.entry(id)
+	if !ok {
+		return fmt.Errorf("swarm: unknown space %q", id)
+	}
+	if err := ent.super.CompactMember(agent, kind); err != nil {
+		return err
+	}
+	s.log.Info("swarm: member compacted by operator", "space", ent.name, "member", agent, "kind", kind)
+	return nil
+}
+
 // SetSchedule / ClearSchedule are the operator's schedule controls (RP-8). Unlike
 // the leader tool (RP-7), there is NO self-guard: the operator may set or clear
 // ANY member's schedule, including the leader's — the web is the one place a

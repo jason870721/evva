@@ -101,6 +101,14 @@ type Backend interface {
 	// mode is operator input → 400; unknown space/member → 404.
 	SetMemberPermissionMode(spaceID, agent, mode string) error
 
+	// CompactMember compacts one member's live context on operator command —
+	// the per-member twin of the TUI's /compact. kind is "micro" (elide older
+	// tool-result bodies, no LLM call) or "full" (one summarization call that
+	// replaces the transcript with a context brief). A busy member refuses with
+	// a "busy" error the handler maps to 409; an unknown kind → 400; unknown
+	// space/member → 404.
+	CompactMember(spaceID, agent, kind string) error
+
 	// Schedule CRUD (RP-8). The web path has NO self-guard — the operator may
 	// set/clear ANY member's schedule, including the leader's (the symmetric
 	// complement to the leader tool, which refuses to reschedule itself, RP-7).
@@ -649,6 +657,31 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}))
+	// Compact one member's live context (the per-member /compact): the body
+	// picks the kind. A busy member is a 409, an unknown kind a 400 — the "kind"
+	// test MUST precede "unknown" because Agent.Compact's bad-kind error
+	// ("unknown compact kind …") contains both words.
+	mux.Handle("POST /api/agents/{name}/compact", guard(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Kind string `json:"kind"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		err := b.CompactMember(r.URL.Query().Get("space"), r.PathValue("name"), body.Kind)
+		switch {
+		case err == nil:
+			w.WriteHeader(http.StatusNoContent)
+		case strings.Contains(err.Error(), "kind"):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case strings.Contains(err.Error(), "busy"):
+			http.Error(w, err.Error(), http.StatusConflict)
+		case strings.Contains(err.Error(), "unknown"):
+			http.Error(w, err.Error(), http.StatusNotFound)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}))
 	// Author a new worker from the add-agent form (RP-8). Validation errors
 	// (bad/duplicate name, etc.) are operator input → 400.
 	mux.Handle("POST /api/members", guard(func(w http.ResponseWriter, r *http.Request) {
@@ -865,14 +898,14 @@ func serveSocket(b Backend, hub *Hub, ws *websocket.Conn) {
 // live socket carries the interactive turns — leader chat (run) and the two
 // approval replies; lifecycle commands go through the REST endpoints.
 type wsCommand struct {
-	Type     string            `json:"type"`
-	Agent    string            `json:"agent"`
-	Prompt   string            `json:"prompt"`
-	ReqID    string            `json:"reqId"`
-	Behavior string            `json:"behavior"`
-	Reason   string            `json:"reason"`
-	RuleTool string            `json:"ruleTool"` // "Always allow": tool to session-allow ("" = one-shot)
-	Answers  map[string][]string `json:"answers"` // question text → chosen labels (native multi-select)
+	Type     string              `json:"type"`
+	Agent    string              `json:"agent"`
+	Prompt   string              `json:"prompt"`
+	ReqID    string              `json:"reqId"`
+	Behavior string              `json:"behavior"`
+	Reason   string              `json:"reason"`
+	RuleTool string              `json:"ruleTool"` // "Always allow": tool to session-allow ("" = one-shot)
+	Answers  map[string][]string `json:"answers"`  // question text → chosen labels (native multi-select)
 }
 
 // dispatchInbound routes one inbound WS command, returning the command's reqId

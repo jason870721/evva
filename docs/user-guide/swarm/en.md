@@ -495,6 +495,14 @@ From the **web roster** you can, per member:
   (frozen members aren't assigned work; unfreeze to bring them back).
 - **Suspend / Resume** — abort a member's in-flight run immediately, then resume
   later (its unread work is reprocessed).
+- **Compact context** — proactively shrink a member's live context from its
+  detail panel (the **Live** tab of the member sidecard). Two kinds, mirroring
+  the solo TUI's `/compact`: **micro** (free, instant — elides the bodies of
+  older tool results) and **full** (one LLM call that replaces the transcript
+  with a short "context brief"; lossy, so it asks to confirm). The member must
+  be **idle** — a running member is refused (suspend it first). The CTX meter
+  drops to reflect the freed budget, and the member's live stream narrates the
+  compaction.
 - **Halt all** — the emergency stop: cancel every in-flight run in the space.
 
 ### Cost & stall fuses (token budget / run watchdog)

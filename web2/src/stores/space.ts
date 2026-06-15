@@ -61,6 +61,16 @@ export const useSpaceStore = defineStore('space', {
       await api.clearMember(id, name)
       await this.refresh()
     },
+    // Compact one member's live context (micro = free tool-result elision, full =
+    // one-LLM-call summary brief). The refresh re-reads the roster so the CTX bar
+    // reflects the reduced context; errors (409 busy / 400 bad kind) propagate to
+    // the caller for inline display.
+    async compactMember(name: string, kind: 'micro' | 'full') {
+      const id = useConnectionStore().spaceId
+      if (!id) return
+      await api.compactMember(id, name, kind)
+      await this.refresh()
+    },
     // Switch a member's permission stance (default | accept_edits | bypass).
     async setPermissionMode(name: string, mode: string) {
       const id = useConnectionStore().spaceId

@@ -515,6 +515,51 @@ func (s *Supervisor) ClearMemberSession(name string) error {
 	return nil
 }
 
+// CompactMember compacts one member's live context on operator command — the
+// web's per-member twin of the TUI's /compact. kind is "micro" (elide older
+// tool-result bodies, no LLM call) or "full" (one summarization call that
+// replaces the transcript with a context brief). Like ClearMemberSession it
+// holds m.mu across the call, which is what makes it race-free against the run
+// engine (runOnce claims its run slot under the same mutex), and refuses a
+// member with a run in flight — suspend it or wait. An unknown kind errors
+// (Agent.Compact validates it; the web maps it to 400).
+//
+// The full path makes one LLM call, so it runs under the supervisor's long-lived
+// rootCtx rather than the request context — the summarization must survive the
+// operator's HTTP client disconnecting. The compaction emits the same
+// KindCompacting/KindCompactingEnd events the TUI shows, so the member's live
+// stream narrates it for free.
+func (s *Supervisor) CompactMember(name, kind string) error {
+	m := s.memberOf(name)
+	if m == nil {
+		return fmt.Errorf("swarm: compact: unknown member %q", name)
+	}
+	ctl, ok := s.sp.Roster.Controller(name)
+	if !ok {
+		return fmt.Errorf("swarm: compact: unknown member %q", name)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cancelRun != nil {
+		return fmt.Errorf("swarm: member %q is busy — suspend it or wait for the run to finish", name)
+	}
+	ctx := s.rootCtx
+	if ctx == nil { // hand-built test spaces never Start, so rootCtx is unset
+		ctx = context.Background()
+	}
+	if err := ctl.Compact(ctx, kind); err != nil {
+		return fmt.Errorf("swarm: compact %q: %w", name, err)
+	}
+	// The web's context meter reads LastTurnInputTokens live, but the roster's
+	// cached usage snapshot (list_members + the web's session in/out line) only
+	// turns over at run boundaries. Refresh it now so a full compact's reset
+	// shows immediately instead of after the member's next wake.
+	s.sp.Roster.setUsage(name, ctl.Usage(), ctl.LastTurnInputTokens(), s.sp.dailyFor(name))
+	s.log.Info("swarm: member compacted", "member", name, "kind", kind)
+	return nil
+}
+
 // HaltAll suspends every member and cancels every in-flight run — the Phase-2
 // kill switch. Members come back individually via Resume (or on restart).
 func (s *Supervisor) HaltAll() error {

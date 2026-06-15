@@ -82,6 +82,11 @@ export function createApi(getToken: () => string) {
     // Clear one member's session: fresh context + new agent id, persisted
     // transcript wiped; the seat (schedule/skills/memory) survives. 409 = busy.
     clearMember: (id: string, agent: string) => req<null>('POST', `/api/agents/${enc(agent)}/clear?space=${enc(id)}`),
+    // Compact one member's live context (the per-member /compact): "micro" elides
+    // old tool results (free, instant), "full" summarizes via one LLM call. The
+    // member must be idle — a busy one is a 409, an unknown kind a 400.
+    compactMember: (id: string, agent: string, kind: 'micro' | 'full') =>
+      req<null>('POST', `/api/agents/${enc(agent)}/compact?space=${enc(id)}`, { kind }),
     // Switch a member's permission stance. Live immediately (mid-run included);
     // persists as a runtime override until the space is freshly re-registered.
     setPermissionMode: (id: string, agent: string, mode: string) =>

@@ -5,6 +5,7 @@ import { useSpaceStore } from '@/stores/space'
 import { useStreamStore } from '@/stores/stream'
 import { displayPhase, phaseClass, humanTokens } from '@/lib/events'
 import { agentColor } from '@/lib/colors'
+import { errMsg } from '@/lib/util'
 import type { MemoryFileInfo, TranscriptEntry } from '@/types/wire'
 import EvPill from '@/components/base/EvPill.vue'
 import EvBadge from '@/components/base/EvBadge.vue'
@@ -24,6 +25,13 @@ const tab = ref<'live' | 'history' | 'mailbox' | 'memory'>('live')
 const entry = computed(() => space.merged.find((m) => m.name === props.member) || null)
 const transcript = ref<TranscriptEntry[]>([])
 const memory = ref<MemoryFileInfo[]>([])
+// Compact control (Live tab): the backend refuses a member with a run in flight
+// (409), so pre-disable while busy; `full` is lossy (it replaces the transcript
+// with a summary brief) and so asks to confirm first.
+const cBusy = ref(false)
+const cErr = ref('')
+const confirmFull = ref(false)
+const running = computed(() => entry.value?.run === 'busy')
 
 async function loadHistory() {
   transcript.value = await stream.transcriptOf(props.member)
@@ -36,6 +44,10 @@ watch(
   () => {
     if (tab.value === 'history') loadHistory()
     if (tab.value === 'memory') loadMemory()
+    // Drop any half-finished full-compact confirm + stale error when the
+    // inspector retargets or the operator leaves the Live tab.
+    confirmFull.value = false
+    cErr.value = ''
   },
 )
 
@@ -45,6 +57,19 @@ function openStream() {
     params: { spaceId: String(route.params.spaceId), member: props.member },
     query: route.query,
   })
+}
+
+async function doCompact(kind: 'micro' | 'full') {
+  cBusy.value = true
+  cErr.value = ''
+  try {
+    await space.compactMember(props.member, kind)
+    confirmFull.value = false
+  } catch (e) {
+    cErr.value = errMsg(e)
+  } finally {
+    cBusy.value = false
+  }
 }
 </script>
 
@@ -85,6 +110,35 @@ function openStream() {
           session {{ humanTokens(entry.tokensIn || 0) }} in · {{ humanTokens(entry.tokensOut || 0) }} out
           <template v-if="!entry.tokensBudget"> · today {{ humanTokens(entry.tokensToday || 0) }}</template>
         </p>
+      </div>
+      <div v-if="entry" class="compact">
+        <div class="chead">
+          <span class="clabel">🗜 compact context</span>
+          <span v-if="cErr" class="cerr">{{ cErr }}</span>
+        </div>
+        <div class="copts">
+          <button
+            :disabled="running || cBusy"
+            title="Elide older tool results — free, instant, no LLM call"
+            @click="doCompact('micro')"
+          >
+            micro
+          </button>
+          <button
+            v-if="!confirmFull"
+            class="risky"
+            :disabled="running || cBusy"
+            title="Summarize the whole transcript into a brief — one LLM call, lossy"
+            @click="confirmFull = true"
+          >
+            full…
+          </button>
+          <template v-else>
+            <button class="risky" :disabled="cBusy" @click="doCompact('full')">⚠ replace transcript</button>
+            <button :disabled="cBusy" @click="confirmFull = false">cancel</button>
+          </template>
+        </div>
+        <p v-if="running" class="muted">running — suspend it first to compact</p>
       </div>
       <EvButton size="sm" @click="openStream">open live stream →</EvButton>
     </section>
@@ -211,6 +265,57 @@ code {
 }
 .io {
   font-family: var(--font-mono);
+}
+.compact {
+  border: 1px solid var(--color-line);
+  border-radius: var(--r-md);
+  padding: 0.3rem 0.45rem 0.4rem;
+  background: var(--color-surface);
+  display: grid;
+  gap: 0.3rem;
+  width: 100%;
+}
+.chead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+.clabel {
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+.cerr {
+  font-size: var(--fs-xs);
+  color: var(--color-danger);
+  text-align: right;
+  word-break: break-word;
+}
+.copts {
+  display: flex;
+  gap: 0.25rem;
+}
+.copts button {
+  flex: 1;
+  text-align: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--r-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  padding: 0.2rem 0.3rem;
+  white-space: nowrap;
+}
+.copts button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+.copts button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.copts button.risky:not(:disabled) {
+  color: var(--color-warning, #d29922);
 }
 .memfile {
   border: 1px solid var(--color-line);
