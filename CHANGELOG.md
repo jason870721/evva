@@ -12,6 +12,8 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.7.5-beta.2] — 2026-06-15
+
 ### Added
 
 - **GLM (Zhipu AI / z.ai) LLM provider.** New `pkg/llm/glm` provider reached over
@@ -26,21 +28,6 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   *understanding* requires a vision-capable GLM model. Configure with `/config`
   (`glm.api_key`) or the `glm:` block in the YAML config; surfaces automatically in
   the `/model` picker.
-
-### Changed
-
-- **`/config` groups provider credentials under a drill-in `llm-provider` row.**
-  The per-provider `api_key` / `api_url` fields (now 9 with GLM) no longer clutter
-  the flat settings list — they collapse into one `llm-provider ▸` entry; `Enter`
-  opens the provider sub-list (breadcrumb `▰ /CONFIG ▸ llm-provider`), `Esc` backs
-  out. The sub-list is built from `constant.GetAllProviders()`, so a newly
-  registered provider appears automatically (Ollama stays a lone, key-less
-  `api_url` pinned last). New `cfgKindGroup` field kind in the config overlay.
-
-## [v1.7.5-beta.1] — 2026-06-15
-
-### Added
-
 - **Swarm web: proactive per-member context compaction.** The member detail
   panel (the sidecard's **Live** tab) gains a `🗜 compact context` control with
   two kinds, mirroring the solo TUI's `/compact`: **micro** (free, instant —
@@ -56,6 +43,16 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   survives a client disconnect. No new `pkg/*` surface
   (`ui.Controller.Compact` / `agent.Agent.Compact` already existed). User guide
   updated (en + 正體中文).
+
+### Changed
+
+- **`/config` groups provider credentials under a drill-in `llm-provider` row.**
+  The per-provider `api_key` / `api_url` fields (now 9 with GLM) no longer clutter
+  the flat settings list — they collapse into one `llm-provider ▸` entry; `Enter`
+  opens the provider sub-list (breadcrumb `▰ /CONFIG ▸ llm-provider`), `Esc` backs
+  out. The sub-list is built from `constant.GetAllProviders()`, so a newly
+  registered provider appears automatically (Ollama stays a lone, key-less
+  `api_url` pinned last). New `cfgKindGroup` field kind in the config overlay.
 
 ## [v1.7.4] — 2026-06-14
 
@@ -1589,8 +1586,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.7.5-beta.1...HEAD
-[v1.7.5-beta.1]: https://github.com/johnny1110/evva/compare/v1.7.4...v1.7.5-beta.1
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.7.5-beta.2...HEAD
+[v1.7.5-beta.2]: https://github.com/johnny1110/evva/compare/v1.7.4...v1.7.5-beta.2
 [v1.7.4]: https://github.com/johnny1110/evva/compare/v1.7.3...v1.7.4
 [v1.7.3]: https://github.com/johnny1110/evva/compare/v1.7.2...v1.7.3
 [v1.7.2]: https://github.com/johnny1110/evva/compare/v1.7.0...v1.7.2
