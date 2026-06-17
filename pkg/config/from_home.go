@@ -14,28 +14,28 @@ func setupGlobalParam(cfg *Config) {
 	_ = os.MkdirAll(cfg.AppHomeSkillsDir, 0o755)
 }
 
-// setupLLMProviderConfig wires per-provider credentials from the YAML
-// file config. Providers with an empty api_url fall back to the
-// constant's built-in default. Anthropic/DeepSeek/OpenAI/GLM need an api_key
-// to be listed; Ollama is local and key-less.
+// setupLLMProviderConfig wires per-provider credentials from the YAML file
+// config into LLMProviderConfig. Providers with an empty api_url fall back to
+// the constant's built-in default.
+//
+// It registers EVERY provider in constant.GetAllProviders() — the same source
+// SaveFile serializes from — so a newly-added provider (e.g. qwen) round-trips
+// through the YAML automatically. A previous hardcoded 5-provider list silently
+// dropped any provider not on it, which read back as "my api_key/api_url won't
+// persist" and made the client fall back to the default endpoint.
 func setupLLMProviderConfig(cfg *Config, fc FileConfig) {
 	cfg.LLMProviderConfig = map[string]APIConfig{}
 
-	register := func(provider constant.LLMProvider, fileEntry FileProviderConfig, requireKey bool) {
-		url := fileEntry.APIURL
+	for _, p := range constant.GetAllProviders() {
+		entry := fc.Providers[p.Name]
+		url := entry.APIURL
 		if url == "" {
-			url = provider.ApiUrl
+			url = p.ApiUrl
 		}
-		cfg.LLMProviderConfig[provider.Name] = APIConfig{
+		cfg.LLMProviderConfig[p.Name] = APIConfig{
 			ApiURL:    url,
-			ApiSecret: fileEntry.APIKey,
-			Models:    provider.Models,
+			ApiSecret: entry.APIKey,
+			Models:    p.Models,
 		}
 	}
-
-	register(constant.OLLAMA, fc.Providers[constant.OLLAMA.Name], false)
-	register(constant.ANTHROPIC, fc.Providers[constant.ANTHROPIC.Name], true)
-	register(constant.DEEPSEEK, fc.Providers[constant.DEEPSEEK.Name], true)
-	register(constant.OPENAI, fc.Providers[constant.OPENAI.Name], true)
-	register(constant.GLM, fc.Providers[constant.GLM.Name], true)
 }

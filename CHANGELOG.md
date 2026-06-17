@@ -29,6 +29,13 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Fixed
 
+- **Provider credentials now persist for every provider.** `setupLLMProviderConfig`
+  loaded creds from a hardcoded five-provider list, so a newly-added provider's
+  `api_key` / `api_url` set via `/config` were written to the YAML but silently
+  dropped on the next load — and the client then fell back to the provider's
+  default endpoint. It now iterates `constant.GetAllProviders()` (the same source
+  `SaveFile` serializes from), so every provider round-trips.
+
 ## [v1.8.0-beta.1] — 2026-06-17
 
 ### Added
