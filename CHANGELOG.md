@@ -14,6 +14,12 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+### Fixed
+
+## [v1.8.0-beta.1] — 2026-06-17
+
+### Added
+
 - **Background memory consolidation ("dream").** When `enable_auto_dream` is on
   (off by default) and the main agent goes idle, evva may fork a fenced
   background agent that consolidates the global memory store — merging
@@ -1670,7 +1676,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.7.5-beta.3...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.1...HEAD
+[v1.8.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.7.5-beta.3...v1.8.0-beta.1
 [v1.7.5-beta.3]: https://github.com/johnny1110/evva/compare/v1.7.5-beta.2...v1.7.5-beta.3
 [v1.7.5-beta.2]: https://github.com/johnny1110/evva/compare/v1.7.4...v1.7.5-beta.2
 [v1.7.4]: https://github.com/johnny1110/evva/compare/v1.7.3...v1.7.4
