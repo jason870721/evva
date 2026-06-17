@@ -119,3 +119,83 @@ var MODEL_CONTEXT_SIZE = map[Model]int{
 	GLM_4_6:           200_000,
 	GLM_5_2:           1_000_000,
 }
+
+// Pricing is a model's USD rate card, every rate expressed per 1,000,000
+// tokens. A zero-value Pricing means "genuinely free" (a locally hosted
+// Ollama model costs nothing to run) — distinct from a model that is
+// absent from MODEL_PRICING, which is "unpriced / unknown" (see CostOf).
+//
+// CacheRead / CacheWrite price Anthropic-style prompt-cache tokens: a
+// READ re-uses a previously cached prefix at a steep discount, while the
+// first WRITE of that prefix carries a surcharge. Providers without
+// prompt caching report zero cache tokens (see llm.Usage), so for them
+// these rates are never exercised and simply mirror Input.
+type Pricing struct {
+	Input      float64 // uncached input
+	Output     float64 // output — hidden reasoning tokens are a subset, billed here
+	CacheRead  float64 // cached-prefix re-read
+	CacheWrite float64 // cached-prefix first write
+}
+
+// CostUSD prices one usage slice. The arguments mirror llm.Usage: in is
+// the FULL input-token count, of which cacheRead + cacheWrite are a
+// subset (Anthropic's accounting), and out is the output-token count
+// (hidden reasoning tokens are already inside out). Cached tokens are
+// billed at their own rates and carved out of the uncached-input pool so
+// they are never double-charged.
+func (p Pricing) CostUSD(in, out, cacheRead, cacheWrite int) float64 {
+	// Defensive: a provider should never over-report cache, but if it
+	// did, clamp the uncached pool at zero rather than credit money back.
+	uncachedIn := max(in-cacheRead-cacheWrite, 0)
+	const perToken = 1.0 / 1_000_000.0
+	return float64(uncachedIn)*p.Input*perToken +
+		float64(cacheRead)*p.CacheRead*perToken +
+		float64(cacheWrite)*p.CacheWrite*perToken +
+		float64(out)*p.Output*perToken
+}
+
+// MODEL_PRICING is the per-model USD rate card, keyed like
+// MODEL_CONTEXT_SIZE. Rates are USD per 1M tokens and were verified
+// against each provider's published list price via web search in June
+// 2026 — treat them as sane defaults for the cost HUD, not invoices; an
+// operator on negotiated rates can edit them here. A model absent from
+// this map is "unpriced" and the HUD hides its dollar figure rather than
+// guessing.
+var MODEL_PRICING = map[Model]Pricing{
+	// Ollama — runs on local hardware, no per-token charge.
+	QWEN_3_6: {},
+
+	// Anthropic (verified 2026-05-28). Prompt caching cuts cached input
+	// ~90% (read ≈ 0.1× input); 5-min cache write ≈ 1.25× input.
+	SONNET_4_6: {Input: 3.00, Output: 15.00, CacheRead: 0.30, CacheWrite: 3.75},
+	OPUS_4_8:   {Input: 5.00, Output: 25.00, CacheRead: 0.50, CacheWrite: 6.25},
+
+	// DeepSeek (verified 2026-06). OpenAI-compatible wire; the client does
+	// not surface cache tokens, so the cache rates mirror Input and never
+	// actually fire (DeepSeek's real cache-hit rate is far lower).
+	DEEPSEEK_V4_FLASH: {Input: 0.14, Output: 0.28, CacheRead: 0.14, CacheWrite: 0.14},
+	DEEPSEEK_V4_PRO:   {Input: 1.74, Output: 3.48, CacheRead: 1.74, CacheWrite: 1.74},
+
+	// OpenAI (verified 2026-06). Reasoning-class; cache tokens not
+	// surfaced by the client, so the cache rates mirror Input.
+	GPT_5_4_MINI: {Input: 0.75, Output: 4.50, CacheRead: 0.75, CacheWrite: 0.75},
+	GPT_5_5:      {Input: 5.00, Output: 30.00, CacheRead: 5.00, CacheWrite: 5.00},
+
+	// GLM / z.ai (verified 2026-06). Rides the Anthropic wire format, so
+	// it DOES surface cache tokens; cache-read uses z.ai's discounted rate
+	// and cache-write mirrors input (z.ai publishes no write surcharge).
+	GLM_4_6: {Input: 0.43, Output: 1.74, CacheRead: 0.11, CacheWrite: 0.43},
+	GLM_5_2: {Input: 1.40, Output: 4.40, CacheRead: 0.26, CacheWrite: 1.40},
+}
+
+// CostOf prices a usage slice for model m against MODEL_PRICING. ok is
+// false when m has no rate card — the caller should then hide the cost
+// rather than render a misleading $0.00. A model priced at zero (e.g. a
+// local Ollama model) returns (0, true): genuinely free, not unknown.
+func CostOf(m Model, in, out, cacheRead, cacheWrite int) (cost float64, ok bool) {
+	p, found := MODEL_PRICING[m]
+	if !found {
+		return 0, false
+	}
+	return p.CostUSD(in, out, cacheRead, cacheWrite), true
+}

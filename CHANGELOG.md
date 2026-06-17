@@ -14,6 +14,21 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Session cost meter.** The solo TUI now prices the running session, not
+  just counts tokens. A live USD figure sits next to the `IN / OUT` cell in
+  the status bar — the cumulative usage priced at the active model's rate
+  card — and a new `/cost` command opens a per-category breakdown: uncached
+  input, prompt-cache read, prompt-cache write, and output, each with its
+  token count, `$/1M` rate, and computed cost, summed to a total. Cache
+  tokens are billed at their own (discounted/surcharged) rates and carved
+  out of the uncached-input pool so they are never double-counted, and
+  hidden reasoning tokens bill at the output rate they already belong to.
+  Models without a rate card (custom / MCP / unknown ids) show tokens only —
+  no fabricated `$0.00` — while a local Ollama model reads as the genuinely
+  free `$0.00` it is. New `pkg/constant` SDK surface: `Pricing`,
+  `MODEL_PRICING` (rates verified against each provider's published list
+  price, June 2026), `Pricing.CostUSD`, and `CostOf`.
+
 ### Fixed
 
 ## [v1.7.5-beta.3] — 2026-06-15

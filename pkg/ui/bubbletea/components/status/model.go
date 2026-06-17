@@ -103,8 +103,7 @@ func (s *StatusBar) Compose(width int, th *theme.Theme) string {
 		renderStatePill(s.state, th),
 		th.UserPrompt.Render(agentNameOrDefault(s.agentName)),
 		th.StatusKey.Render("▸ ") + th.StatusValue.Render(modelOrDash(s.model)) + renderEffort(s.effort, th),
-		th.StatusKey.Render("IN ") + th.StatusValue.Render(humanTokens(s.usage.InputTokens)) +
-			th.StatusKey.Render("  OUT ") + th.StatusValue.Render(humanTokens(s.usage.OutputTokens)),
+		renderSpend(s.usage, s.model, th),
 		renderContextBar(s.contextUsed, s.contextLimit, th),
 	}
 	if cell := renderPermissionMode(s.permMode, th); cell != "" {
@@ -276,6 +275,40 @@ func humanTokens(n int) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1_000)
 	default:
 		return fmt.Sprintf("%d", n)
+	}
+}
+
+// renderSpend builds the spend cell: cumulative IN/OUT tokens, plus a
+// live USD cost when the active model has a rate card in
+// constant.MODEL_PRICING. Unpriced models (custom / MCP / future ids)
+// show tokens only — no misleading $0.00. The cost prices the whole
+// cumulative session usage at the current model's rates; switching
+// models mid-session reprices the running total, which is acceptable
+// for a rough always-on meter (the /cost overlay shows the breakdown).
+func renderSpend(u llm.Usage, model string, th *theme.Theme) string {
+	cell := th.StatusKey.Render("IN ") + th.StatusValue.Render(humanTokens(u.InputTokens)) +
+		th.StatusKey.Render("  OUT ") + th.StatusValue.Render(humanTokens(u.OutputTokens))
+	if cost, ok := constant.CostOf(constant.Model(model),
+		u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheCreationTokens); ok {
+		cell += "  " + th.TasksDone.Render(humanCost(cost))
+	}
+	return cell
+}
+
+// humanCost formats a USD figure for the spend cell. Sub-cent amounts
+// keep three decimals so a long session still shows movement instead of
+// freezing at $0.00; from a cent up it reads in plain cents; very large
+// totals drop the cents to stay tight on the HUD line.
+func humanCost(usd float64) string {
+	switch {
+	case usd <= 0:
+		return "$0.00"
+	case usd < 0.01:
+		return fmt.Sprintf("$%.3f", usd)
+	case usd >= 1000:
+		return fmt.Sprintf("$%.0f", usd)
+	default:
+		return fmt.Sprintf("$%.2f", usd)
 	}
 }
 

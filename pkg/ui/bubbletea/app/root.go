@@ -814,6 +814,16 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.state.SetHint("no controller attached")
 		}
 		return a, nil
+	case "/cost":
+		a.input.Reset()
+		a.slash.Reset()
+		if o := overlays.NewCost(a.controller); o != nil {
+			a.focus.Push(o)
+			a.relayout()
+		} else {
+			a.state.SetHint("no controller attached")
+		}
+		return a, nil
 	case "/resume":
 		a.input.Reset()
 		a.slash.Reset()

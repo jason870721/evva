@@ -42,6 +42,7 @@ var builtins = []Command{
 	{Name: "/compact", Desc: "compact the transcript · pick micro or full"},
 	{Name: "/config", Desc: "edit runtime settings (max_iterations, api keys, …)"},
 	{Name: "/effort", Desc: "set thinking effort · low, medium, high, ultra"},
+	{Name: "/cost", Desc: "session token spend · priced cost breakdown"},
 	{Name: "/model", Desc: "switch llm provider / model · clears history"},
 	{Name: "/profile", Desc: "switch agent persona · clears history"},
 	{Name: "/mcp", Desc: "list configured MCP servers and their status"},
