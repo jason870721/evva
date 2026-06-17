@@ -195,3 +195,36 @@ func TestSetupSwarmSkill_Content(t *testing.T) {
 		}
 	}
 }
+
+// TestRememberSkill_Content pins the adaptation of ref's remember skill to
+// evva: the promotion target is EVVA.md, classification is driven by the
+// memory-type taxonomy, the auto-memory gate + no-apply-without-approval rules
+// are present, and none of ref's individual-mode-absent concepts (CLAUDE.md /
+// CLAUDE.local.md / team memory) leaked in — evva memory is individual-only.
+func TestRememberSkill_Content(t *testing.T) {
+	body, err := readBundled("remember")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, must := range []string{
+		"EVVA.md",                   // promotion target (evva's CLAUDE.md analog)
+		"MEMORY.md",                 // the auto-memory index whose pointer must be kept in sync
+		"auto-memory",               // the layer being reviewed
+		"# Memory",                  // the disabled-auto-memory gate cue
+		"`feedback`",                // type-driven classification is load-bearing
+		"`reference`",               // ditto
+		"without explicit approval", // propose-don't-apply rule
+		"ask_user_question",         // evva tool for the ambiguous case
+	} {
+		if !strings.Contains(body, must) {
+			t.Errorf("remember body missing required reference %q", must)
+		}
+	}
+	// Adaptation correctness: ref's combined/team concepts must NOT appear —
+	// evva is individual-only and uses EVVA.md, not CLAUDE.md.
+	for _, bad := range []string{"CLAUDE.md", "CLAUDE.local.md", "team memory"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("remember body leaks non-evva concept %q (should be individual-only / EVVA.md)", bad)
+		}
+	}
+}

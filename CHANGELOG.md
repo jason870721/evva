@@ -14,6 +14,17 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **`remember` bundled skill.** A new first-party skill (`/remember`) that
+  reviews the session's auto-memory landscape and returns a grouped report of
+  *proposed* changes for the user to approve — promotions of durable,
+  project-wide conventions into `EVVA.md`, plus cleanup of duplicate, outdated,
+  conflicting, and stale-claim entries across `EVVA.md` and the auto-memory
+  directory (keeping each `MEMORY.md` pointer in sync). It proposes, never
+  applies without approval, and gates itself in-prompt on auto-memory being
+  enabled. Ported from `ref/src/skills/bundled/remember.ts` and adapted to
+  evva's individual-only model: `EVVA.md` is the single promotion target —
+  no `CLAUDE.local.md` or team-memory layers.
+
 - **Session cost meter.** The solo TUI now prices the running session, not
   just counts tokens. A live USD figure sits next to the `IN / OUT` cell in
   the status bar — the cumulative usage priced at the active model's rate
