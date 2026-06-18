@@ -12,6 +12,18 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.8.0-beta.5] — 2026-06-18
+
+### Fixed
+
+- **Mouse-wheel scrolling no longer leaks escape sequences into the input box.**
+  Under rapid scrolling, bubbletea v1.3.10's input parser splits the terminal's
+  SGR mouse-tracking sequences across its fixed 256-byte read boundary and leaks
+  the tail into the prompt as literal text (`[<65;190;49M…`, growing with each
+  scroll). Both the default and low-profile TUIs now drop those fragments at the
+  key-routing boundary (`mouse.IsLeakedMouseSequence`), reusing the
+  post-wheel-event window already used for the arrow-key dedup.
+
 ## [v1.8.0-beta.4] — 2026-06-18
 
 ### Added
@@ -1737,7 +1749,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.4...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.5...HEAD
+[v1.8.0-beta.5]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.4...v1.8.0-beta.5
 [v1.8.0-beta.4]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.3...v1.8.0-beta.4
 [v1.8.0-beta.3]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.2...v1.8.0-beta.3
 [v1.8.0-beta.2]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.1...v1.8.0-beta.2
