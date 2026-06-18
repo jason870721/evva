@@ -213,8 +213,11 @@ func TestReloadSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	edited := strings.Replace(string(raw), "  - agent: builder\n", "  - agent: builder\n    permission_mode: plan\n", 1)
-	if edited == string(raw) {
+	// Normalize CRLF→LF first: Git's autocrlf checks the example out with CRLF
+	// on Windows, which would defeat the LF-anchored Replace below.
+	manifest := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	edited := strings.Replace(manifest, "  - agent: builder\n", "  - agent: builder\n    permission_mode: plan\n", 1)
+	if edited == manifest {
 		t.Fatal("manifest edit did not match — starter layout changed?")
 	}
 	if err := os.WriteFile(mf, []byte(edited), 0o644); err != nil {
