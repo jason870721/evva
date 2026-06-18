@@ -328,8 +328,17 @@ func (a *App) handleRunDone(err error) (tea.Model, tea.Cmd) {
 // handleKey routes a key event. Precedence: modal overlay → globals → slash
 // panel → input.
 func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	recentWheel := !a.lastMouseEventAt.IsZero() && time.Since(a.lastMouseEventAt) < 80*time.Millisecond
+
+	// Drop SGR mouse-sequence fragments that bubbletea v1.3.10's input
+	// parser leaks into keyboard input under rapid scrolling — otherwise
+	// they get typed into the prompt box (see mouse.IsLeakedMouseSequence).
+	if mouse.IsLeakedMouseSequence(m, recentWheel) {
+		return a, nil
+	}
+
 	// Wheel-derived arrow-key dedup.
-	if !a.lastMouseEventAt.IsZero() && time.Since(a.lastMouseEventAt) < 80*time.Millisecond {
+	if recentWheel {
 		switch m.String() {
 		case "up", "down":
 			return a, a.view.Update(m)

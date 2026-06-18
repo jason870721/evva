@@ -119,7 +119,10 @@ func RenderTasksDoneSnapshot(store *todo.TodoStore, width int, th *theme.Theme) 
 	b.WriteString(th.TasksDone.Render("✓ tasks complete"))
 	for _, t := range store.List() {
 		b.WriteByte('\n')
-		b.WriteString("  " + th.TasksDone.Render("✓") + " " + th.DimText.Render(clipText(t.Content, width-6)))
+		b.WriteString("  ")
+		b.WriteString(th.TasksDone.Render("✓"))
+		b.WriteString(" ")
+		b.WriteString(th.DimText.Render(clipText(t.Content, width-6)))
 	}
 	return b.String()
 }

@@ -511,10 +511,7 @@ func (a *App) relayout() {
 			used += strings.Count(body, "\n") + 1
 		}
 	}
-	viewportH := a.height - used
-	if viewportH < 1 {
-		viewportH = 1
-	}
+	viewportH := max(a.height-used, 1)
 	a.view.SetSize(a.width, viewportH)
 }
 
@@ -555,13 +552,22 @@ func (a *App) handleRunDone(err error) (tea.Model, tea.Cmd) {
 //  5. slash panel — Tab completes, Up/Down move selection, Esc dismisses
 //  6. input textarea — everything else (history nav, paste, plain typing)
 func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	recentWheel := !a.lastMouseEventAt.IsZero() && time.Since(a.lastMouseEventAt) < 80*time.Millisecond
+
+	// Drop SGR mouse-sequence fragments that bubbletea v1.3.10's input
+	// parser leaks into keyboard input under rapid scrolling — otherwise
+	// they get typed into the prompt box (see mouse.IsLeakedMouseSequence).
+	if mouse.IsLeakedMouseSequence(m, recentWheel) {
+		return a, nil
+	}
+
 	// Wheel-derived arrow-key dedup. Some terminals (tmux without
 	// mouse-on, certain SSH chains) emit a synthesised "up"/"down"
 	// KeyMsg alongside every MouseMsg wheel event. Routing that
 	// synthesised KeyMsg into the input box clobbers the user's
 	// composition with a history entry. Within a short window after
 	// a real wheel event, treat bare up/down as scroll instead.
-	if !a.lastMouseEventAt.IsZero() && time.Since(a.lastMouseEventAt) < 80*time.Millisecond {
+	if recentWheel {
 		switch m.String() {
 		case "up", "down":
 			return a, a.view.Update(m)
