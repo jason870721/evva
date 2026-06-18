@@ -12,6 +12,16 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.8.1] — 2026-06-18
+
+### Fixed
+
+- Windows CI: `TestReloadSpace` now normalizes CRLF→LF before its LF-anchored
+  manifest edit. Git checks the starter example out with CRLF on Windows, so the
+  LF-anchored `strings.Replace` matched nothing and the Windows test job had been
+  red since v1.8.0-beta.4. Test-only — v1.8.1 is functionally identical to v1.8.0
+  (no `pkg/*` surface change).
+
 ## [v1.8.0] — 2026-06-18
 
 ### Fixed
@@ -1749,7 +1759,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.1...HEAD
+[v1.8.1]: https://github.com/johnny1110/evva/compare/v1.8.0...v1.8.1
 [v1.8.0]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.4...v1.8.0
 [v1.8.0-beta.4]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.3...v1.8.0-beta.4
 [v1.8.0-beta.3]: https://github.com/johnny1110/evva/compare/v1.8.0-beta.2...v1.8.0-beta.3
