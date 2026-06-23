@@ -12,6 +12,23 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- **`edit` gains a whitespace/indentation-tolerant match fallback.** When
+  `old_string` matches no exact (nor curly-quote-normalized) region, `edit` now
+  retries with a line-trimmed match — comparing `old_string`'s lines to the
+  file's while ignoring each line's leading/trailing horizontal whitespace. A
+  signature that resolves to exactly **one** contiguous file region is applied,
+  with `new_string` re-indented to the file's actual indentation (only when the
+  delta is a single consistent add/strip; otherwise `new_string` is used
+  verbatim). A signature matching **multiple** regions is rejected ("add more
+  context") rather than guessed. Exact/curly matches take the identical path
+  and result as before, and the tool description still asks for byte-exact
+  `old_string`: the fallback is a silent recovery net for indentation drift, not
+  a license to send approximate text. The success summary notes
+  `(whitespace-tolerant match)` when the fallback fired. PRD:
+  `docs/roadmap/PRD/resilient-edit.md`. (`pkg/tools/fs`)
+
 ## [v1.8.1] — 2026-06-18
 
 ### Fixed

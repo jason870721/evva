@@ -172,12 +172,24 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 		}
 	}
 
-	// findActualString returns the file's exact substring (possibly
-	// with curly quotes the model couldn't reproduce). actualOld is
-	// what we match against the file; new_string gets curly quotes
-	// re-applied via preserveQuoteStyle if normalization happened.
-	actualOld, found := findActualString(mem.content, in.OldString)
-	if !found {
+	// resolveOldString returns the file's exact substring (possibly with
+	// curly quotes the model couldn't reproduce, or differing only in
+	// indentation/trailing whitespace). actualOld is always the file's
+	// verbatim bytes — what we match against the file; new_string gets curly
+	// quotes re-applied via preserveQuoteStyle and, for a whitespace-tolerant
+	// match, its indentation reconciled to the file (m.reindent).
+	m := resolveOldString(mem.content, in.OldString)
+	if m.ambiguous {
+		return tools.Result{
+			IsError: true,
+			Content: fmt.Sprintf(
+				"edit: old_string did not match exactly, and a whitespace-tolerant match found %d candidate regions in %s. "+
+					"Include more surrounding context (or the exact indentation) so the target is unique.",
+				m.count, in.FilePath,
+			),
+		}, nil
+	}
+	if !m.found {
 		hint := buildNotFoundHint(in.OldString, mem.content)
 		return tools.Result{
 			IsError: true,
@@ -188,6 +200,8 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 			),
 		}, nil
 	}
+	actualOld := m.actualOld
+	logger.Debug("edit.match", "strategy", m.strategy.String(), "path", in.FilePath)
 
 	count := strings.Count(mem.content, actualOld)
 	if count > 1 && !in.ReplaceAll {
@@ -207,6 +221,12 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	//   2. Re-introduce the file's curly-quote style if the original
 	//      match required quote normalization (preserveQuoteStyle).
 	newStr := in.NewString
+	// Whitespace-tolerant match: reconcile new_string's indentation to the
+	// file's before any other post-processing, so the result adopts the file's
+	// indentation rather than the model's (drifted) old_string indentation.
+	if m.reindent != nil {
+		newStr = m.reindent(newStr)
+	}
 	if !markdownExt.MatchString(resolved) {
 		newStr = stripTrailingWhitespacePerLine(newStr)
 	}
@@ -261,7 +281,7 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	}
 
 	return tools.Result{
-		Content:  editSummary(resolved, oldLineNums, in.ReplaceAll),
+		Content:  editSummary(resolved, oldLineNums, in.ReplaceAll, m.strategy),
 		Metadata: diff,
 	}, nil
 }
@@ -556,9 +576,16 @@ func findAllOffsets(haystack, needle string) []int {
 	}
 }
 
-func editSummary(path string, lineNums []int, replaceAll bool) string {
+func editSummary(path string, lineNums []int, replaceAll bool, strat matchStrategy) string {
+	// A whitespace-tolerant match is noted so the change is visible in logs /
+	// scrollback (the model edited approximate text and we rescued it). The
+	// tool description stays "exact" — this note is after-the-fact, for humans.
+	note := ""
+	if strat == matchLineTrimmed {
+		note = " (whitespace-tolerant match)"
+	}
 	if len(lineNums) == 0 {
-		return fmt.Sprintf("edited %s", path)
+		return fmt.Sprintf("edited %s%s", path, note)
 	}
 	parts := make([]string, len(lineNums))
 	for i, n := range lineNums {
@@ -572,8 +599,8 @@ func editSummary(path string, lineNums []int, replaceAll bool) string {
 	if replaceAll {
 		suffix = " [replace_all]"
 	}
-	return fmt.Sprintf("edited %s (%d %s at line(s) %s)%s",
-		path, len(lineNums), verb, strings.Join(parts, ", "), suffix)
+	return fmt.Sprintf("edited %s (%d %s at line(s) %s)%s%s",
+		path, len(lineNums), verb, strings.Join(parts, ", "), suffix, note)
 }
 
 func buildEditDiff(path, before, after, oldStr, newStr string, oldLineNums []int) *FileDiff {
