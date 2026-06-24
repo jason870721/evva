@@ -12,7 +12,7 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
-## [v1.8.2-beta.3] — 2026-06-24
+## [v1.8.2-beta.4] — 2026-06-25
 
 ### Added
 
@@ -30,6 +30,15 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   byte-identical and zero LSP calls fire. New `pkg/tools/lsp.Manager` adapters
   (`WorkspaceSymbols`/`DocumentSymbols` returning a neutral `lsp.Symbol`) back the
   builder. See `docs/roadmap/PRD/lsp-repo-map.md`.
+
+### Fixed
+
+- **Slash-command panel scrolls past the fifth entry, and Enter runs the
+  highlighted command.** The `/`-command palette was capped at its first five
+  matches — commands below the fold were unreachable — and pressing Enter on a
+  highlighted entry did not dispatch it. The panel now scrolls to bring every
+  matching command into view and Enter runs the highlighted selection, in both
+  the default and low-profile TUIs. (`pkg/ui/bubbletea`, `pkg/ui/lp`; #46)
 
 ## [v1.8.2-beta.2] — 2026-06-24
 
@@ -1822,8 +1831,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.3...HEAD
-[v1.8.2-beta.3]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.2...v1.8.2-beta.3
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.4...HEAD
+[v1.8.2-beta.4]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.2...v1.8.2-beta.4
 [v1.8.2-beta.2]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.1...v1.8.2-beta.2
 [v1.8.2-beta.1]: https://github.com/johnny1110/evva/compare/v1.8.1...v1.8.2-beta.1
 [v1.8.1]: https://github.com/johnny1110/evva/compare/v1.8.0...v1.8.1
