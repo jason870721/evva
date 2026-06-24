@@ -12,6 +12,29 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Checkpoint & rewind (`/rewind`) — opt-in.** When `enable_checkpoints` is on,
+  the main agent records a checkpoint at each user-turn boundary and captures the
+  before-image of every file its `edit`/`write` tools touch during the turn.
+  `/rewind` lists checkpoints
+  (newest first, with a prompt preview, age, and file count) and restores
+  **code** (rewrite captured files, delete since-created ones), the
+  **conversation** (truncate history to the turn boundary), or **both** — a
+  confirm step precedes any code restore, since it overwrites the working tree.
+  Conversation rewind is disabled for checkpoints older than the last full
+  compaction (their cut-point indexes a since-rewritten history). Storage lives
+  under `<workdir>/.evva/checkpoints/` (a `.gitignore` candidate), bounded by
+  `checkpoint_max_per_session` (default 50) plus a cross-session namespace cap.
+  Files changed by `bash` (not the `fs` tools) are not captured — a documented
+  limitation. Solo main-agent only; subagents and swarm members don't
+  checkpoint. New config keys: `enable_checkpoints` (opt-in, default off) and
+  `checkpoint_max_per_session`. **SDK surface:** new `ui.Controller` methods
+  `Checkpoints() []ui.CheckpointInfo` and `RestoreCheckpoint(id, mode string)`,
+  the `ui.CheckpointInfo` type, and the `fs.CheckpointSink` interface consumed
+  by the `edit`/`write` tools (installed via `(*EditTool).WithCheckpoints` /
+  `(*WriteTool).WithCheckpoints`).
+
 ## [v1.8.1] — 2026-06-18
 
 ### Fixed

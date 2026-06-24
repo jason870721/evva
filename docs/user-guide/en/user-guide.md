@@ -9,6 +9,7 @@
   - [/profile — Switch Persona](#profile--switch-persona)
   - [/effort — Thinking Effort](#effort--thinking-effort)
   - [/resume — Resume a Previous Session](#resume--resume-a-previous-session)
+  - [/rewind — Time-Travel Undo](#rewind--time-travel-undo)
   - [Bundled skills](#bundled-skills)
 - [3. Keybindings](#3-keybindings)
 - [4. Yank Mode — Copying from the Transcript](#4-yank-mode--copying-from-the-transcript)
@@ -91,6 +92,7 @@ Available commands:
 | `/effort` | set thinking effort (low / medium / high / ultra) |
 | `/compact` | compact the transcript — pick micro or full |
 | `/resume` | resume a previous session from this workdir |
+| `/rewind` | undo a prior turn — restore code, conversation, or both |
 | `/clear` | start a new session — fresh history/usage/todos; the old session stays in `/resume` |
 | `/exit`, `/quit` | quit |
 
@@ -302,6 +304,55 @@ The picker lists the 10 most-recently-touched sessions per page, sorted by last-
 **Subagents:** only the root agent's session is persisted. Subagents spawned via the Agent tool are ephemeral by design and never appear in `/resume`.
 
 Resuming is refused if a run is in flight; press Esc first to cancel, then `/resume` again.
+
+### /rewind — Time-Travel Undo
+
+> **Opt-in.** Checkpoint/rewind is **off by default** — enable it with `enable_checkpoints: true` in `~/.evva/config/evva-config.yml`. Until then `/rewind` records and shows nothing.
+
+`/rewind` reverses a turn that went wrong — a bad multi-file refactor, a misguided rewrite, a prompt that sent the agent down the wrong path. At the start of every user turn evva records a **checkpoint**, and the first time that turn's `edit` / `write` tools touch a file it captures that file's exact bytes (its *before-image*). `/rewind` lists those checkpoints and restores the **code**, the **conversation**, or **both** to the chosen point.
+
+```
+┌─ /REWIND ────────────────────────────────────────────────────┐
+│ Time-travel undo — restore files, the conversation, or both  │
+│ to a prior turn. A code restore overwrites your working tree.│
+│                                                              │
+│ ▶ refactor the auth middleware to use the new token store    │
+│     8m ago · 5 file(s) · conversation ✓                      │
+│   add rate-limiting to the public API                        │
+│     34m ago · 2 file(s) · conversation ✓                     │
+│   draft the release notes                                    │
+│     2h ago · 0 file(s) · conversation ✗ (compacted)          │
+│                                                              │
+│ [↑↓] cursor · [Enter] choose · [Esc] cancel                  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Pick a checkpoint, then a restore mode:
+
+| mode | effect |
+| --- | --- |
+| **both** | restore the captured files **and** rewind the conversation to before the turn |
+| **code** | restore the captured files only — rewrite each before-image, delete files the turn created |
+| **chat** | rewind the conversation only; the working tree is left untouched |
+
+Any mode that rewrites files asks for a confirmation first — a code restore **overwrites your working tree** (and deletes files that didn't exist before the turn). A chat-only rewind needs no confirm; it just truncates the live history and re-renders the transcript.
+
+**What a checkpoint captures**
+
+- The conversation cut-point — the message-history length at turn start.
+- The before-image of every file the turn's `edit` / `write` tools mutated, captured on first touch as raw bytes, so a restore reproduces the original encoding and line endings exactly.
+- A file the turn *created* is recorded as "did not exist", so a code restore deletes it on the way back.
+
+**Limitations & scope**
+
+- **Files changed by `bash` are not captured.** The hook only sees the `fs` tools (`edit`, `write`); a `sed -i`, a `>` redirect, an `mv`, or a build artifact is invisible to rewind. Keep your work under git for a backstop.
+- **Conversation rewind across a compaction is disabled.** A full `/compact` rewrites the whole history into a brief, so a cut-point taken before it no longer indexes a real boundary. Those checkpoints show `conversation ✗ (compacted)` and offer code restore only.
+- **Solo main agent only.** Subagents and swarm members don't checkpoint — their isolation already bounds blast radius.
+- Rewind is refused while a run is in flight; press Esc to cancel first.
+
+**Storage & retention**
+
+Checkpoints live under `<workdir>/.evva/checkpoints/<session-id>/` — evva-owned runtime state, like `.evva/plans` and `.evva/worktrees`. **Add `.evva/` (or at least `.evva/checkpoints/`) to your `.gitignore`.** Each session keeps its most-recent `checkpoint_max_per_session` checkpoints (default 50; older ones are pruned and their unique before-images garbage-collected), and only a bounded number of session namespaces persist across sessions. The feature is **opt-in** (`enable_checkpoints`, default off) — see the note at the top of this section.
 
 ### Bundled skills
 

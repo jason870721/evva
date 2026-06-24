@@ -57,6 +57,7 @@ type ToolState struct {
 	planController     mode.PlanModeController
 	worktreeController mode.WorktreeController
 	readTracker        *fs.ReadTracker
+	checkpointSink     fs.CheckpointSink
 	wakeupQueue        *meta.WakeupQueue
 	// userPromptQueue carries prompts the user typed while a Run was
 	// already in flight. The agent loop drains it between iterations
@@ -244,6 +245,20 @@ func (s *ToolState) ReadTracker() *fs.ReadTracker {
 		s.readTracker = fs.NewReadTracker()
 	}
 	return s.readTracker
+}
+
+// CheckpointSink returns the checkpoint/rewind capture sink the fs tools
+// (edit/write) report before-images to, or nil when checkpointing is off. Set
+// once by the agent at construction via SetCheckpointSink.
+func (s *ToolState) CheckpointSink() fs.CheckpointSink {
+	return s.checkpointSink
+}
+
+// SetCheckpointSink installs the capture sink. The agent calls this only with
+// a non-nil sink (when checkpointing is enabled), so the fs tools see a clean
+// nil interface — and skip capture entirely — when the feature is off.
+func (s *ToolState) SetCheckpointSink(sink fs.CheckpointSink) {
+	s.checkpointSink = sink
 }
 
 // HasWakeupQueue reports whether a WakeupQueue has already been allocated.

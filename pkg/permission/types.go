@@ -29,6 +29,13 @@ const PlanDirSegment = ".evva/plans"
 // single-sourced.
 const WorktreeDirSegment = ".evva/worktrees"
 
+// CheckpointDirSegment is the workdir-relative directory the checkpoint/rewind
+// engine stores per-turn before-images and metadata under. Kept here next to
+// PlanDirSegment / WorktreeDirSegment so the .evva/* family of evva-owned
+// directories stays single-sourced (and so the user-guide's .gitignore advice
+// has one canonical name to point at).
+const CheckpointDirSegment = ".evva/checkpoints"
+
 // IsPlanFilePath reports whether absPath sits inside <workdir>/.evva/plans/.
 // Both args are resolved with filepath.Abs before comparison so callers can
 // pass user-supplied paths without pre-normalising. An empty workdir or a path
@@ -43,6 +50,21 @@ func IsPlanFilePath(workdir, absPath string) bool {
 		return false
 	}
 	return pathWithin(filepath.Join(wd, filepath.FromSlash(PlanDirSegment)), absPath)
+}
+
+// IsCheckpointFilePath reports whether absPath sits inside
+// <workdir>/.evva/checkpoints/. Same containment shape and caveats as
+// IsPlanFilePath. Lets the checkpoint engine and any future carve-out share
+// one definition of "is this evva-owned checkpoint storage."
+func IsCheckpointFilePath(workdir, absPath string) bool {
+	if workdir == "" {
+		return false
+	}
+	wd, err := filepath.Abs(workdir)
+	if err != nil {
+		return false
+	}
+	return pathWithin(filepath.Join(wd, filepath.FromSlash(CheckpointDirSegment)), absPath)
 }
 
 // IsAutoMemPath reports whether absPath sits inside the auto-memory directory

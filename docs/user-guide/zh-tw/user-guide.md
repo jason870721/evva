@@ -9,6 +9,7 @@
   - [/profile — 切換人格](#profile--切換人格)
   - [/effort — 思考強度](#effort--思考強度)
   - [/resume — 還原先前的工作階段](#resume--還原先前的工作階段)
+  - [/rewind — 時光倒帶](#rewind--時光倒帶)
   - [內建技能](#內建技能)
 - [3. 快捷鍵](#3-快捷鍵)
 - [4. Yank 模式 — 從對話紀錄複製](#4-yank-模式--從對話紀錄複製)
@@ -98,6 +99,7 @@
 | `/effort` | 設定思考強度（low / medium / high / ultra） |
 | `/compact` | 壓縮對話紀錄 — 可選 micro 或 full |
 | `/resume` | 還原此工作目錄下先前的工作階段 |
+| `/rewind` | 回復先前的回合 — 還原程式碼、對話，或兩者 |
 | `/clear` | 開啟新工作階段 — 清空歷史/用量/待辦；舊階段仍可由 `/resume` 還原 |
 | `/exit`、`/quit` | 離開 |
 
@@ -305,6 +307,55 @@ display_thinking 設定是什麼？」「把 auto-memory 關掉」「將 max_ite
 **子代理：** 只有根代理的工作階段會被持久化。透過 Agent 工具產生的子代理依設計為短暫的，永遠不會出現在 `/resume` 中。
 
 若有執行中的任務則無法還原；請先按 Esc 取消任務，再輸入 `/resume`。
+
+### /rewind — 時光倒帶
+
+> **預設關閉（opt-in）。** 檢查點/倒帶功能**預設為關閉**——在 `~/.evva/config/evva-config.yml` 設定 `enable_checkpoints: true` 來啟用。在那之前 `/rewind` 不會記錄也不會顯示任何內容。
+
+`/rewind` 用來回復一個走偏的回合——一次糟糕的多檔重構、一次誤判的重寫，或一個把代理帶往錯誤方向的提示。在每個使用者回合開始時，evva 會記錄一個**檢查點（checkpoint）**；當該回合的 `edit` / `write` 工具第一次動到某個檔案時，會擷取該檔案當下的原始位元組（它的*前像 before-image*）。`/rewind` 會列出這些檢查點，並把**程式碼**、**對話**，或**兩者**還原到所選的時間點。
+
+```
+┌─ /REWIND ────────────────────────────────────────────────────┐
+│ Time-travel undo — restore files, the conversation, or both  │
+│ to a prior turn. A code restore overwrites your working tree.│
+│                                                              │
+│ ▶ refactor the auth middleware to use the new token store    │
+│     8m ago · 5 file(s) · conversation ✓                      │
+│   add rate-limiting to the public API                        │
+│     34m ago · 2 file(s) · conversation ✓                     │
+│   draft the release notes                                    │
+│     2h ago · 0 file(s) · conversation ✗ (compacted)          │
+│                                                              │
+│ [↑↓] cursor · [Enter] choose · [Esc] cancel                  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+選一個檢查點，再選還原模式：
+
+| 模式 | 效果 |
+| --- | --- |
+| **both** | 還原已擷取的檔案**並**把對話倒帶到該回合之前 |
+| **code** | 只還原已擷取的檔案——回寫每個前像，刪除該回合新建的檔案 |
+| **chat** | 只把對話倒帶；工作目錄維持不變 |
+
+任何會改寫檔案的模式都會先要求確認——程式碼還原會**覆蓋你的工作目錄**（並刪除該回合之前不存在的檔案）。只倒帶對話不需確認；它只是截斷現有歷史並重繪對話。
+
+**檢查點擷取了什麼**
+
+- 對話切點——回合開始時的訊息歷史長度。
+- 該回合 `edit` / `write` 工具動到的每個檔案的前像，於第一次接觸時以原始位元組擷取，因此還原能精確重現原本的編碼與行尾。
+- 該回合*新建*的檔案會被記為「原本不存在」，因此程式碼還原會在回復時將它刪除。
+
+**限制與範圍**
+
+- **由 `bash` 改動的檔案不會被擷取。** 此 hook 只看得到 `fs` 工具（`edit`、`write`）；`sed -i`、`>` 重導向、`mv` 或建置產物對 rewind 都是隱形的。請把工作交給 git 作為後盾。
+- **跨壓縮的對話倒帶會被停用。** 一次完整的 `/compact` 會把整段歷史改寫成摘要，因此在它之前取得的切點不再指向真實的邊界。那些檢查點會顯示 `conversation ✗ (compacted)`，只提供程式碼還原。
+- **僅限單一主代理。** 子代理與 swarm 成員不做檢查點——它們的隔離本身已限制了影響範圍。
+- 有執行中的任務時無法 rewind；請先按 Esc 取消。
+
+**儲存與保留**
+
+檢查點存放於 `<workdir>/.evva/checkpoints/<session-id>/`——屬於 evva 自有的執行期狀態，與 `.evva/plans`、`.evva/worktrees` 同類。**請把 `.evva/`（或至少 `.evva/checkpoints/`）加入你的 `.gitignore`。** 每個工作階段保留最近的 `checkpoint_max_per_session` 個檢查點（預設 50；較舊的會被清除，其獨有的前像也會被回收），且跨工作階段只會保留有限數量的命名空間。此功能**預設關閉（opt-in）**（`enable_checkpoints`，預設 off）——請見本節開頭的說明。
 
 ### 內建技能
 

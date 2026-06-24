@@ -248,6 +248,20 @@ type Controller interface {
 	// unreadable. Successful resume invalidates the prior transcript;
 	// the TUI re-renders from Session().Messages.
 	ResumeSession(id string) error
+
+	// Checkpoints returns the current session's rewind checkpoints (per user
+	// turn), newest first, for the /rewind picker. Returns nil when
+	// checkpointing is disabled or the controller is a subagent.
+	Checkpoints() []CheckpointInfo
+
+	// RestoreCheckpoint rewinds to the checkpoint identified by id. mode is one
+	// of "code" (rewrite captured before-images, delete since-created files),
+	// "chat" (truncate the conversation to the turn boundary), or "both". It
+	// returns a human-readable summary. Errors with ErrRunInProgress when a Run
+	// is in flight, or when id/mode is invalid, or when a chat rewind would
+	// cross a compaction boundary (CheckpointInfo.ChatRestoreOK was false). The
+	// UI re-renders from Messages() after a chat/both restore.
+	RestoreCheckpoint(id, mode string) (string, error)
 }
 
 // SessionInfo is one row in the /resume picker. Lightweight by design —
@@ -262,6 +276,20 @@ type SessionInfo struct {
 	Provider        string // LLM provider name at save time
 	Model           string // LLM model id at save time
 	MessageCount    int    // length of Session.Messages — picker shows "<n> msgs"
+}
+
+// CheckpointInfo is one row in the /rewind picker — a per-user-turn checkpoint.
+// Like SessionInfo it carries only what the picker renders, so listing many is
+// cheap.
+type CheckpointInfo struct {
+	ID            string // opaque id passed back to RestoreCheckpoint
+	PromptPreview string // first ~200 chars of the turn's user prompt
+	CreatedAt     int64  // unix nano; picker renders a relative age
+	FileCount     int    // files whose before-image this checkpoint captured
+	// ChatRestoreOK is false when a full compaction since this checkpoint
+	// invalidated its conversation cut-point — the picker then offers code
+	// restore only (rewind PRD §5.2).
+	ChatRestoreOK bool
 }
 
 // QuestionResponse is the UI-side payload returned through

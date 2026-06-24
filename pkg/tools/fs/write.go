@@ -13,12 +13,27 @@ import (
 )
 
 type WriteTool struct {
-	tracker *ReadTracker
-	workdir string
+	tracker     *ReadTracker
+	workdir     string
+	checkpoints CheckpointSink
 }
 
 func NewWrite(tracker *ReadTracker, workdir string) *WriteTool {
 	return &WriteTool{tracker: tracker, workdir: workdir}
+}
+
+// WithCheckpoints installs the checkpoint/rewind capture sink (nil-safe). The
+// runtime calls this at tool construction; tests and embedders that omit it
+// get a no-op capture path. Returns the receiver for fluent construction.
+func (t *WriteTool) WithCheckpoints(s CheckpointSink) *WriteTool {
+	t.checkpoints = s
+	return t
+}
+
+func (t *WriteTool) capture(path string) {
+	if t.checkpoints != nil {
+		t.checkpoints.CaptureBefore(path)
+	}
 }
 
 func (t *WriteTool) Name() string { return string(tools.WRITE_FILE) }
@@ -123,6 +138,9 @@ func (t *WriteTool) Execute(ctx context.Context, logger *slog.Logger, input json
 			Content: fmt.Sprintf("write: %s was modified after it was read (mtime advanced mid-write). Re-read it before overwriting. — path: %s", resolved, in.FilePath),
 		}, nil
 	}
+	// Checkpoint the original bytes (or absence) before overwriting; no-op
+	// without a sink.
+	t.capture(resolved)
 	// Write is a full replacement: the model sent explicit line
 	// endings and meant them. Do NOT restore CRLF even if the original
 	// file used CRLF. Encoding (UTF-16 / UTF-8) IS preserved so the

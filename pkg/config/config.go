@@ -166,6 +166,16 @@ type Config struct {
 	// cheap per-provider default the recall side-query uses (see MemoryRecallModel).
 	AutoDreamModel string
 
+	// Checkpoint & rewind. When EnableCheckpoints is true (opt-in; off by default), the main
+	// agent records a checkpoint at each user-turn boundary and captures the
+	// before-image of every file its fs tools touch, so /rewind can restore the
+	// code, the conversation, or both. CheckpointMaxPerSession caps how many
+	// checkpoints one session retains (oldest pruned first; 0 = unlimited).
+	// Storage lives under <workdir>/.evva/checkpoints — a .gitignore candidate.
+	// See docs/roadmap/PRD/checkpoint-rewind.md.
+	EnableCheckpoints       bool
+	CheckpointMaxPerSession int
+
 	// Web tools
 	TavilyAPIKey  string // empty → web_search reports "not configured"
 	FetchMaxBytes int    // cap on extracted text returned by web_fetch
@@ -218,42 +228,44 @@ func (c *Config) Clone() *Config {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	clone := &Config{
-		OS:                   c.OS,
-		LogLevel:             c.LogLevel,
-		LogFormat:            c.LogFormat,
-		LogDir:               c.LogDir,
-		AppEnv:               c.AppEnv,
-		AppName:              c.AppName,
-		AppVersion:           c.AppVersion,
-		AppHome:              c.AppHome,
-		AppHomeSkillsDir:     c.AppHomeSkillsDir,
-		AppHomeUserProfile:   c.AppHomeUserProfile,
-		AppHomeConfigFile:    c.AppHomeConfigFile,
-		AutoCompactThreshold: c.AutoCompactThreshold,
-		WorkDir:              c.WorkDir,
-		WorkDirSkillsDir:     c.WorkDirSkillsDir,
-		LLMProviderConfig:    c.LLMProviderConfig,
-		DefaultProvider:      c.DefaultProvider,
-		DefaultModel:         c.DefaultModel,
-		DefaultEffort:        c.DefaultEffort,
-		DefaultProfile:       c.DefaultProfile,
-		PermissionMode:       c.PermissionMode,
-		LoadedAt:             c.LoadedAt,
-		DefaultMaxIterations: c.DefaultMaxIterations,
-		DefaultMaxTokens:     c.DefaultMaxTokens,
-		DisplayThinking:      c.DisplayThinking,
-		EnableAutoMemory:     c.EnableAutoMemory,
-		EnableMemoryRecall:   c.EnableMemoryRecall,
-		MemoryRecallModel:    c.MemoryRecallModel,
-		EnableAutoDream:      c.EnableAutoDream,
-		AutoDreamMinHours:    c.AutoDreamMinHours,
-		AutoDreamMinSessions: c.AutoDreamMinSessions,
-		AutoDreamModel:       c.AutoDreamModel,
-		TavilyAPIKey:         c.TavilyAPIKey,
-		FetchMaxBytes:        c.FetchMaxBytes,
-		LLMParamsTemperature: c.LLMParamsTemperature,
-		LLMParamsTopP:        c.LLMParamsTopP,
-		LLMParamsTopK:        c.LLMParamsTopK,
+		OS:                      c.OS,
+		LogLevel:                c.LogLevel,
+		LogFormat:               c.LogFormat,
+		LogDir:                  c.LogDir,
+		AppEnv:                  c.AppEnv,
+		AppName:                 c.AppName,
+		AppVersion:              c.AppVersion,
+		AppHome:                 c.AppHome,
+		AppHomeSkillsDir:        c.AppHomeSkillsDir,
+		AppHomeUserProfile:      c.AppHomeUserProfile,
+		AppHomeConfigFile:       c.AppHomeConfigFile,
+		AutoCompactThreshold:    c.AutoCompactThreshold,
+		WorkDir:                 c.WorkDir,
+		WorkDirSkillsDir:        c.WorkDirSkillsDir,
+		LLMProviderConfig:       c.LLMProviderConfig,
+		DefaultProvider:         c.DefaultProvider,
+		DefaultModel:            c.DefaultModel,
+		DefaultEffort:           c.DefaultEffort,
+		DefaultProfile:          c.DefaultProfile,
+		PermissionMode:          c.PermissionMode,
+		LoadedAt:                c.LoadedAt,
+		DefaultMaxIterations:    c.DefaultMaxIterations,
+		DefaultMaxTokens:        c.DefaultMaxTokens,
+		DisplayThinking:         c.DisplayThinking,
+		EnableAutoMemory:        c.EnableAutoMemory,
+		EnableMemoryRecall:      c.EnableMemoryRecall,
+		MemoryRecallModel:       c.MemoryRecallModel,
+		EnableAutoDream:         c.EnableAutoDream,
+		AutoDreamMinHours:       c.AutoDreamMinHours,
+		AutoDreamMinSessions:    c.AutoDreamMinSessions,
+		AutoDreamModel:          c.AutoDreamModel,
+		EnableCheckpoints:       c.EnableCheckpoints,
+		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
+		TavilyAPIKey:            c.TavilyAPIKey,
+		FetchMaxBytes:           c.FetchMaxBytes,
+		LLMParamsTemperature:    c.LLMParamsTemperature,
+		LLMParamsTopP:           c.LLMParamsTopP,
+		LLMParamsTopK:           c.LLMParamsTopK,
 	}
 	if c.CustomConfig != nil {
 		clone.CustomConfig = make(map[string]any, len(c.CustomConfig))
@@ -354,6 +366,32 @@ func (c *Config) SetEnableAutoMemory(v bool) error {
 	c.EnableAutoMemory = v
 	c.mu.Unlock()
 	return c.SaveFile()
+}
+
+// GetEnableCheckpoints returns the checkpoint/rewind flag under the read lock.
+// Read by agent.New to decide whether to construct the checkpoint manager and
+// wire the fs-tool capture sink.
+func (c *Config) GetEnableCheckpoints() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EnableCheckpoints
+}
+
+// SetEnableCheckpoints toggles checkpoint/rewind and persists. Takes effect on
+// the next agent boot (the manager + capture sink are wired at construction).
+func (c *Config) SetEnableCheckpoints(v bool) error {
+	c.mu.Lock()
+	c.EnableCheckpoints = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetCheckpointMaxPerSession returns the per-session checkpoint retention cap
+// under the read lock (0 = unlimited).
+func (c *Config) GetCheckpointMaxPerSession() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.CheckpointMaxPerSession
 }
 
 // GetEnableMemoryRecall returns the per-turn recall flag under the read lock.
@@ -769,6 +807,7 @@ func (c *Config) SaveFile() error {
 	enableAutoMem := c.EnableAutoMemory
 	enableMemRecall := c.EnableMemoryRecall
 	enableAutoDream := c.EnableAutoDream
+	enableCheckpoints := c.EnableCheckpoints
 	var customCopy map[string]any
 	if len(c.CustomConfig) > 0 {
 		customCopy = make(map[string]any, len(c.CustomConfig))
@@ -777,26 +816,28 @@ func (c *Config) SaveFile() error {
 		}
 	}
 	fc := FileConfig{
-		MaxIterations:        c.DefaultMaxIterations,
-		MaxTokens:            c.DefaultMaxTokens,
-		AutoCompactThreshold: c.AutoCompactThreshold,
-		DisplayThinking:      c.DisplayThinking,
-		DefaultProvider:      c.DefaultProvider.Name,
-		DefaultModel:         string(c.DefaultModel),
-		DefaultEffort:        c.DefaultEffort,
-		DefaultProfile:       c.DefaultProfile,
-		PermissionMode:       c.PermissionMode,
-		FetchMaxBytes:        c.FetchMaxBytes,
-		TavilyAPIKey:         c.TavilyAPIKey,
-		EnableAutoMemory:     &enableAutoMem,
-		EnableMemoryRecall:   &enableMemRecall,
-		MemoryRecallModel:    c.MemoryRecallModel,
-		EnableAutoDream:      &enableAutoDream,
-		AutoDreamMinHours:    c.AutoDreamMinHours,
-		AutoDreamMinSessions: c.AutoDreamMinSessions,
-		AutoDreamModel:       c.AutoDreamModel,
-		Providers:            providers,
-		Custom:               customCopy,
+		MaxIterations:           c.DefaultMaxIterations,
+		MaxTokens:               c.DefaultMaxTokens,
+		AutoCompactThreshold:    c.AutoCompactThreshold,
+		DisplayThinking:         c.DisplayThinking,
+		DefaultProvider:         c.DefaultProvider.Name,
+		DefaultModel:            string(c.DefaultModel),
+		DefaultEffort:           c.DefaultEffort,
+		DefaultProfile:          c.DefaultProfile,
+		PermissionMode:          c.PermissionMode,
+		FetchMaxBytes:           c.FetchMaxBytes,
+		TavilyAPIKey:            c.TavilyAPIKey,
+		EnableAutoMemory:        &enableAutoMem,
+		EnableMemoryRecall:      &enableMemRecall,
+		MemoryRecallModel:       c.MemoryRecallModel,
+		EnableAutoDream:         &enableAutoDream,
+		AutoDreamMinHours:       c.AutoDreamMinHours,
+		AutoDreamMinSessions:    c.AutoDreamMinSessions,
+		AutoDreamModel:          c.AutoDreamModel,
+		EnableCheckpoints:       &enableCheckpoints,
+		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
+		Providers:               providers,
+		Custom:                  customCopy,
 	}
 	path := c.AppHomeConfigFile
 	c.mu.RUnlock()

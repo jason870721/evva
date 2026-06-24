@@ -15,6 +15,7 @@ import (
 	"github.com/johnny1110/evva/pkg/constant"
 
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
+	"github.com/johnny1110/evva/internal/checkpoint"
 	"github.com/johnny1110/evva/internal/logger"
 	"github.com/johnny1110/evva/internal/memdir"
 	"github.com/johnny1110/evva/internal/question"
@@ -81,6 +82,12 @@ type Agent struct {
 	active            map[string]tools.Tool
 	deferredAllowlist map[tools.ToolName]struct{}
 	exposeTools       []tools.Tool // this is used for the llm call params(sys prompt) only.
+
+	// checkpoints is the per-turn checkpoint/rewind manager: main agent only,
+	// nil for subagents or when EnableCheckpoints is off. Also installed as the
+	// fs-tool capture sink at construction; /rewind lists and restores through
+	// it. See docs/roadmap/PRD/checkpoint-rewind.md.
+	checkpoints *checkpoint.Manager
 
 	// agentRegistry is the merged catalog of built-in + disk-loaded agent
 	// definitions. Subagent spawning routes through it; the /profile picker
@@ -344,6 +351,19 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	}
 	a.logger = lgr
 	a.logClose = logClose
+
+	// Checkpoint/rewind (main agent only, when enabled): construct the manager
+	// and install it as the fs-tool capture sink BEFORE toolset.Build so the
+	// edit/write factories pick it up. NewManager returns nil for an empty
+	// workdir/session; we install ONLY a non-nil sink so the tools' nil-check
+	// stays honest (a typed-nil interface would defeat it).
+	if !a.IsSubagent() && a.cfg.GetEnableCheckpoints() {
+		ret := checkpoint.Retention{MaxCount: a.cfg.GetCheckpointMaxPerSession()}
+		if mgr := checkpoint.NewManager(a.workdir, a.ID, ret, a.logger); mgr != nil {
+			a.checkpoints = mgr
+			a.toolState.SetCheckpointSink(mgr)
+		}
+	}
 
 	// Auto-load the skill registry from disk if no override was injected
 	// via WithSkillRegistry. Downstream apps that want a programmatic-only
@@ -954,6 +974,9 @@ func (a *Agent) ResumeSnapshot(snap *session.Snapshot) error {
 	a.ID = snap.SessionID
 	a.sessionCreatedAt = snap.CreatedAt
 	a.toolState.TodoStore().Clear()
+	// Re-scope checkpoints to the resumed session's namespace so /rewind lists
+	// that session's history (not the pre-resume one).
+	a.checkpoints.SetSession(a.ID)
 
 	a.logger.Info("agent: session resumed",
 		"id", snap.SessionID,
@@ -1036,6 +1059,8 @@ func (a *Agent) ClearSession() error {
 	a.ID = common.GenUUID()
 	a.sessionCreatedAt = time.Time{}
 	a.toolState.TodoStore().Clear()
+	// /clear starts a fresh checkpoint namespace under the new session id.
+	a.checkpoints.SetSession(a.ID)
 	a.sessionStartSource = "clear"
 	a.sessionStarted.Store(false)
 

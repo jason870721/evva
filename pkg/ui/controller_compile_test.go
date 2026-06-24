@@ -56,6 +56,8 @@ func (publicOnlyController) RespondQuestion(string, ui.QuestionResponse) error  
 func (publicOnlyController) ClearSession() error                                   { return nil }
 func (publicOnlyController) ListSessions() ([]ui.SessionInfo, []string)            { return nil, nil }
 func (publicOnlyController) ResumeSession(string) error                            { return nil }
+func (publicOnlyController) Checkpoints() []ui.CheckpointInfo                      { return nil }
+func (publicOnlyController) RestoreCheckpoint(string, string) (string, error)      { return "", nil }
 
 // Compile-time proof that the public-only stub satisfies the contract.
 var _ ui.Controller = (*publicOnlyController)(nil)

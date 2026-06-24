@@ -40,12 +40,30 @@ var markdownExt = regexp.MustCompile(`(?i)\.(md|mdx)$`)
 const MaxEditFileSize = 1 << 30 // 1 GiB
 
 type EditTool struct {
-	tracker *ReadTracker
-	workdir string
+	tracker     *ReadTracker
+	workdir     string
+	checkpoints CheckpointSink
 }
 
 func NewEdit(tracker *ReadTracker, workdir string) *EditTool {
 	return &EditTool{tracker: tracker, workdir: workdir}
+}
+
+// WithCheckpoints installs the checkpoint/rewind capture sink (nil-safe). The
+// runtime calls this at tool construction; tests and embedders that omit it
+// get a no-op capture path. Returns the receiver for fluent construction.
+func (t *EditTool) WithCheckpoints(s CheckpointSink) *EditTool {
+	t.checkpoints = s
+	return t
+}
+
+// capture records path's before-image with the checkpoint sink if one is
+// installed. Called immediately before a mutation so the sink reads the
+// original bytes.
+func (t *EditTool) capture(path string) {
+	if t.checkpoints != nil {
+		t.checkpoints.CaptureBefore(path)
+	}
 }
 
 func (t *EditTool) Name() string { return string(tools.EDIT_FILE) }
@@ -248,6 +266,8 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 		}, nil
 	}
 
+	// Checkpoint the original bytes before overwriting (no-op without a sink).
+	t.capture(resolved)
 	if err := writeFileWithEncoding(resolved, after, mem.enc, mem.lf == endCRLF); err != nil {
 		return tools.Result{IsError: true, Content: fmt.Sprintf("edit: could not write %s: %s", in.FilePath, err)}, nil
 	}
@@ -271,6 +291,9 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 // (mirrors ref behavior — ref calls fs.mkdir(dirname()) before the
 // atomic write section).
 func (t *EditTool) createNewFile(resolved string, in editInput) (tools.Result, error) {
+	// Capture the absence of this file so a rewind deletes it (the sink stats
+	// the path and records existed=false).
+	t.capture(resolved)
 	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
 		return tools.Result{IsError: true, Content: fmt.Sprintf("edit: could not create parent dirs: %s", err)}, nil
 	}
@@ -308,6 +331,7 @@ func (t *EditTool) applyToEmptyFile(resolved string, info os.FileInfo, mem fileI
 			Content: fmt.Sprintf("edit: %s was modified after it was read (mtime advanced mid-edit). Re-read it before editing. — path: %s", resolved, in.FilePath),
 		}, nil
 	}
+	t.capture(resolved)
 	if err := writeFileWithEncoding(resolved, after, mem.enc, mem.lf == endCRLF); err != nil {
 		return tools.Result{IsError: true, Content: fmt.Sprintf("edit: could not write %s: %s", in.FilePath, err)}, nil
 	}

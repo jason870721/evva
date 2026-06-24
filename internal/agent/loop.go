@@ -51,6 +51,16 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 	}
 	defer a.running.Store(false)
 
+	// Checkpoint the turn boundary BEFORE any of this turn's messages land
+	// (plan-mode reminders, the user prompt, the recall reminder) so a rewind
+	// to it removes the whole turn. cutLen is the pre-turn history length; the
+	// full-compaction count is the epoch the conversation-rewind gate checks.
+	// nil for subagents / when checkpointing is off. Continue() does NOT begin
+	// a checkpoint — a continued/iter-limit turn keeps capturing into this one.
+	if a.checkpoints != nil {
+		a.checkpoints.Begin(len(a.session.Messages), a.session.GetFullCompactCount(), prompt)
+	}
+
 	// Inject any plan-mode reminders before the user's prompt lands so
 	// the model sees them framed correctly relative to the input — the
 	// reminder explains the current mode, the user's text comes next.

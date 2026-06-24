@@ -227,6 +227,17 @@ func Load(opts LoadOptions) (*Config, error) {
 		autoDreamMinSessions = fileCfg.AutoDreamMinSessions
 	}
 
+	// Checkpoint/rewind is opt-in (default off); the per-session cap normalizes a
+	// missing or non-positive value to 50 so retention always has a floor.
+	enableCheckpoints := false
+	if fileCfg.EnableCheckpoints != nil {
+		enableCheckpoints = *fileCfg.EnableCheckpoints
+	}
+	checkpointMax := 50
+	if fileCfg.CheckpointMaxPerSession > 0 {
+		checkpointMax = fileCfg.CheckpointMaxPerSession
+	}
+
 	cfg := &Config{
 		AppName:    appName,
 		AppVersion: appVersion,
@@ -245,25 +256,27 @@ func Load(opts LoadOptions) (*Config, error) {
 		AppHomeConfigFile:  cfgPath,
 
 		// from YAML
-		DefaultMaxIterations: fileCfg.MaxIterations,
-		DefaultMaxTokens:     fileCfg.MaxTokens,
-		AutoCompactThreshold: fileCfg.AutoCompactThreshold,
-		DisplayThinking:      fileCfg.DisplayThinking,
-		EnableAutoMemory:     enableAutoMem,
-		EnableMemoryRecall:   enableMemRecall,
-		MemoryRecallModel:    fileCfg.MemoryRecallModel,
-		EnableAutoDream:      enableAutoDream,
-		AutoDreamMinHours:    autoDreamMinHours,
-		AutoDreamMinSessions: autoDreamMinSessions,
-		AutoDreamModel:       fileCfg.AutoDreamModel,
-		TavilyAPIKey:         fileCfg.TavilyAPIKey,
-		FetchMaxBytes:        fileCfg.FetchMaxBytes,
-		DefaultProvider:      defProvider,
-		DefaultModel:         defModel,
-		DefaultEffort:        fileCfg.DefaultEffort,
-		DefaultProfile:       fileCfg.DefaultProfile,
-		PermissionMode:       fileCfg.PermissionMode,
-		CustomConfig:         fileCfg.Custom,
+		DefaultMaxIterations:    fileCfg.MaxIterations,
+		DefaultMaxTokens:        fileCfg.MaxTokens,
+		AutoCompactThreshold:    fileCfg.AutoCompactThreshold,
+		DisplayThinking:         fileCfg.DisplayThinking,
+		EnableAutoMemory:        enableAutoMem,
+		EnableMemoryRecall:      enableMemRecall,
+		MemoryRecallModel:       fileCfg.MemoryRecallModel,
+		EnableAutoDream:         enableAutoDream,
+		AutoDreamMinHours:       autoDreamMinHours,
+		AutoDreamMinSessions:    autoDreamMinSessions,
+		AutoDreamModel:          fileCfg.AutoDreamModel,
+		EnableCheckpoints:       enableCheckpoints,
+		CheckpointMaxPerSession: checkpointMax,
+		TavilyAPIKey:            fileCfg.TavilyAPIKey,
+		FetchMaxBytes:           fileCfg.FetchMaxBytes,
+		DefaultProvider:         defProvider,
+		DefaultModel:            defModel,
+		DefaultEffort:           fileCfg.DefaultEffort,
+		DefaultProfile:          fileCfg.DefaultProfile,
+		PermissionMode:          fileCfg.PermissionMode,
+		CustomConfig:            fileCfg.Custom,
 
 		LoadedAt: time.Now(),
 	}

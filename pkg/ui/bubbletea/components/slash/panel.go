@@ -47,6 +47,7 @@ var builtins = []Command{
 	{Name: "/profile", Desc: "switch agent persona · clears history"},
 	{Name: "/mcp", Desc: "list configured MCP servers and their status"},
 	{Name: "/resume", Desc: "resume a previous session from this workdir"},
+	{Name: "/rewind", Desc: "undo a prior turn · restore code, conversation, or both"},
 	{Name: "/update", Desc: "check for updates and install the latest version"},
 	{Name: "/clear", Desc: "start a new session · old one stays in /resume"},
 	{Name: "/exit", Desc: "quit evva"},

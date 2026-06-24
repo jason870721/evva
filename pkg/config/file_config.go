@@ -72,6 +72,14 @@ type FileConfig struct {
 	AutoDreamMinSessions int    `yaml:"auto_dream_min_sessions,omitempty"`
 	AutoDreamModel       string `yaml:"auto_dream_model,omitempty"`
 
+	// EnableCheckpoints gates checkpoint/rewind. Default false — opt-in, since an
+	// enabled session writes per-turn before-images under .evva/checkpoints. Set
+	// true to record them so /rewind can restore code/conversation. Pointer so a
+	// missing key preserves the default. CheckpointMaxPerSession caps retained
+	// checkpoints per session (default 50; ≤0 normalizes to the default at load).
+	EnableCheckpoints       *bool `yaml:"enable_checkpoints,omitempty"`
+	CheckpointMaxPerSession int   `yaml:"checkpoint_max_per_session,omitempty"`
+
 	Providers map[string]FileProviderConfig `yaml:"providers"`
 
 	// Custom is the downstream-app extension slot. Values round-trip through

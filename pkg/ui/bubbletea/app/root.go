@@ -332,6 +332,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.relayout()
 		return a, nil
 
+	case overlays.CheckpointRestoredMsg:
+		// A /rewind completed. When it rewound the conversation, rebuild the
+		// visible transcript from the truncated history and refresh the
+		// usage/context pills (mirrors the resume path); a code-only restore
+		// leaves the transcript intact.
+		if m.ChangedChat {
+			a.transcript.LoadFromMessages(a.controller.Messages())
+			a.status.SetUsage(a.controller.Usage())
+			a.status.SetContext(a.controller.LastTurnInputTokens(), status.ContextLimitFor(a.controller.Model()))
+			a.state.OnRunDone(nil, false)
+		}
+		hint := m.Summary
+		if hint == "" {
+			hint = "done"
+		}
+		a.state.SetHint("rewind: " + hint)
+		a.view.MarkDirty()
+		a.relayout()
+		return a, nil
+
 	case overlays.ApprovalRespondedMsg:
 		// The overlay already closed itself via the close=true return.
 		// Nothing to do here today; reserved for future bookkeeping
@@ -834,6 +854,16 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 		a.input.Reset()
 		a.slash.Reset()
 		if o := overlays.NewResume(a.controller); o != nil {
+			a.focus.Push(o)
+			a.relayout()
+		} else {
+			a.state.SetHint("no controller attached")
+		}
+		return a, nil
+	case "/rewind":
+		a.input.Reset()
+		a.slash.Reset()
+		if o := overlays.NewRewind(a.controller); o != nil {
 			a.focus.Push(o)
 			a.relayout()
 		} else {
