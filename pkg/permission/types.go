@@ -276,6 +276,8 @@ var ReadOnlyOrSelfTools = map[string]bool{
 	"exit_plan_mode":  true,
 	// lsp access
 	"lsp_request": true,
+	// repo map — read-only LSP/glob queries, same posture as lsp_request
+	"repo_map": true,
 }
 
 // AcceptEditsAutoAllow is the set of tools auto-allowed in addition to

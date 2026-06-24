@@ -117,6 +117,14 @@ type Agent struct {
 	memSnap    memdir.Snapshot
 	memSnapSet bool
 
+	// repoMap is the session-open repo-map body (built once from the LSP layer
+	// when EnableRepoMap is set, or its glob fallback) — main agent only, ""
+	// otherwise. Like memSnap it's a stable snapshot reused by every prompt
+	// rebuild (SwitchProfile, MCP fold, …) so a /profile switch keeps the map
+	// without re-querying the language server (PRD §5.6: session-open snapshot,
+	// no auto-refresh).
+	repoMap string
+
 	// memDirOverride, when set (WithMemoryDir), re-homes the agent's writable
 	// auto-memory: after the snapshot is resolved, MemoryDir is forced to this
 	// path (write carve-out + recall target) and MemoryIndex is cleared — the
@@ -459,13 +467,19 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		if persona == "" {
 			persona = "evva"
 		}
-		if aug, perr := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, persona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.profile.LLMProvider, a.profile.LLMModel, nil); perr == nil {
+		if aug, perr := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, persona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.profile.LLMProvider, a.profile.LLMModel, nil, a.repoMap); perr == nil {
 			a.profile.SystemPrompt = aug.SystemPrompt
 			a.profile.LLMOptions = aug.LLMOptions
 		} else {
 			lgr.Warn("agent: re-render prompt for injected skills", "err", perr)
 		}
 	}
+
+	// Build the session-open repo map and fold it into the MAIN prompt — the
+	// repo-map analog of foldMcpIntoProfile, run after the LSP manager + memory
+	// + MCP are wired so the re-render carries all of them. No-op (and prompt
+	// byte-identical) when EnableRepoMap is off.
+	a.buildRepoMap(lgr)
 
 	// Register any custom tools the caller staged via WithCustomTool, and
 	// extend the profile's active list so they show up to the LLM. Duplicate
@@ -772,7 +786,7 @@ func (a *Agent) SwitchProfile(name string) error {
 	// prompt advertises mcp__<server>__<tool> names and the deferred
 	// allowlist still admits them after the switch (acceptance A16). The
 	// *mcp.Manager lives on the reused toolState, so no re-connect happens.
-	newProfile, err := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, name, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, a.mcpDiscoveredNames())
+	newProfile, err := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, name, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, a.mcpDiscoveredNames(), a.repoMap)
 	if err != nil {
 		return err
 	}
@@ -924,10 +938,10 @@ func (a *Agent) ResumeSnapshot(snap *session.Snapshot) error {
 	}
 
 	mcpNames := a.mcpDiscoveredNames()
-	newProfile, err := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, personaName, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, mcpNames)
+	newProfile, err := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, personaName, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, mcpNames, a.repoMap)
 	if err != nil {
 		a.logger.Warn("resume: persona unavailable; falling back to evva", "want", personaName, "err", err)
-		newProfile, err = resolveMainProfileWithExtra(a.cfg, a.agentRegistry, "evva", a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, mcpNames)
+		newProfile, err = resolveMainProfileWithExtra(a.cfg, a.agentRegistry, "evva", a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, mcpNames, a.repoMap)
 		if err != nil {
 			return fmt.Errorf("agent: resume fallback to evva failed: %w", err)
 		}
@@ -1355,7 +1369,7 @@ func (a *Agent) SwitchWorkdir(path string) error {
 	// ResolveMainProfile so disk personas refresh the same way the
 	// built-in does.
 	if a.cfg != nil && a.activePersona != "" {
-		newProfile, perr := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, a.activePersona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, a.mcpDiscoveredNames())
+		newProfile, perr := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, a.activePersona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, a.mcpDiscoveredNames(), a.repoMap)
 		if perr == nil {
 			a.profile.SystemPrompt = newProfile.SystemPrompt
 			a.profile.LLMOptions = newProfile.LLMOptions
@@ -1392,7 +1406,7 @@ func (a *Agent) ReloadSkills(reg *skill.Registry) error {
 	if a.cfg == nil || a.activePersona == "" {
 		return nil
 	}
-	newProfile, err := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, a.activePersona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, a.mcpDiscoveredNames())
+	newProfile, err := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, a.activePersona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), a.cfg.DefaultProvider, a.cfg.DefaultModel, a.mcpDiscoveredNames(), a.repoMap)
 	if err != nil {
 		return fmt.Errorf("agent: reload skills: re-resolve prompt: %w", err)
 	}

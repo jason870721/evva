@@ -176,6 +176,15 @@ type Config struct {
 	EnableCheckpoints       bool
 	CheckpointMaxPerSession int
 
+	// Repo map. When EnableRepoMap is true (opt-in; off by default), the main
+	// agent's session-open prompt carries a compact, ranked, token-bounded
+	// overview of the codebase's symbols, built from the LSP layer (or a glob
+	// fallback when no language server is configured). RepoMapTokenBudget bounds
+	// the map's size; the map is dropped lower-ranked-first to fit. Main agent
+	// only. See docs/roadmap/PRD/lsp-repo-map.md.
+	EnableRepoMap      bool
+	RepoMapTokenBudget int
+
 	// Web tools
 	TavilyAPIKey  string // empty → web_search reports "not configured"
 	FetchMaxBytes int    // cap on extracted text returned by web_fetch
@@ -261,6 +270,8 @@ func (c *Config) Clone() *Config {
 		AutoDreamModel:          c.AutoDreamModel,
 		EnableCheckpoints:       c.EnableCheckpoints,
 		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
+		EnableRepoMap:           c.EnableRepoMap,
+		RepoMapTokenBudget:      c.RepoMapTokenBudget,
 		TavilyAPIKey:            c.TavilyAPIKey,
 		FetchMaxBytes:           c.FetchMaxBytes,
 		LLMParamsTemperature:    c.LLMParamsTemperature,
@@ -392,6 +403,39 @@ func (c *Config) GetCheckpointMaxPerSession() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.CheckpointMaxPerSession
+}
+
+// GetEnableRepoMap returns the repo-map flag under the read lock. Read by
+// agent.New to decide whether to build and inject the session-open repo map.
+func (c *Config) GetEnableRepoMap() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EnableRepoMap
+}
+
+// SetEnableRepoMap toggles the repo map and persists. Takes effect on the next
+// agent boot / profile switch (the map is composed at prompt-render time).
+func (c *Config) SetEnableRepoMap(v bool) error {
+	c.mu.Lock()
+	c.EnableRepoMap = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetRepoMapTokenBudget returns the repo-map token budget under the read lock.
+func (c *Config) GetRepoMapTokenBudget() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.RepoMapTokenBudget
+}
+
+// SetRepoMapTokenBudget sets the repo-map token budget and persists. Values ≤0
+// are normalized to the default at load.
+func (c *Config) SetRepoMapTokenBudget(v int) error {
+	c.mu.Lock()
+	c.RepoMapTokenBudget = v
+	c.mu.Unlock()
+	return c.SaveFile()
 }
 
 // GetEnableMemoryRecall returns the per-turn recall flag under the read lock.
@@ -808,6 +852,7 @@ func (c *Config) SaveFile() error {
 	enableMemRecall := c.EnableMemoryRecall
 	enableAutoDream := c.EnableAutoDream
 	enableCheckpoints := c.EnableCheckpoints
+	enableRepoMap := c.EnableRepoMap
 	var customCopy map[string]any
 	if len(c.CustomConfig) > 0 {
 		customCopy = make(map[string]any, len(c.CustomConfig))
@@ -836,6 +881,8 @@ func (c *Config) SaveFile() error {
 		AutoDreamModel:          c.AutoDreamModel,
 		EnableCheckpoints:       &enableCheckpoints,
 		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
+		EnableRepoMap:           &enableRepoMap,
+		RepoMapTokenBudget:      c.RepoMapTokenBudget,
 		Providers:               providers,
 		Custom:                  customCopy,
 	}

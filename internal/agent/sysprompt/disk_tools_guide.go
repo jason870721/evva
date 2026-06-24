@@ -46,6 +46,7 @@ var toolGuidelines = map[tools.ToolName]string{
 	tools.GREP:        "Search file contents with a regex pattern — the first reach for \"where is this string used\".",
 	tools.TREE:        "Inspect a directory tree's structure at a glance.",
 	tools.LSP_REQUEST: "Query a language server for compiler-grade code intelligence: go-to-definition, find references, hover types, document symbols, call hierarchy. The server starts automatically on first use.",
+	tools.REPO_MAP:    "Zoom into a directory or package's ranked symbol outline — types, functions, and (in full detail) members with signatures — from the language server. Use it to orient on a subtree or re-read a part you've been changing.",
 
 	// Execution.
 	tools.BASH:          "Run shell commands (git, builds, tests, any CLI). Quote paths with spaces; prefer absolute paths over `cd` chains. Set `run_in_background: true` for long-running commands and keep working — the result reaches you on a later turn.",
@@ -102,7 +103,7 @@ var toolGuidelines = map[tools.ToolName]string{
 // ordered tools.yml. Must cover toolGuidelines exactly (asserted in tests).
 var toolGuideOrder = []tools.ToolName{
 	tools.READ_FILE, tools.WRITE_FILE, tools.EDIT_FILE, tools.NOTEBOOK_EDIT, tools.EXCEL,
-	tools.GLOB, tools.GREP, tools.TREE, tools.LSP_REQUEST,
+	tools.GLOB, tools.GREP, tools.TREE, tools.LSP_REQUEST, tools.REPO_MAP,
 	tools.BASH, tools.REPL, tools.MONITOR, tools.DAEMON_LIST, tools.DAEMON_OUTPUT, tools.DAEMON_STOP,
 	tools.WEB_SEARCH, tools.WEB_FETCH, tools.HTTP_REQUEST,
 	tools.JSON_QUERY, tools.CALC,

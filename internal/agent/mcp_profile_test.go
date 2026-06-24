@@ -18,7 +18,7 @@ func TestMainProfile_AdvertisesExtraDeferred(t *testing.T) {
 	cfg := config.Get()
 	extra := []tools.ToolName{"mcp__filesystem__read_file", "mcp__filesystem__write_file"}
 
-	prof := mainProfile(cfg, cfg.DefaultProvider, cfg.DefaultModel, nil, memdir.Snapshot{}, nil, extra)
+	prof := mainProfile(cfg, cfg.DefaultProvider, cfg.DefaultModel, nil, memdir.Snapshot{}, nil, extra, "")
 
 	// The static resource meta tools are always deferred on Main.
 	if !slices.Contains(prof.DeferredTools, tools.LIST_MCP_RESOURCES) ||

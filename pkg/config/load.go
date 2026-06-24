@@ -238,6 +238,17 @@ func Load(opts LoadOptions) (*Config, error) {
 		checkpointMax = fileCfg.CheckpointMaxPerSession
 	}
 
+	// Repo map is opt-in (default off); the token budget normalizes a missing or
+	// non-positive value to 2000 so the map always has a sensible bound.
+	enableRepoMap := false
+	if fileCfg.EnableRepoMap != nil {
+		enableRepoMap = *fileCfg.EnableRepoMap
+	}
+	repoMapBudget := 2000
+	if fileCfg.RepoMapTokenBudget > 0 {
+		repoMapBudget = fileCfg.RepoMapTokenBudget
+	}
+
 	cfg := &Config{
 		AppName:    appName,
 		AppVersion: appVersion,
@@ -269,6 +280,8 @@ func Load(opts LoadOptions) (*Config, error) {
 		AutoDreamModel:          fileCfg.AutoDreamModel,
 		EnableCheckpoints:       enableCheckpoints,
 		CheckpointMaxPerSession: checkpointMax,
+		EnableRepoMap:           enableRepoMap,
+		RepoMapTokenBudget:      repoMapBudget,
 		TavilyAPIKey:            fileCfg.TavilyAPIKey,
 		FetchMaxBytes:           fileCfg.FetchMaxBytes,
 		DefaultProvider:         defProvider,

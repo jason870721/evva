@@ -135,7 +135,7 @@ func (a *Agent) foldMcpIntoProfile() {
 	aug, err := resolveMainProfileWithExtra(
 		a.cfg, a.agentRegistry, persona, a.skillRefs, a.memSnap,
 		baseLLMOptions(a.profile.LLMOptions),
-		a.profile.LLMProvider, a.profile.LLMModel, names,
+		a.profile.LLMProvider, a.profile.LLMModel, names, a.repoMap,
 	)
 	if err != nil {
 		a.logger.Warn("mcp: re-render main prompt", "err", err)

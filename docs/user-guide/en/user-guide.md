@@ -879,6 +879,10 @@ memory_recall_model: ""      # empty = cheap model in the active provider (anthr
 enable_auto_dream: false     # background "dream": consolidate/prune/re-index memory when idle (off by default; a real but rare token cost)
 auto_dream_model: ""         # empty = the same cheap per-provider default as recall (auto_dream_min_hours: 24, auto_dream_min_sessions: 5 tune the gate)
 
+# Repo map (LSP-backed codebase overview injected at session start; main agent only)
+enable_repo_map: false       # opt-in; off = prompt byte-identical to today, zero LSP calls
+repo_map_token_budget: 2000  # bounds the map; lower-ranked symbols dropped first to fit
+
 # Per-provider credentials. Empty api_url falls back to the constant's default.
 # glm (Zhipu/z.ai) speaks the Anthropic-compatible endpoint; reading an image
 # feeds it to GLM as an image block, but understanding it needs a vision-capable
@@ -928,6 +932,40 @@ auto-approved, so it won't prompt you for each note.
 > `projects/<key>/MEMORY.md`) and the `update_user_profile` /
 > `update_project_memory` tools have been removed. Old files are left on disk
 > untouched but no longer read — copy anything worth keeping into a new memory.
+
+### Repo map
+
+On a cold session evva has no model of your codebase's shape, so its first turns
+go to rediscovering where things live. With `enable_repo_map: true` (opt-in, off
+by default), evva opens with a compact, ranked, token-bounded **repo map** — a
+per-package overview of the top types, functions, and their signatures — injected
+into the main agent's prompt so it starts oriented.
+
+- **Source:** the map is built from your configured language server (the same
+  `workspace/symbol` + `documentSymbol` queries behind `lsp_request` — see
+  [lsp.md](lsp.md)). No new dependency, no tree-sitter. When **no** language
+  server is configured for the repo's languages, it degrades to a coarse,
+  grep-derived outline (top-level declarations by directory) and says so, rather
+  than emitting nothing.
+- **Ranked & budgeted:** symbols are ordered by kind (types → functions →
+  methods) so `repo_map_token_budget` (default ~2000 tokens) spends on
+  load-bearing symbols; over budget, lower-ranked symbols are dropped with a
+  `… +N more` marker — never a cut mid-symbol.
+- **Zoom in — the `repo_map` tool:** mid-session the agent can call
+  `repo_map({path: "internal/agent"})` for a higher-detail view of a subtree
+  (`detail: "full"` adds members), at greater depth than the session-open
+  overview.
+- **Main agent only:** sub-agents (Explore/Plan/General) run cold for their
+  narrow tasks and never receive the map.
+- **Snapshot, not live:** the map is taken once at session start (and rebuilt on
+  a `/profile` or `/model` switch). It does not auto-refresh as you edit — the
+  agent reads files as it works, and `repo_map` is the manual re-read for a
+  subtree you've been changing.
+- **Cost when off:** with `enable_repo_map: false` the main prompt is
+  byte-identical to a build that never had the feature and **zero** LSP calls
+  fire. Map construction is also time-boxed, so a cold language-server index
+  never stalls session start — a partial map with an `(indexing — partial)` note
+  beats a hung prompt.
 
 ### .env (optional)
 

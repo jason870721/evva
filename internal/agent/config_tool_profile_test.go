@@ -13,7 +13,7 @@ import (
 // Main so the model can surface it without a tool_search round-trip.
 func TestMainProfile_IncludesConfigTool(t *testing.T) {
 	cfg := config.Get()
-	prof := mainProfile(cfg, cfg.DefaultProvider, cfg.DefaultModel, nil, memdir.Snapshot{}, nil, nil)
+	prof := mainProfile(cfg, cfg.DefaultProvider, cfg.DefaultModel, nil, memdir.Snapshot{}, nil, nil, "")
 	if !slices.Contains(prof.ActiveTools, tools.CONFIG) {
 		t.Errorf("Main ActiveTools missing config: %v", prof.ActiveTools)
 	}

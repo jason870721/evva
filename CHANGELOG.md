@@ -12,6 +12,23 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **LSP-backed repo map — opt-in.** With `enable_repo_map` on, the main agent's
+  session-open prompt carries a compact, ranked, token-bounded overview of the
+  codebase's symbols — per package, the top types and functions with signatures —
+  built from the existing LSP layer (`workspace/symbol` + `documentSymbol`, no new
+  dependency). When no language server is configured for the repo's languages it
+  degrades to a coarse, grep-derived outline. Ranking is by kind (types →
+  functions → methods); over `repo_map_token_budget` (default 2000) lower-ranked
+  symbols are dropped with a `… +N more` marker. A new deferred `repo_map` tool
+  lets the model zoom into a path at higher detail (`detail: "overview"|"full"`).
+  Main agent only — sub-agents run cold. Map construction is time-boxed so a cold
+  language-server index never stalls session start. Off by default: the prompt is
+  byte-identical and zero LSP calls fire. New `pkg/tools/lsp.Manager` adapters
+  (`WorkspaceSymbols`/`DocumentSymbols` returning a neutral `lsp.Symbol`) back the
+  builder. See `docs/roadmap/PRD/lsp-repo-map.md`.
+
 ## [v1.8.2-beta.2] — 2026-06-24
 
 ### Added

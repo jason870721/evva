@@ -1,6 +1,7 @@
 package toolset
 
 import (
+	"github.com/johnny1110/evva/internal/repomap"
 	configtool "github.com/johnny1110/evva/internal/tools/config"
 	"github.com/johnny1110/evva/internal/tools/dev"
 	"github.com/johnny1110/evva/internal/tools/meta"
@@ -140,6 +141,18 @@ func init() {
 	r.MustRegister(tools.LSP_REQUEST, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
 		return lsp.NewTool(ts.LSPManager(), ts.Workdir()), nil
+	})
+
+	// --- repo_map (LSP-backed structure zoom) ---
+	r.MustRegister(tools.REPO_MAP, func(s tools.State) (tools.Tool, error) {
+		ts := s.(*ToolState)
+		// Config may be unset in bare registry-build tests; NewTool defaults a
+		// non-positive budget to 2000 at execute time.
+		budget := 0
+		if cfg := ts.Config(); cfg != nil {
+			budget = cfg.GetRepoMapTokenBudget()
+		}
+		return repomap.NewTool(ts.LSPManager(), ts.Workdir(), budget), nil
 	})
 
 	// --- mcp resource meta tools (deferred) ---

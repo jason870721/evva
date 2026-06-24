@@ -84,6 +84,13 @@ type PromptContext struct {
 	// sections in the main prompt. false → both sections are suppressed so the
 	// model isn't told about a memory system it can't use this session.
 	EnableAutoMemory bool
+
+	// RepoMap is the already-rendered, token-bounded repo-map body (built by
+	// internal/repomap from the LSP layer, or its glob fallback). "" → the
+	// section is skipped entirely. The string arrives pre-rendered so this
+	// package keeps its stdlib-only, no-IO discipline — the same one-way arrow
+	// as memory. Main agent only; subagents never set it.
+	RepoMap string
 }
 
 // DetectContext returns a PromptContext with the runtime-detectable fields

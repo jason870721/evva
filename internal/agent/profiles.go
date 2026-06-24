@@ -17,6 +17,7 @@ import (
 
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/memdir"
+	"github.com/johnny1110/evva/internal/repomap"
 	"github.com/johnny1110/evva/internal/tools/dev"
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/mode"
@@ -137,7 +138,7 @@ func detectContext(cfg *config.Config) sysprompt.PromptContext {
 // console streams. The chunk adapter falls back cleanly for providers without
 // native streaming.
 func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) Profile {
-	return mainProfile(cfg, provider, model, skills, mem, options, nil)
+	return mainProfile(cfg, provider, model, skills, mem, options, nil, "")
 }
 
 // mainProfile is Main with an extra slice of deferred tool names folded in
@@ -148,8 +149,8 @@ func Main(cfg *config.Config, provider constant.LLMProvider, model constant.Mode
 //
 // Delegates to mainProfileForDef with the pristine built-in definition, so
 // the solo path stays byte-identical.
-func mainProfile(cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName) Profile {
-	return mainProfileForDef(sysprompt.MainAgent, cfg, provider, model, skills, mem, options, extraDeferred)
+func mainProfile(cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName, repoMap string) Profile {
+	return mainProfileForDef(sysprompt.MainAgent, cfg, provider, model, skills, mem, options, extraDeferred, repoMap)
 }
 
 // mainProfileForDef builds the built-in evva profile honoring the swarm-set
@@ -159,7 +160,7 @@ func mainProfile(cfg *config.Config, provider constant.LLMProvider, model consta
 // the prompt fragments and tool kit are always the built-in Main ones
 // (sysprompt.MainAgent), never def's body: a swarm-registered "evva" def
 // carries an empty body by design (RP-29).
-func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName) Profile {
+func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName, repoMap string) Profile {
 	// nil skills means "auto-load from cfg's skill dirs" — keeps downstream
 	// SDK callers (pkg/agent.New passes nil) and cmd/evva from having to
 	// re-implement the disk walk. An explicit empty slice still suppresses
@@ -185,6 +186,7 @@ func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provid
 	deferredTools := slices.Concat(
 		daemon.Names(),
 		lsp.Names(),
+		repomap.Names(),
 		monitor.Names(),
 		modeDeferredNames(),
 		notebook.Names(),
@@ -216,6 +218,7 @@ func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provid
 	ctx.WorkdirMemory = mem.WorkdirMemory
 	ctx.MemoryIndex = mem.MemoryIndex
 	ctx.EnableAutoMemory = cfg.GetEnableAutoMemory()
+	ctx.RepoMap = repoMap
 	ctx.DeferredTools = deferredToolSpecs(deferredTools)
 	ctx.Model = string(model)
 	sp := sysprompt.MainAgent.BuildSystemPrompt(ctx)
@@ -250,7 +253,7 @@ func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provid
 // error so callers (bootstrap fallback, the /profile picker) can surface
 // the failure.
 func ResolveMainProfile(cfg *config.Config, reg *AgentRegistry, name string, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option) (Profile, error) {
-	return resolveMainProfileWithExtra(cfg, reg, name, skills, mem, options, cfg.DefaultProvider, cfg.DefaultModel, nil)
+	return resolveMainProfileWithExtra(cfg, reg, name, skills, mem, options, cfg.DefaultProvider, cfg.DefaultModel, nil, "")
 }
 
 // resolveMainProfileWithExtra is ResolveMainProfile with explicit
@@ -260,7 +263,7 @@ func ResolveMainProfile(cfg *config.Config, reg *AgentRegistry, name string, ski
 // live MCP catalog and the deferred allowlist still admits MCP tool calls
 // after a /profile switch (acceptance A16). ResolveMainProfile delegates
 // here with cfg defaults + nil extras, so its public behavior is unchanged.
-func resolveMainProfileWithExtra(cfg *config.Config, reg *AgentRegistry, name string, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, provider constant.LLMProvider, model constant.Model, extraDeferred []tools.ToolName) (Profile, error) {
+func resolveMainProfileWithExtra(cfg *config.Config, reg *AgentRegistry, name string, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, provider constant.LLMProvider, model constant.Model, extraDeferred []tools.ToolName, repoMap string) (Profile, error) {
 	if name == "" {
 		name = "evva"
 	}
@@ -278,7 +281,7 @@ func resolveMainProfileWithExtra(cfg *config.Config, reg *AgentRegistry, name st
 		if name != "evva" {
 			return Profile{}, fmt.Errorf("agent: unknown main profile %q (no registry)", name)
 		}
-		return mainProfile(cfg, provider, model, skills, mem, options, extraDeferred), nil
+		return mainProfile(cfg, provider, model, skills, mem, options, extraDeferred, repoMap), nil
 	}
 	def, ok := reg.Get(name)
 	if !ok {
@@ -292,9 +295,9 @@ func resolveMainProfileWithExtra(cfg *config.Config, reg *AgentRegistry, name st
 		// PromptSuffix (RP-29); pass it through so those flags reach the
 		// built-in profile builder. A pristine registry leaves both zero and
 		// this is exactly mainProfile.
-		return mainProfileForDef(def, cfg, provider, model, skills, mem, options, extraDeferred), nil
+		return mainProfileForDef(def, cfg, provider, model, skills, mem, options, extraDeferred, repoMap), nil
 	}
-	return mainProfileFromDiskAgent(def, cfg, provider, model, skills, mem, options, extraDeferred), nil
+	return mainProfileFromDiskAgent(def, cfg, provider, model, skills, mem, options, extraDeferred, repoMap), nil
 }
 
 // mcpResourceToolNames returns the two static MCP meta tools that are
@@ -325,7 +328,7 @@ func ResolveMainProfileAutoMem(cfg *config.Config, reg *AgentRegistry, name stri
 // (loaded from tools.yml). The deferred catalog is rendered into the
 // prompt so disk personas see their lazy-loadable tools the same way
 // built-in evva does.
-func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName) Profile {
+func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config, provider constant.LLMProvider, model constant.Model, skills []sysprompt.SkillRef, mem memdir.Snapshot, options []llm.Option, extraDeferred []tools.ToolName, repoMap string) Profile {
 	ctx := detectContext(cfg)
 	// A long-running persona (swarm member) keeps a date-free, bit-stable prompt
 	// prefix so a weeks-long run reuses one cached prefix (RP-5).
@@ -337,6 +340,9 @@ func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config,
 		ctx.WorkdirMemory = mem.WorkdirMemory
 		ctx.MemoryIndex = mem.MemoryIndex
 		ctx.EnableAutoMemory = cfg.GetEnableAutoMemory()
+		// The repo map is ambient project-shape context, peer to memory — a
+		// persona that opts out of memory injection opts out of this too.
+		ctx.RepoMap = repoMap
 	}
 	// Disk personas declare their own deferred set; fold MCP-discovered
 	// names in so an opted-in persona advertises and can reach the live

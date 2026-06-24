@@ -62,6 +62,7 @@ func buildMainPrompt(ctx PromptContext) string {
 		memorySection("Project memory (from EVVA.md)", ctx.WorkdirMemory),
 		autoMemoryGuidanceSection(ctx),
 		memoryIndexSection(ctx),
+		repoMapSection(ctx),
 		sessionSpecificGuidanceSection(),
 		contextPreservationSection(),
 		skillsSection(ctx.Skills, ctx.OmitSkillAuthoring),
@@ -378,6 +379,15 @@ func memoryIndexSection(ctx PromptContext) string {
 	return "# Memory index (from " + memoryDirDisplay(ctx) + "/" + memoryIndexFileName + ")\n\n" +
 		body + "\n\n" +
 		"This is your memory index — a table of contents, not the memories themselves. Relevant memory files are surfaced to you per-turn when they match the conversation; you can also `" + nameRead + "` any file in the memory directory directly."
+}
+
+// repoMapSection injects the pre-rendered repo map (project-shape context, peer
+// to project memory). Empty body → "" so joinSections drops the section and the
+// prompt stays byte-identical to a no-map session (the opt-in-off invariant).
+// The body already carries its own "# Repo map" heading, so this is a pass-
+// through trim, not a re-wrap.
+func repoMapSection(ctx PromptContext) string {
+	return strings.TrimSpace(ctx.RepoMap)
 }
 
 // memoryIndexFileName is the basename of the memory index, kept here so the

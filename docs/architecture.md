@@ -118,6 +118,7 @@ One schema, one loader, two visibility surfaces. This is also the seam that prof
 | `internal/permission` | Permission gate implementation (store, broker, matcher) |
 | `internal/question` | Question broker for `ask_user_question` |
 | `internal/memdir` | Typed memory directory loader (user/feedback/project/reference) |
+| `internal/repomap` | LSP-backed repo-map builder + `repo_map` zoom tool — a session-open prompt context surface (peer to memory/skills), gated on `enable_repo_map` |
 | `internal/swarm` | Veronica multi-agent swarm subsystem (service, webapi, agentdef, space) |
 | `internal/skills` | Bundled skill content (embedded via go:embed) |
 | `internal/logger` | Structured `slog` wrapper + pretty console formatter |

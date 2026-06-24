@@ -80,6 +80,14 @@ type FileConfig struct {
 	EnableCheckpoints       *bool `yaml:"enable_checkpoints,omitempty"`
 	CheckpointMaxPerSession int   `yaml:"checkpoint_max_per_session,omitempty"`
 
+	// EnableRepoMap gates the LSP-backed repo map injected into the main agent's
+	// session-open prompt. Default false — opt-in, since an enabled session runs
+	// a workspace symbol sweep at startup. Pointer so a missing key preserves the
+	// default. RepoMapTokenBudget bounds the map's size (default 2000; ≤0
+	// normalizes to the default at load).
+	EnableRepoMap      *bool `yaml:"enable_repo_map,omitempty"`
+	RepoMapTokenBudget int   `yaml:"repo_map_token_budget,omitempty"`
+
 	Providers map[string]FileProviderConfig `yaml:"providers"`
 
 	// Custom is the downstream-app extension slot. Values round-trip through

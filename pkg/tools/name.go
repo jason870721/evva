@@ -93,6 +93,11 @@ const (
 	// Deferred: the LLM discovers it via tool_search when it needs
 	// definition, references, hover, or document symbols.
 	LSP_REQUEST ToolName = "lsp_request"
+
+	// REPO_MAP — zoom into a path's ranked, signature-level symbol outline,
+	// built from the LSP layer (the same data behind the session-open repo
+	// map). Deferred; surfaced via tool_search. Main profile only.
+	REPO_MAP ToolName = "repo_map"
 )
 
 // User interaction.

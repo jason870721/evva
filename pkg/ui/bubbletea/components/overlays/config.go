@@ -455,6 +455,28 @@ func buildConfigFields(cfg *config.Config, ctrl ui.Controller) []ConfigField {
 			Apply: func(s string) error { return cfg.SetMemoryRecallModel(strings.TrimSpace(s)) },
 		},
 		{
+			Label: "enable_repo_map", Kind: cfgKindBool,
+			Get: func() string { return strconv.FormatBool(cfg.GetEnableRepoMap()) },
+			Apply: func(s string) error {
+				b, err := strconv.ParseBool(strings.TrimSpace(s))
+				if err != nil {
+					return fmt.Errorf("not a bool: %s", s)
+				}
+				return cfg.SetEnableRepoMap(b)
+			},
+		},
+		{
+			Label: "repo_map_token_budget", Kind: cfgKindInt,
+			Get: func() string { return strconv.Itoa(cfg.GetRepoMapTokenBudget()) },
+			Apply: func(s string) error {
+				n, err := strconv.Atoi(strings.TrimSpace(s))
+				if err != nil {
+					return fmt.Errorf("not an integer: %s", s)
+				}
+				return cfg.SetRepoMapTokenBudget(n)
+			},
+		},
+		{
 			Label: "fetch_max_bytes", Kind: cfgKindInt,
 			Get: func() string { return strconv.Itoa(cfg.FetchMaxBytes) },
 			Apply: func(s string) error {

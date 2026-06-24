@@ -200,6 +200,40 @@ func TestMainAgent_ProjectMemoryBeforeMemoryIndex(t *testing.T) {
 	}
 }
 
+func TestMainAgent_RendersRepoMapWhenPresent(t *testing.T) {
+	ctx := mainCtx()
+	ctx.RepoMap = "# Repo map\n\nRepo map — 12 symbols across 3 packages.\n\n### pkg/foo\n  Struct Foo  foo.go:5\n"
+	got := buildMainPrompt(ctx)
+
+	if !strings.Contains(got, "# Repo map") {
+		t.Error("repo map heading missing when RepoMap set")
+	}
+	if !strings.Contains(got, "Struct Foo") {
+		t.Error("repo map body missing")
+	}
+}
+
+// TestMainAgent_OmitsRepoMapWhenEmpty pins the opt-in-off invariant (A1): with
+// no RepoMap set, the prompt is byte-identical to a session that never knew the
+// feature existed.
+func TestMainAgent_OmitsRepoMapWhenEmpty(t *testing.T) {
+	withMap := mainCtx()
+	withMap.RepoMap = "# Repo map\n\nsome content\n"
+
+	withoutMap := buildMainPrompt(mainCtx())
+	if strings.Contains(withoutMap, "# Repo map") {
+		t.Errorf("repo map heading should be absent when RepoMap is empty:\n%s", withoutMap)
+	}
+
+	// The only delta between the two prompts is the injected map section.
+	if buildMainPrompt(mainCtx()) != withoutMap {
+		t.Error("buildMainPrompt is not deterministic for an empty RepoMap")
+	}
+	if !strings.Contains(buildMainPrompt(withMap), "# Repo map") {
+		t.Error("repo map should render once RepoMap is set")
+	}
+}
+
 func TestMainAgent_DevSectionGatedOnEnv(t *testing.T) {
 	// Prod: feedback section MUST NOT appear.
 	prod := buildMainPrompt(mainCtx())

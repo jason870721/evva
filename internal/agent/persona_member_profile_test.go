@@ -28,7 +28,7 @@ func TestMainProfileForDef_SwarmResident(t *testing.T) {
 	def.LongRunning = true
 	def.PromptSuffix = "## SWARM PROTOCOL MARKER"
 
-	p := mainProfileForDef(def, cfg, cfg.DefaultProvider, cfg.DefaultModel, []sysprompt.SkillRef{}, memdir.Snapshot{}, nil, nil)
+	p := mainProfileForDef(def, cfg, cfg.DefaultProvider, cfg.DefaultModel, []sysprompt.SkillRef{}, memdir.Snapshot{}, nil, nil, "")
 
 	if !strings.HasSuffix(p.SystemPrompt, "## SWARM PROTOCOL MARKER") {
 		t.Fatalf("suffix must terminate the prompt; tail: %q", p.SystemPrompt[len(p.SystemPrompt)-80:])
@@ -77,7 +77,7 @@ func TestResolveMainProfile_EvvaSuffixFromRegistry(t *testing.T) {
 	def.PromptSuffix = "## SWARM PROTOCOL MARKER"
 	reg.Register(def)
 
-	prof, err := resolveMainProfileWithExtra(cfg, reg, "evva", []sysprompt.SkillRef{}, memdir.Snapshot{}, nil, cfg.DefaultProvider, cfg.DefaultModel, nil)
+	prof, err := resolveMainProfileWithExtra(cfg, reg, "evva", []sysprompt.SkillRef{}, memdir.Snapshot{}, nil, cfg.DefaultProvider, cfg.DefaultModel, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestResolveMainProfile_EvvaSuffixFromRegistry(t *testing.T) {
 		t.Fatalf("suffix must appear exactly once")
 	}
 	// Re-resolve (the ReloadSkills / MCP re-render path) — suffix must survive.
-	again, err := resolveMainProfileWithExtra(cfg, reg, "evva", []sysprompt.SkillRef{}, memdir.Snapshot{}, nil, cfg.DefaultProvider, cfg.DefaultModel, nil)
+	again, err := resolveMainProfileWithExtra(cfg, reg, "evva", []sysprompt.SkillRef{}, memdir.Snapshot{}, nil, cfg.DefaultProvider, cfg.DefaultModel, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestDiskMainProfile_SuffixAndStrip(t *testing.T) {
 		LongRunning:       true,
 		PromptSuffix:      "## SWARM PROTOCOL MARKER",
 	}
-	p := mainProfileFromDiskAgent(def, cfg, cfg.DefaultProvider, cfg.DefaultModel, nil, memdir.Snapshot{}, nil, nil)
+	p := mainProfileFromDiskAgent(def, cfg, cfg.DefaultProvider, cfg.DefaultModel, nil, memdir.Snapshot{}, nil, nil, "")
 	if !strings.HasSuffix(p.SystemPrompt, "## SWARM PROTOCOL MARKER") {
 		t.Fatalf("disk persona suffix missing")
 	}
