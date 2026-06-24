@@ -21,9 +21,11 @@ import (
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/theme"
 )
 
-// maxSuggestions caps how many rows render. With many skills
-// installed the merged catalog can grow long; capping keeps the
-// panel compact and the input area large.
+// maxSuggestions caps how many rows are DRAWN at once. With many
+// skills installed the merged catalog can grow long; capping the
+// rendered window keeps the panel compact and the input area large.
+// Match returns the full list — View scrolls a window of this size
+// over it, so commands past the window stay reachable via ↑↓.
 const maxSuggestions = 5
 
 // Command is one entry in the suggestion catalog. Name includes
@@ -92,11 +94,13 @@ func Catalog(ctrl ui.Controller) []Command {
 	return out
 }
 
-// Match returns catalog entries whose name has the trimmed,
-// lowercased input as a prefix. Empty / non-"/" input returns nil
-// so the caller can collapse the panel.
+// Match returns ALL catalog entries whose name has the trimmed,
+// lowercased input as a prefix, in catalog order. Empty / non-"/"
+// input returns nil so the caller can collapse the panel.
 //
-// The result is hard-capped at maxSuggestions.
+// The full list is returned so navigation (MoveSel/Complete) can
+// reach every match; View renders only a maxSuggestions-sized
+// window over it.
 func Match(input string, catalog []Command) []Command {
 	trimmed := strings.TrimSpace(input)
 	if !strings.HasPrefix(trimmed, "/") {
@@ -107,9 +111,6 @@ func Match(input string, catalog []Command) []Command {
 	for _, c := range catalog {
 		if strings.HasPrefix(c.Name, lower) {
 			out = append(out, c)
-			if len(out) >= maxSuggestions {
-				break
-			}
 		}
 	}
 	return out
@@ -201,9 +202,22 @@ func (p *Panel) View(input string, ctrl ui.Controller, width int, th *theme.Them
 		p.selected = 0
 	}
 
-	// Column-align names so descriptions line up.
+	// Scrolling window: show at most maxSuggestions rows, scrolled so
+	// the selected row stays visible. start is the first match index
+	// drawn; the window slides only when selection leaves it.
+	start := 0
+	if p.selected >= maxSuggestions {
+		start = p.selected - maxSuggestions + 1
+	}
+	end := start + maxSuggestions
+	if end > len(matches) {
+		end = len(matches)
+	}
+	window := matches[start:end]
+
+	// Column-align names so descriptions line up (window only).
 	nameW := 0
-	for _, c := range matches {
+	for _, c := range window {
 		if len(c.Name) > nameW {
 			nameW = len(c.Name)
 		}
@@ -218,7 +232,12 @@ func (p *Panel) View(input string, ctrl ui.Controller, width int, th *theme.Them
 	dim := th.DimText
 
 	var b strings.Builder
-	for i, c := range matches {
+	if start > 0 {
+		b.WriteString(dim.Render(fmt.Sprintf("  ↑ %d more", start)))
+		b.WriteByte('\n')
+	}
+	for i, c := range window {
+		idx := start + i // absolute index into matches
 		marker := "  "
 		style := dim
 		isExact := c.Name == typed
@@ -226,12 +245,16 @@ func (p *Panel) View(input string, ctrl ui.Controller, width int, th *theme.Them
 		case isExact:
 			marker = "✓ "
 			style = exactStyle
-		case i == p.selected:
+		case idx == p.selected:
 			marker = "▶ "
 			style = selStyle
 		}
 		line := fmt.Sprintf("%s%-*s   %s", marker, nameW, c.Name, c.Desc)
 		b.WriteString(style.Render(line))
+		b.WriteByte('\n')
+	}
+	if end < len(matches) {
+		b.WriteString(dim.Render(fmt.Sprintf("  ↓ %d more", len(matches)-end)))
 		b.WriteByte('\n')
 	}
 	b.WriteString(th.FooterHint.Render(

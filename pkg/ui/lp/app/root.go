@@ -445,6 +445,16 @@ func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.input.SetValue(name)
 			}
 			return a, nil
+		case "enter":
+			// Enter on an open panel runs the highlighted command —
+			// no separate Tab needed. The panel is only visible for a
+			// bare "/<partial>" (a space dismisses it), so this never
+			// swallows a command-with-args submit.
+			if name := a.slash.Complete(a.input.Value(), catalog); name != "" {
+				a.input.SetValue(name)
+				return a.handleSubmit(SubmitMsg{ForAgent: name, ForView: name})
+			}
+			return a, nil
 		case "up":
 			if a.slash.MoveSel(a.input.Value(), catalog, -1) {
 				return a, nil

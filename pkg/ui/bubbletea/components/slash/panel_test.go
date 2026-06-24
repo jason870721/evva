@@ -45,16 +45,41 @@ func TestMatchExact(t *testing.T) {
 	}
 }
 
-func TestMatchHardCap(t *testing.T) {
-	// Construct a catalog of 10 entries all starting with "/x"
-	// and verify only maxSuggestions are returned.
+func TestMatchReturnsAll(t *testing.T) {
+	// Match no longer caps the result — the cap moved to View's render
+	// window so navigation (MoveSel/Complete) can reach every entry.
+	// A catalog of 10 "/x*" entries must all come back.
 	cat := []Command{}
 	for i := 0; i < 10; i++ {
 		cat = append(cat, Command{Name: "/x" + string(rune('a'+i)), Desc: "x"})
 	}
 	got := Match("/x", cat)
-	if len(got) > maxSuggestions {
-		t.Errorf("expected cap of %d, got %d", maxSuggestions, len(got))
+	if len(got) != 10 {
+		t.Errorf("Match should return all 10 entries, got %d", len(got))
+	}
+}
+
+func TestMoveSelReachesLastBeyondWindow(t *testing.T) {
+	// Regression: a match list longer than the render window must stay
+	// fully navigable. Walk +1 to the end of a 10-entry list and verify
+	// the last entry is selectable and completable.
+	p := New()
+	cat := []Command{}
+	for i := 0; i < 10; i++ {
+		cat = append(cat, Command{Name: "/x" + string(rune('a'+i)), Desc: "x"})
+	}
+	moves := 0
+	for p.MoveSel("/x", cat, +1) {
+		moves++
+		if moves > 100 {
+			t.Fatal("MoveSel never stopped — runaway")
+		}
+	}
+	if got := p.Selected(); got != 9 {
+		t.Errorf("should reach last index 9, got %d", got)
+	}
+	if got := p.Complete("/x", cat); got != "/xj" {
+		t.Errorf("Complete at last entry = %q, want /xj", got)
 	}
 }
 
@@ -142,6 +167,42 @@ func TestPanelViewExactMatchMarker(t *testing.T) {
 	out := p.View("/clear", nil, 80, theme.Default())
 	if !strings.Contains(out, "✓") {
 		t.Errorf("View should show ✓ marker for exact match: %q", out)
+	}
+}
+
+func TestViewWindowsLongList(t *testing.T) {
+	// "/" matches every builtin (>maxSuggestions). The initial window
+	// shows the head of the list plus a "more" indicator; entries past
+	// the window are not drawn.
+	p := New()
+	out := p.View("/", nil, 80, theme.Default())
+	if !strings.Contains(out, "compact") {
+		t.Errorf("initial window should show /compact: %q", out)
+	}
+	if strings.Contains(out, "exit") {
+		t.Errorf("last command should be off the initial window: %q", out)
+	}
+	if !strings.Contains(out, "more") {
+		t.Errorf("a list longer than the window should show a 'more' indicator: %q", out)
+	}
+}
+
+func TestViewWindowFollowsSelection(t *testing.T) {
+	// Driving the selection to the last entry scrolls the window: the
+	// last command becomes visible and the first scrolls off.
+	p := New()
+	cat := Catalog(nil)
+	for p.MoveSel("/", cat, +1) {
+	}
+	out := p.View("/", nil, 80, theme.Default())
+	if !strings.Contains(out, "exit") {
+		t.Errorf("window should follow selection to show /exit: %q", out)
+	}
+	if strings.Contains(out, "compact") {
+		t.Errorf("first command should have scrolled off-window: %q", out)
+	}
+	if !strings.Contains(out, "more") {
+		t.Errorf("a scrolled window should still show a 'more' indicator: %q", out)
 	}
 }
 
