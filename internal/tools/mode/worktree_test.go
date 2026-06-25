@@ -130,6 +130,11 @@ func newFakeRepo(t *testing.T) string {
 	// git invocation in this repo, including production code's.
 	run("git", "config", "user.email", "test@example.com")
 	run("git", "config", "user.name", "test")
+	// Pin autocrlf off so git round-trips file content verbatim. The Windows
+	// CI runner defaults core.autocrlf=true globally, which rewrites LF→CRLF
+	// on checkout (e.g. when `git merge --abort` restores the working tree) —
+	// that would defeat byte-exact content assertions like the conflict test's.
+	run("git", "config", "core.autocrlf", "false")
 	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
