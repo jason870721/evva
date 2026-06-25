@@ -122,6 +122,14 @@ func newFakeRepo(t *testing.T) string {
 		}
 	}
 	run("git", "init", "-q", "-b", "main")
+	// Set a REPO-LOCAL identity (not just env on the test's own git calls):
+	// the merge action commits via the production runGit helper, which
+	// doesn't inject identity env, so on a host with no global git config
+	// (e.g. the Windows CI runner) `git merge --no-ff` would fail with
+	// "Committer identity unknown". Repo-local config is picked up by every
+	// git invocation in this repo, including production code's.
+	run("git", "config", "user.email", "test@example.com")
+	run("git", "config", "user.name", "test")
 	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}

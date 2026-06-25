@@ -80,7 +80,11 @@ func (t *WorktreeListTool) Execute(ctx context.Context, logger *slog.Logger, _ j
 				continue
 			}
 			if m, ok := s.Metadata.(daemon.LocalAgentMeta); ok && m.WorktreePath != "" {
-				owners[m.WorktreePath] = s
+				// Normalize: the daemon's path comes from filepath.Join
+				// (OS-native separators) but entry paths come from
+				// `git worktree list` (always forward slashes), so on
+				// Windows the raw strings wouldn't match.
+				owners[filepath.Clean(m.WorktreePath)] = s
 			}
 		}
 	}
@@ -100,7 +104,7 @@ func (t *WorktreeListTool) Execute(ctx context.Context, logger *slog.Logger, _ j
 			dirtyFlag = " dirty"
 		}
 		owner := ""
-		if s, ok := owners[e.Path]; ok {
+		if s, ok := owners[filepath.Clean(e.Path)]; ok {
 			state := "done"
 			if !daemon.IsTerminal(s.Status) {
 				state = "running"
