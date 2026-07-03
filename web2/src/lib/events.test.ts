@@ -109,6 +109,30 @@ test('an errored tool result marks the turn error', () => {
   assert.equal(turns[0].status, 'error')
 })
 
+test('user_message (chatlog replay synthetic) folds into a user turn', () => {
+  let turns = []
+  turns = reduceChat(turns, {
+    Kind: 'user_message',
+    Time: '2026-06-01T10:00:00Z',
+    UserMessage: { Sender: 'user', Recipient: 'qa', Body: 'please start' },
+  })
+  assert.equal(turns.length, 1)
+  assert.deepEqual(
+    consoleTurns(turns, 'a1', 'qa').map((t) => [t.type, t.text]),
+    [['user', 'please start']],
+  )
+  assert.equal(turns[0].at, Date.parse('2026-06-01T10:00:00Z'))
+
+  // A subject prefixes the body; an empty body+subject folds to nothing.
+  turns = reduceChat(turns, {
+    Kind: 'user_message',
+    UserMessage: { Recipient: 'qa', Subject: 'standup', Body: 'notes' },
+  })
+  assert.equal(turns[1].text, 'standup — notes')
+  turns = reduceChat(turns, { Kind: 'user_message', UserMessage: { Recipient: 'qa' } })
+  assert.equal(turns.length, 2)
+})
+
 test('error event becomes an error turn', () => {
   let turns = []
   turns = reduceChat(turns, { Kind: 'error', AgentID: 'leader', Error: { Message: 'boom' } })

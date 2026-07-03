@@ -12,7 +12,55 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
-## [v1.8.2-beta.5] — 2026-06-25
+### Added
+
+- **Swarm web: durable conversation replay (`GET /api/swarm/{id}/chatlog`).**
+  The console now (re)hydrates from the RP-17 event log instead of each
+  member's live LLM context: the endpoint replays chat-relevant events
+  (whole-turn text/thinking, tool cards, errors, turn/run boundaries) with
+  operator mail merged in as synthetic `user_message` events, and the FE folds
+  them through the same reducer as the live WS feed. The event-log pump gained
+  a turn coalescer that folds streamed `text_chunk`/`thinking_chunk` deltas
+  into one whole-turn line at turn boundaries (log-only — the live WS still
+  streams chunks), so the log carries the full conversation text for streaming
+  members too.
+
+### Fixed
+
+- **Swarm web console losing conversation on refresh / WS reconnect — worst
+  for the leader.** Every reload and reconnect re-seeded the console from
+  `Transcript` (the member's live context), which auto-compaction rewrites — a
+  full compact leaves a single user-role brief, so the leader (compacted most,
+  and speaking mostly in tool calls that never survived the assistant-text-only
+  re-seed) came back nearly empty, and tool/thinking/operator turns vanished
+  for everyone. Hydration now replays the durable chat log (transcripts remain
+  the fallback for `event_log: false` spaces).
+
+## [v1.8.4] — 2026-06-26
+
+### Fixed
+
+- **Windows CI: fan-out merge conflict test.** The conflict test asserted a
+  byte-exact file content after `git merge --abort`, but the Windows runner's
+  global `core.autocrlf=true` rewrote `LF`→`CRLF` when the abort restored the
+  working tree, so the check saw `from-main\r\n`. The test repo helper now pins
+  `core.autocrlf=false` so content round-trips verbatim on every host. Test-only
+  — no `pkg/*` or runtime change; binary-equivalent to v1.8.3.
+
+## [v1.8.3] — 2026-06-25
+
+### Fixed
+
+- **Windows: `worktree_list` owner cross-reference.** The column that shows
+  which running subagent owns a worktree was always blank on Windows — it
+  compared a `filepath.Join` path (OS-native separators) against
+  `git worktree list`'s forward-slash output. Both sides are now normalized
+  with `filepath.Clean`. (Also greens the Windows CI gate: the fan-out merge
+  tests now set a repo-local git identity so the production `git merge` commit
+  resolves on runners with no global git config — no behavior change on
+  correctly-configured hosts.)
+
+## [v1.8.2] — 2026-06-25
 
 ### Added
 
@@ -1857,8 +1905,10 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.5...HEAD
-[v1.8.2-beta.5]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.4...v1.8.2-beta.5
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.4...HEAD
+[v1.8.4]: https://github.com/johnny1110/evva/compare/v1.8.3...v1.8.4
+[v1.8.3]: https://github.com/johnny1110/evva/compare/v1.8.2...v1.8.3
+[v1.8.2]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.4...v1.8.2
 [v1.8.2-beta.4]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.2...v1.8.2-beta.4
 [v1.8.2-beta.2]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.1...v1.8.2-beta.2
 [v1.8.2-beta.1]: https://github.com/johnny1110/evva/compare/v1.8.1...v1.8.2-beta.1

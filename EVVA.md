@@ -90,6 +90,7 @@ Wave → minor map (append a row whenever a new wave is planned):
 | v1.7 | Windows support (WIN-1..9) — native windows binaries, Git-Bash-backed bash tool; PRD: `docs/roadmap/PRD/windows-support.md` |
 | v1.7 | Persona members (RP-29) — registry main-tier personas join a swarm as leader/worker with full identity + team protocol |
 | v1.8 | Auto-memory consolidation (dream) — a gated, fenced background agent that merges/prunes/re-indexes the global memory store when idle; PRD: `docs/roadmap/PRD/auto-dream.md` |
+| v1.9 | Swarm worktree isolation (SWT-1..8) — per-member git worktrees + leader merge-back for coding swarms; PRD: `docs/roadmap/PRD/swarm-worktree-isolation.md` |
 
 ### The four release commands
 

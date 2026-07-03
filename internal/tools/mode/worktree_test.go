@@ -122,6 +122,19 @@ func newFakeRepo(t *testing.T) string {
 		}
 	}
 	run("git", "init", "-q", "-b", "main")
+	// Set a REPO-LOCAL identity (not just env on the test's own git calls):
+	// the merge action commits via the production runGit helper, which
+	// doesn't inject identity env, so on a host with no global git config
+	// (e.g. the Windows CI runner) `git merge --no-ff` would fail with
+	// "Committer identity unknown". Repo-local config is picked up by every
+	// git invocation in this repo, including production code's.
+	run("git", "config", "user.email", "test@example.com")
+	run("git", "config", "user.name", "test")
+	// Pin autocrlf off so git round-trips file content verbatim. The Windows
+	// CI runner defaults core.autocrlf=true globally, which rewrites LF→CRLF
+	// on checkout (e.g. when `git merge --abort` restores the working tree) —
+	// that would defeat byte-exact content assertions like the conflict test's.
+	run("git", "config", "core.autocrlf", "false")
 	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}

@@ -177,6 +177,18 @@ export function reduceChat(turns: Turn[], ev: WireEvent): Turn[] {
       turns.push(t)
       return turns
     }
+    // Synthetic kind on the /chatlog replay wire only: an operator mail folded
+    // back into the conversation — the replay twin of pushUser (target is the
+    // member name, or "all" for a broadcast).
+    case 'user_message': {
+      const p = ev.UserMessage || {}
+      const text = p.Subject ? `${p.Subject} — ${p.Body || ''}` : p.Body || ''
+      if (!text) return turns
+      const t: UserTurn = { type: 'user', target: p.Recipient || '', agentId: '', text }
+      if (at !== undefined) t.at = at
+      turns.push(t)
+      return turns
+    }
     case 'turn_end':
     case 'run_end':
       closeAgentOpen(turns, agent)

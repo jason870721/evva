@@ -65,6 +65,15 @@ type Backend interface {
 	// status, oldest first — the web's bottom-up inbox.
 	Proposals(spaceID string) ([]ProposalInfo, bool)
 	Transcript(spaceID, agent string) ([]TranscriptEntry, bool)
+	// ChatLog replays the space's durable event log as chat-relevant wire
+	// events, oldest-first, capped at limit (<= 0 = server default): whole-turn
+	// text/thinking, tool start/result, errors, turn/run boundaries, plus
+	// operator mail as synthetic user_message events. The web console rebuilds
+	// its stream from this on load and reconnect — the durable successor to
+	// re-seeding from members' live (compaction-rewritten) contexts. Empty when
+	// the space logs no events (event_log: false); false when the space is
+	// unknown or stopped.
+	ChatLog(spaceID string, limit int) ([]json.RawMessage, bool)
 	// PendingGates returns the space's outstanding approval/question gates as raw
 	// wire events (same shape the WS sends), so a reconnecting browser re-renders
 	// overlays for members still blocked instead of leaving them hung (RP-2 §3.3).
@@ -594,6 +603,17 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 	mux.Handle("GET /api/swarm/{id}/pending", guard(func(w http.ResponseWriter, r *http.Request) {
 		if gates, ok := b.PendingGates(r.PathValue("id")); ok {
 			writeJSON(w, http.StatusOK, gates)
+		} else {
+			http.Error(w, "unknown space", http.StatusNotFound)
+		}
+	}))
+	// Durable conversation replay — the console's (re)hydrate source.
+	mux.Handle("GET /api/swarm/{id}/chatlog", guard(func(w http.ResponseWriter, r *http.Request) {
+		if evs, ok := b.ChatLog(r.PathValue("id"), queryInt(r.URL.Query().Get("limit"))); ok {
+			if evs == nil {
+				evs = []json.RawMessage{} // JSON [] — never null — for the FE
+			}
+			writeJSON(w, http.StatusOK, evs)
 		} else {
 			http.Error(w, "unknown space", http.StatusNotFound)
 		}

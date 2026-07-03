@@ -125,6 +125,12 @@ func (f *fakeBackend) Transcript(id, agent string) ([]TranscriptEntry, bool) {
 	}
 	return []TranscriptEntry{{Role: "user", Text: "hi"}}, true
 }
+func (f *fakeBackend) ChatLog(id string, limit int) ([]json.RawMessage, bool) {
+	if !f.HasSpace(id) {
+		return nil, false
+	}
+	return []json.RawMessage{json.RawMessage(`{"Kind":"text","AgentID":"a1","Text":{"Text":"hi"}}`)}, true
+}
 func (f *fakeBackend) PendingGates(id string) ([]any, bool) {
 	if !f.HasSpace(id) {
 		return nil, false

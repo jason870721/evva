@@ -31,6 +31,9 @@ export type EventKind =
   | 'drain_background_task'
   | 'drain_monitor_events'
   | 'drain_inbox'
+  // Synthetic — exists only on the /chatlog replay wire (operator mail folded
+  // into the conversation); the live WS never carries it.
+  | 'user_message'
 
 export interface QuestionOption {
   Label: string
@@ -72,6 +75,7 @@ export interface WireEvent {
   Error?: { Message?: string } | null
   ApprovalNeeded?: ApprovalPayload | null
   QuestionNeeded?: QuestionPayload | null
+  UserMessage?: { Sender?: string; Recipient?: string; Subject?: string; Body?: string } | null
 }
 
 // CommandErrorFrame — service-layer frame (NOT an event) pushed back when an

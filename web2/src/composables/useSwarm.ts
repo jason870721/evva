@@ -34,7 +34,7 @@ export function useSwarm(spaceId: Ref<string>) {
   async function start() {
     conn.setSpace(spaceId.value)
     await Promise.all([space.refresh(), ledger.refresh(), mail.refresh(), proposals.refresh()])
-    await stream.hydrateFromTranscripts(space.roster)
+    await stream.hydrateHistory(space.roster)
     conn.open(spaceId.value)
     poll = setInterval(() => {
       void space.refresh()
@@ -65,22 +65,23 @@ export function useSwarm(spaceId: Ref<string>) {
   // gates aside, nothing is rebroadcast on reconnect), so the live stream is stale
   // — most visibly after `service stop && start`, which rebuilds every space and
   // resumes its agents idle (no new events until they're woken). Re-fetch the
-  // snapshots, then REPLACE the console from each member's persisted transcript so
-  // the firehose and roster reflect post-restart reality without the operator
-  // opening each member.
+  // snapshots, then REPLACE the console from the durable chat log (the /chatlog
+  // event-log replay; per-member transcripts remain the fallback for
+  // event_log: false spaces) so the firehose and roster reflect post-restart
+  // reality without the operator opening each member.
   //
   // Crucially this must NOT reset()-then-seed: a reconnect arrives as a transient
   // 'open' the instant the WS handshake completes, BEFORE the rebuilt space is
   // reconciled — at which point serveSocket rejects the socket and the REST reads
   // fail. reset() would blank the console in that window and the failed reseed
-  // would leave it blank. rehydrateFromTranscripts is non-destructive: it keeps
-  // the current turns until a fetch actually returns data, so the blip is a no-op
+  // would leave it blank. rehydrateHistory is non-destructive: it keeps the
+  // current turns until a fetch actually returns data, so the blip is a no-op
   // and the real reconnect swaps in the truth. Gates are NOT touched here —
   // connection.open()'s onStatus re-hydrates them on every 'open', reconnect
   // included.
   async function resync() {
     await Promise.all([space.refresh(), ledger.refresh(), mail.refresh(), proposals.refresh()])
-    await stream.rehydrateFromTranscripts(space.roster)
+    await stream.rehydrateHistory(space.roster)
   }
 
   onMounted(start)

@@ -18,6 +18,10 @@ import (
 //
 // — the exact payload the WebSocket carried, framed with an offset-stamped
 // wall clock (pkg/common zone discipline) so the file is greppable by time.
+// Token-level stream chunks stay out; the pump's turnCoalescer folds them into
+// one whole-turn text/thinking line instead (chatlog.go), so the file also
+// carries the full conversation text the /chatlog replay rebuilds the web
+// console from.
 //
 // The cardinal rule is inherited from the pump it taps (RP-2 §3.5): the
 // observer must NEVER slow the observed. Offer is a non-blocking handoff to

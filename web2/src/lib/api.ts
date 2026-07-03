@@ -59,6 +59,11 @@ export function createApi(getToken: () => string) {
     messages: (id: string) => req<MessageInfo[]>('GET', `/api/messages?space=${enc(id)}`),
     transcript: (id: string, agent: string) =>
       req<TranscriptEntry[]>('GET', `/api/agents/${enc(agent)}/transcript?space=${enc(id)}`),
+    // Durable conversation replay: chat-relevant wire events (oldest-first,
+    // server-capped), ready to fold through reduceChat — the console's
+    // (re)hydrate source. Empty when the space has event_log: false.
+    chatlog: (id: string, limit?: number) =>
+      req<WireEvent[]>('GET', `/api/swarm/${enc(id)}/chatlog${limit ? `?limit=${limit}` : ''}`),
     // Outstanding approval/question gates (raw event shape), re-rendered on (re)connect.
     pending: (id: string) => req<WireEvent[]>('GET', `/api/swarm/${enc(id)}/pending`),
     // Worker proposals (RP-23), read-only: the leader decides via its own tools.

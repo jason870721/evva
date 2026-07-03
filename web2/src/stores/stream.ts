@@ -6,11 +6,39 @@ import { api } from '../lib/apiClient'
 import { errMsg } from '../lib/util'
 import { useConnectionStore } from './connection'
 
-// collectSeeds reads each member's persisted transcript and flattens its
-// assistant turns into a seed list — the persisted-truth view used to (re)hydrate
-// the console. A per-member fetch failure is skipped so the rest still seed; the
-// whole call resolves to whatever it could gather (possibly empty). Shared by the
-// two hydrate entry points so seed-on-empty and replace-on-reconnect stay in step.
+// collectHistory replays the space's durable chat log (GET /chatlog) through
+// the SAME reducer the live WS feed uses, so a rebuilt console carries
+// everything the live one showed: whole text/thinking turns, tool cards with
+// results, errors, operator messages, timestamps, interleaved order. This is
+// the primary (re)hydrate source — the live LLM context the transcript
+// endpoint reads is a working buffer that compaction rewrites (the leader's
+// most of all), which is exactly why re-seeding from it kept losing turns.
+// Resolves [] when the log is unavailable (event_log: false) — callers fall
+// back to transcript seeding.
+async function collectHistory(id: string): Promise<Turn[]> {
+  let evs: WireEvent[] = []
+  try {
+    evs = (await api.chatlog(id)) || []
+  } catch {
+    return []
+  }
+  let turns: Turn[] = []
+  for (const ev of evs) turns = reduceChat(turns, ev)
+  // The log can end mid-stream (member cut off); nothing further will close
+  // those blocks, and an open cursor is a live-feed affordance.
+  for (const t of turns) {
+    if ((t.type === 'assistant' || t.type === 'thinking') && t.open) t.open = false
+  }
+  return turns
+}
+
+// collectSeeds reads each member's live transcript and flattens its assistant
+// turns into a seed list — the FALLBACK (re)hydrate source for spaces that run
+// with event_log: false. Lossy by nature: the live context omits tool/thinking/
+// user turns and shrinks under compaction. A per-member fetch failure is
+// skipped so the rest still seed; the whole call resolves to whatever it could
+// gather (possibly empty). Shared by the two hydrate entry points so
+// seed-on-empty and replace-on-reconnect stay in step.
 async function collectSeeds(id: string, roster: MemberInfo[]): Promise<Turn[]> {
   const seeded: Turn[] = []
   for (const m of roster) {
@@ -79,28 +107,33 @@ export const useStreamStore = defineStore('stream', {
       this.turns = []
       this.livePhases = {}
     },
-    // Best-effort: seed the console from each member's persisted transcript so a
-    // reload doesn't show empty. Only seeds an EMPTY console (never clobbers turns
-    // the live stream already delivered). Mirrors v1 hydrateConsole.
-    async hydrateFromTranscripts(roster: MemberInfo[]) {
+    // Best-effort: seed the console from the durable chat log (transcript
+    // fallback for event_log: false spaces) so a reload doesn't show empty.
+    // Only seeds an EMPTY console (never clobbers turns the live stream
+    // already delivered).
+    async hydrateHistory(roster: MemberInfo[]) {
       const id = useConnectionStore().spaceId
       if (!id) return
-      const seeded = await collectSeeds(id, roster)
+      let seeded = await collectHistory(id)
+      if (!seeded.length) seeded = await collectSeeds(id, roster)
       if (seeded.length && !this.turns.length) this.turns = seeded
     },
     // Reconnect path: after the WS drops and comes back (most visibly across a
     // `service stop && start`, which rebuilds the space and resumes agents that
     // then sit idle), the live turns are stale and the gap's events were never
-    // replayed. REPLACE the console with the persisted truth — but only when the
-    // transcripts actually returned something, so a reconnect BLIP (the WS opens,
+    // replayed. REPLACE the console with the durable chat log — but only when
+    // the fetch actually returned something, so a reconnect BLIP (the WS opens,
     // then the service rejects it because the space isn't reconciled yet, so the
     // fetch fails/empties) leaves the existing turns intact instead of blanking
     // the stream. This is the non-destructive successor to reset()+hydrate, whose
-    // empty window blanked the console on every flaky reconnect.
-    async rehydrateFromTranscripts(roster: MemberInfo[]) {
+    // empty window blanked the console on every flaky reconnect. One known gap:
+    // a turn streaming ACROSS the reconnect shows only its post-boundary text
+    // until its block lands in the log (coalesced at turn boundaries).
+    async rehydrateHistory(roster: MemberInfo[]) {
       const id = useConnectionStore().spaceId
       if (!id) return
-      const seeded = await collectSeeds(id, roster)
+      let seeded = await collectHistory(id)
+      if (!seeded.length) seeded = await collectSeeds(id, roster)
       if (seeded.length) this.turns = seeded
     },
   },

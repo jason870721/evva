@@ -833,21 +833,33 @@ func (s *Service) rebuild(rec persistedSpace) (string, string, error) {
 
 // pump drains one space's event stream into the hub for the life of the space.
 // On stop it makes a final non-blocking pass so events emitted during Shutdown
-// (e.g. a run-cancelled) still reach any connected browser before it exits.
+// (e.g. a run-cancelled) still reach any connected browser before it exits,
+// then flushes the coalescer so a member cut off mid-stream still lands its
+// partial turn text in the log (teardownSpace closes the log only after this
+// goroutine exits, so the trailing Offers are safe).
 func (s *Service) pump(sp *swarm.SwarmSpace, stop <-chan struct{}) {
+	// Coalescing exists to feed the event log; a space that logs no events
+	// (event_log: false — the field is fixed at register) skips the work.
+	var co *turnCoalescer
+	if _, ok := s.eventLogFor(sp.ID); ok {
+		co = newTurnCoalescer()
+	}
 	for {
 		select {
 		case <-stop:
 			for {
 				select {
 				case e := <-sp.Events():
-					s.publish(e)
+					s.publish(e, co)
 				default:
+					if co != nil {
+						s.offerSynthetics(sp.ID, co.flushAll())
+					}
 					return
 				}
 			}
 		case e := <-sp.Events():
-			s.publish(e)
+			s.publish(e, co)
 		}
 	}
 }
@@ -855,7 +867,7 @@ func (s *Service) pump(sp *swarm.SwarmSpace, stop <-chan struct{}) {
 // publish records gate lifecycle for reconnect replay, then marshals one spaced
 // event, mirrors it into the durable event log, and fans it out by
 // (spaceID, AgentID).
-func (s *Service) publish(e swarm.SpacedEvent) {
+func (s *Service) publish(e swarm.SpacedEvent, co *turnCoalescer) {
 	if pending, ok := s.pendingFor(e.SpaceID); ok {
 		pending.observe(e.Event)
 	}
@@ -864,14 +876,38 @@ func (s *Service) publish(e swarm.SpacedEvent) {
 		return
 	}
 	// RP-17: every event except token-level stream chunks — those would dwarf
-	// the file with text the member transcripts already hold. Offer never
-	// blocks, so the log can't slow this pump.
+	// the file. The coalescer folds each agent's chunks into ONE whole-turn
+	// text/thinking event instead, logged at the boundary that closed the
+	// block, so the log still carries the full conversation text the chatlog
+	// replay rebuilds the web console from. Offer never blocks, so the log
+	// can't slow this pump.
+	if co != nil {
+		s.offerSynthetics(e.SpaceID, co.fold(e.Event))
+	}
 	if e.Event.Kind != event.KindTextChunk && e.Event.Kind != event.KindThinkingChunk {
 		if log, ok := s.eventLogFor(e.SpaceID); ok {
 			log.Offer(payload)
 		}
 	}
 	s.hub.Publish(e.SpaceID, e.Event.AgentID, payload)
+}
+
+// offerSynthetics mirrors coalesced whole-turn events into a space's event
+// log. Synthetics are log-only: live clients already saw the chunks, so
+// publishing them to the hub would double-render every streamed turn.
+func (s *Service) offerSynthetics(spaceID string, evs []event.Event) {
+	if len(evs) == 0 {
+		return
+	}
+	log, ok := s.eventLogFor(spaceID)
+	if !ok {
+		return
+	}
+	for _, ev := range evs {
+		if b, err := json.Marshal(wireEvent{SpaceID: spaceID, Event: ev}); err == nil {
+			log.Offer(b)
+		}
+	}
 }
 
 // eventLogFor returns a live space's event log, read under the registry lock
