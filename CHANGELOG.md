@@ -14,7 +14,50 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Anthropic prompt caching (`pkg/llm/claude`).** Every request now carries
+  the three `cache_control: ephemeral` breakpoints the API needs to reuse
+  work across the agent loop's serial calls: last tool schema, the system
+  prompt (sent as a block array), and a sliding marker on the last message
+  block (never on a thinking block). Each iteration re-reads the prior
+  prefix at the cached rate (~10% of input price) instead of re-paying full
+  price for the system prompt + tool schemas + whole transcript.
+  `llm.WithPromptCacheDisabled(true)` is the escape hatch for
+  Anthropic-compatible endpoints that reject `cache_control`; the GLM
+  engine copy is deliberately untouched. Compaction pressure stays correct
+  under caching: `session.RecordTurn` now measures the full prompt size as
+  `input + cache_read + cache_creation` (the three counts are disjoint in
+  Anthropic's accounting — input alone collapses to the uncached suffix and
+  would never trip the auto-compact threshold).
+- **`- Model:` line in the environment section.** `PromptContext.Model` was
+  populated by the profile builder but never rendered. `SwitchLLM` now
+  re-renders the system prompt (same seam as `ReloadSkills`) so the line
+  tracks the active model.
+
 ### Fixed
+
+- **Deferred-tool discovery never registered schemas.** `MarkDiscovered`
+  no-op'd for every provider (the `SupportsDeferLoading` guard was
+  inverted — no evva provider has native defer_loading), so a tool fetched
+  via `tool_search` was never declared in the next request's tools array:
+  uninvocable on OpenAI-style constrained function calling, unreliable on
+  Anthropic. Discovery now always registers; `ResolveTool` also exposes a
+  deferred tool's schema after first invocation, as its contract claimed.
+- **Duplicate assistant message on background-signal re-entry.** The
+  pending-signals branch in the agent loop re-appended an assistant turn
+  that was already in the session, leaving two consecutive identical
+  assistant messages whenever a daemon signal arrived during a terminal
+  LLM call.
+- **Main system prompt text defects.** Three missing newlines glued
+  doing-tasks bullets into run-on lines; `AAP_HOME` typo (→ `EVVA_HOME`);
+  the "ask before any file edit" bullet contradicted the ported
+  "Executing actions with care" doctrine (now: assessment-first for
+  questions, free local reversible edits, confirmation for destructive /
+  shared-state actions); tab-indented core-principles/priorities lists
+  rendered as CommonMark code blocks; LSP + subagent guidance duplicated
+  across two sections (now single-homed in the tools guide); the
+  context-preservation and summarize-tool-results fragments merged into
+  one coherent section; grammar fixes in the skills-authoring and
+  dev-feedback sections.
 
 ## [v1.8.5-beta.1] — 2026-07-03
 

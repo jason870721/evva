@@ -54,9 +54,17 @@ func (s *Session) AddUsage(u llm.Usage) {
 // into the cumulative total AND updates lastTurnInputTokens so
 // compaction can measure live prompt pressure. The agent loop calls
 // this after every Complete / Stream that drove a real iteration.
+//
+// The prompt-size figure sums InputTokens with the cache read/creation
+// counts: Anthropic's input_tokens covers ONLY the uncached suffix of the
+// prompt (the three usage fields are disjoint), so with prompt caching
+// active InputTokens alone collapses to a few hundred tokens per call and
+// the auto-compact threshold would never trigger. Providers without cache
+// reporting leave the cache fields zero and the sum degrades to the old
+// behavior.
 func (s *Session) RecordTurn(u llm.Usage) {
 	s.AddUsage(u)
-	s.lastTurnInputTokens = u.InputTokens
+	s.lastTurnInputTokens = u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens
 }
 
 // LastTurnInputTokens returns the InputTokens from the most recent

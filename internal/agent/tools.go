@@ -17,8 +17,10 @@ import (
 //   - If the name is already in the active map (either built at New() or
 //     resolved on a previous turn), the cached instance is returned.
 //   - Otherwise, if the name is in the deferred allowlist, the tool is built
-//     via toolset.Build, cached in active, and returned. Its schema will be
-//     advertised to the LLM from the next turn forward.
+//     via toolset.Build, cached in active, appended to exposeTools, and
+//     returned — so its schema really is advertised to the LLM from the
+//     next turn forward (the model may invoke a deferred tool it learned
+//     about without a tool_search round-trip).
 //   - Otherwise, the name is rejected — the agent never silently expands
 //     beyond the profile's declared authority.
 //
@@ -38,6 +40,7 @@ func (a *Agent) ResolveTool(name tools.ToolName) (tools.Tool, error) {
 		return nil, err
 	}
 	a.active[built[0].Name()] = built[0]
+	a.exposeTools = append(a.exposeTools, built[0])
 	return built[0], nil
 }
 
@@ -80,20 +83,22 @@ func (a *Agent) Describe(name tools.ToolName) (tools.Descriptor, error) {
 // Called after TOOL_SEARCH returns matches — this is evva's equivalent of
 // ref's tool_reference expansion.
 //
+// Registration is unconditional across providers. Without native
+// defer_loading (SupportsDeferLoading is false everywhere today) the
+// <functions> text in the tool_search result is only a discovery vehicle —
+// the next request must DECLARE the schema in its tools array or the tool
+// stays uninvocable on providers with constrained function calling
+// (OpenAI-style APIs), and merely unreliable on Anthropic. Growing the
+// tools array mid-session busts the prompt-cache prefix once per
+// discovery; that is the same one-time cost ref pays and it buys a
+// callable tool.
+//
 // Already-active names are silently skipped (idempotent). Names not in the
 // deferred allowlist are skipped — the agent never expands beyond the
 // profile's declared authority.
 func (a *Agent) MarkDiscovered(names []tools.ToolName) error {
 	a.resolveMu.Lock()
 	defer a.resolveMu.Unlock()
-
-	if !a.llm.SupportsDeferLoading() {
-		a.logger.Debug("tool_search: skipping MarkDiscovered — provider lacks defer_loading",
-			"provider", a.llm.Name(),
-			"count", len(names),
-		)
-		return nil
-	}
 
 	var toBuild []tools.ToolName
 	for _, n := range names {

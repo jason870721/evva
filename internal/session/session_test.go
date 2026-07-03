@@ -110,6 +110,17 @@ func TestRecordTurn_UpdatesBothCumulativeAndLastTurn(t *testing.T) {
 	}
 }
 
+func TestRecordTurn_CountsCachedPromptTokens(t *testing.T) {
+	// With prompt caching, Anthropic's input_tokens covers only the uncached
+	// suffix; the cached prefix arrives in the disjoint cache fields. The
+	// compaction pressure signal must reflect the FULL prompt size.
+	s := New()
+	s.RecordTurn(llm.Usage{InputTokens: 300, CacheReadTokens: 90_000, CacheCreationTokens: 4_000, OutputTokens: 50})
+	if got, want := s.LastTurnInputTokens(), 94_300; got != want {
+		t.Errorf("LastTurnInputTokens must include cache read+creation: got %d, want %d", got, want)
+	}
+}
+
 func TestMicroCompact_ReplacesMessagesAndFlipsFlag(t *testing.T) {
 	s := New()
 	s.Append(llm.Message{Role: llm.RoleUser, Content: "before"})
