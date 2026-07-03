@@ -14,6 +14,12 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+### Fixed
+
+## [v1.8.5-beta.1] — 2026-07-03
+
+### Added
+
 - **Swarm web: durable conversation replay (`GET /api/swarm/{id}/chatlog`).**
   The console now (re)hydrates from the RP-17 event log instead of each
   member's live LLM context: the endpoint replays chat-relevant events
@@ -1905,7 +1911,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.4...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.8.5-beta.1...HEAD
+[v1.8.5-beta.1]: https://github.com/johnny1110/evva/compare/v1.8.4...v1.8.5-beta.1
 [v1.8.4]: https://github.com/johnny1110/evva/compare/v1.8.3...v1.8.4
 [v1.8.3]: https://github.com/johnny1110/evva/compare/v1.8.2...v1.8.3
 [v1.8.2]: https://github.com/johnny1110/evva/compare/v1.8.2-beta.4...v1.8.2
