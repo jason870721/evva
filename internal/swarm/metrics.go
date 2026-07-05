@@ -37,6 +37,12 @@ type spaceMetrics struct {
 	// reminder / backlog alert actually sent (not per sweep pass).
 	tasksStale   int64
 	mailboxStale int64
+
+	// DWF engine tallies, space-level: auto-dispatched tasks and the
+	// ephemeral-member lifecycle.
+	autoDispatches int64
+	membersSpawned int64
+	membersRetired int64
 }
 
 func newSpaceMetrics() *spaceMetrics {
@@ -131,6 +137,47 @@ func (m *spaceMetrics) countMailboxStale() {
 	m.mu.Lock()
 	m.mailboxStale++
 	m.mu.Unlock()
+}
+
+// countAutoDispatch / countSpawned / countRetired tally the DWF engine's
+// actions — dispatches the leader never relayed, clones born and retired.
+func (m *spaceMetrics) countAutoDispatch(n int) {
+	if m == nil || n == 0 {
+		return
+	}
+	m.mu.Lock()
+	m.autoDispatches += int64(n)
+	m.mu.Unlock()
+}
+
+func (m *spaceMetrics) countSpawned() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.membersSpawned++
+	m.mu.Unlock()
+}
+
+func (m *spaceMetrics) countRetired() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.membersRetired++
+	m.mu.Unlock()
+}
+
+// EngineCounts reports the DWF engine tallies (auto-dispatched tasks, members
+// spawned/retired). Exported for the metrics endpoint.
+func (sp *SwarmSpace) EngineCounts() (dispatched, spawned, retired int64) {
+	m := sp.metrics
+	if m == nil {
+		return 0, 0, 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.autoDispatches, m.membersSpawned, m.membersRetired
 }
 
 // WorkflowStaleCounts reports the space's RP-22 watchdog tallies (stale-task

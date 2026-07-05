@@ -15,6 +15,7 @@ evva swarm 讓多個 evva agent 組成一個**團隊 (space)** 協作:一位 **l
 | [`werewolf-swarm/`](werewolf-swarm/) | 1 上帝 + 12 玩家 | 回合制對話遊戲 | 嚴格回合控管、私訊資訊紀律、純 `send_message`(不用看板) |
 | [`world-football/`](world-football/) | 1 總監 + 7 專家 | 六階段資料管線 | 任務看板派工、階段驗收、平行收集、多輪辯證 |
 | [`code-review-swarm/`](code-review-swarm/) | 1 審查長 + 4 成員 | 平行扇出 + 對抗驗證 | 三路平行審查、去重、逐條對抗驗證守住報告品質 |
+| [`fanout-refactor/`](fanout-refactor/) | 1 leader + 1 模板 worker（分身隨需） | 動態工作流（DWF） | 任務圖 `depends_on` 自動派工、`verify: auto` 無 leader 直流、`member_spawn` 臨時分身自生自滅 |
 
 > `starter/` 與 `tech-team/` 原本放在 `docs/`,是搭配[群組使用指南](../../docs/user-guide/swarm/en.md)的
 > 教學用範例;其餘三套是不同形狀的完整演示。

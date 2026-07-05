@@ -13,10 +13,12 @@ import (
 	pubtools "github.com/johnny1110/evva/pkg/tools"
 )
 
-// leaderActor is the store Actor for a member's ledger writes. The store
-// enforces the leader-only guard; passing the member's real role gives
-// defense-in-depth (a Worker that somehow held a write tool is rejected).
-func leaderActor(mc swarm.MemberContext) store.Actor {
+// memberActor is the store Actor for a member's ledger writes. Passing the
+// member's real role lets the store's writer matrix rule (DWF §4): the leader
+// holds every edge, the assignee holds running→verifying via task_done, and a
+// member that somehow held someone else's write tool is rejected there —
+// defense-in-depth, enforced at the data layer.
+func memberActor(mc swarm.MemberContext) store.Actor {
 	return store.Actor{Name: mc.Name, Role: store.Role(mc.Role)}
 }
 
@@ -25,12 +27,21 @@ func leaderActor(mc swarm.MemberContext) store.Actor {
 func transitionError(tool string, err error) pubtools.Result {
 	switch {
 	case errors.Is(err, store.ErrNotLeader):
-		return errf("%s: only the Leader may write task status", tool)
+		return errf("%s: this transition is not yours to write (the Leader holds every edge; a worker only reports its OWN task done via task_done)", tool)
 	case errors.Is(err, store.ErrTaskNotFound):
 		return errf("%s: task not found", tool)
 	default: // ErrIllegalTransition and anything else
 		return errf("%s: %v", tool, err)
 	}
+}
+
+// idList renders task ids as "#2, #3" for messages.
+func idList(ids []int64) string {
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = fmt.Sprintf("#%d", id)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // formatTask renders one ledger row. staleAfter > 0 tags tasks parked in
@@ -39,6 +50,12 @@ func transitionError(tool string, err error) pubtools.Result {
 func formatTask(t store.Task, staleAfter time.Duration) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "#%d [%s] %s (assignee: %s)", t.ID, t.Status, t.Title, t.Assignee)
+	if len(t.DependsOn) > 0 {
+		fmt.Fprintf(&b, " ⛓ deps: %s", idList(t.DependsOn))
+	}
+	if t.VerifyPolicy == store.VerifyAuto {
+		b.WriteString(" [verify:auto]")
+	}
 	if staleAfter > 0 && (t.Status == store.StatusRunning || t.Status == store.StatusVerifying) {
 		if age := time.Since(time.UnixMilli(t.UpdatedAt)); age >= staleAfter {
 			fmt.Fprintf(&b, " ⏳ stale %s", humanTaskAge(age))
@@ -105,24 +122,52 @@ func formatTasks(label string, tasks []store.Task, offset, total int, staleAfter
 
 // --- Leader writes ---------------------------------------------------------
 
-// newTaskCreate pushes a new task in the pending state (assignee required).
+// dispatchNote runs the DWF engine after a completion and renders what it
+// started as a tool-result suffix — the leader sees the cascade inside the
+// same run, no extra wake. A sweep error never fails the completing tool
+// (the task IS completed); the rescan tick retries the dispatch.
+func dispatchNote(sp *swarm.SwarmSpace) string {
+	ready, err := sp.DispatchReady()
+	if err != nil {
+		return fmt.Sprintf(" (dependency dispatch sweep failed: %v — the rescan tick will retry)", err)
+	}
+	if len(ready) == 0 {
+		return ""
+	}
+	parts := make([]string, len(ready))
+	for i, t := range ready {
+		parts[i] = fmt.Sprintf("#%d→%s", t.ID, t.Assignee)
+	}
+	return " Auto-dispatched: " + strings.Join(parts, ", ") + "."
+}
+
+// newTaskCreate pushes a new task (assignee required). Depless tasks land
+// pending for a manual task_assign; tasks with depends_on are engine-managed —
+// born blocked (or dispatched immediately when every dep is already complete)
+// and started by the engine, never by hand.
 func newTaskCreate(mc swarm.MemberContext) pubtools.Tool {
 	return &swarmTool{
 		name: toolTaskCreate,
-		desc: "Create a new task and assign it to a worker (push model). The task starts in 'pending'; " +
-			"use task_assign to dispatch and start it. Only the Leader creates tasks.",
+		desc: "Create a new task and assign it to a worker (push model). Without depends_on it starts " +
+			"'pending' — use task_assign to dispatch it. With depends_on it is engine-managed: it waits in " +
+			"'blocked' and auto-dispatches (set running + assignee notified) the moment every dependency " +
+			"completes — plan whole chains up front and do NOT task_assign them. Only the Leader creates tasks.",
 		schema: `{"type":"object","properties":{` +
 			`"title":{"type":"string","description":"Short task title."},` +
 			`"spec":{"type":"string","description":"Full task specification / acceptance criteria."},` +
 			`"assignee":{"type":"string","description":"Member name to own this task (see list_members)."},` +
+			`"depends_on":{"type":"array","items":{"type":"integer"},"description":"Existing task ids this task waits for (AND-join, immutable). The engine auto-dispatches it when all complete."},` +
+			`"verify":{"type":"string","enum":["leader","auto"],"description":"Who settles verifying: 'leader' (default — you inspect, then task_verify) or 'auto' (completes the instant the worker reports task_done; reserve for mechanical, low-risk steps)."},` +
 			`"parent_task":{"type":"integer","description":"Optional parent task id for a subtask."}` +
 			`},"required":["title","assignee"]}`,
 		exec: func(_ context.Context, input json.RawMessage) (pubtools.Result, error) {
 			var in struct {
-				Title      string `json:"title"`
-				Spec       string `json:"spec"`
-				Assignee   string `json:"assignee"`
-				ParentTask *int64 `json:"parent_task"`
+				Title      string  `json:"title"`
+				Spec       string  `json:"spec"`
+				Assignee   string  `json:"assignee"`
+				DependsOn  []int64 `json:"depends_on"`
+				Verify     string  `json:"verify"`
+				ParentTask *int64  `json:"parent_task"`
 			}
 			if err := json.Unmarshal(input, &in); err != nil {
 				return errf("task_create: invalid input: %v", err), nil
@@ -138,19 +183,36 @@ func newTaskCreate(mc swarm.MemberContext) pubtools.Tool {
 				}
 			}
 			id, err := mc.Space.Store.CreateTask(store.Task{
-				Title:     in.Title,
-				Spec:      in.Spec,
-				Assignee:  in.Assignee,
-				CreatedBy: mc.Name,
-				ParentID:  in.ParentTask,
+				Title:        in.Title,
+				Spec:         in.Spec,
+				Assignee:     in.Assignee,
+				CreatedBy:    mc.Name,
+				DependsOn:    in.DependsOn,
+				VerifyPolicy: in.Verify,
+				ParentID:     in.ParentTask,
 			})
 			if err != nil {
-				if errors.Is(err, store.ErrEmptyAssignee) {
+				switch {
+				case errors.Is(err, store.ErrEmptyAssignee):
 					return errf("task_create: an assignee is required (push model)"), nil
+				case errors.Is(err, store.ErrDepNotFound):
+					return errf("task_create: %v — depends_on may only reference already-created task ids", err), nil
+				case errors.Is(err, store.ErrBadVerifyPolicy):
+					return errf("task_create: %v", err), nil
 				}
 				return errf("task_create: %v", err), nil
 			}
-			return okf("Created task #%d %q assigned to %s (pending). Use task_assign to start it.", id, in.Title, in.Assignee), nil
+			if len(in.DependsOn) == 0 {
+				return okf("Created task #%d %q assigned to %s (pending). Use task_assign to start it.", id, in.Title, in.Assignee), nil
+			}
+			if unmet, err := mc.Space.Store.UnmetDeps(id); err == nil && len(unmet) > 0 {
+				return okf("Created task #%d %q assigned to %s — blocked on %s. The engine auto-dispatches it "+
+					"when every dependency completes; do not task_assign it.", id, in.Title, in.Assignee, idList(unmet)), nil
+			}
+			// Every dependency is already complete: the task is born ready and the
+			// engine starts it in this same tool call.
+			return okf("Created task #%d %q assigned to %s — dependencies already complete.%s",
+				id, in.Title, in.Assignee, dispatchNote(mc.Space)), nil
 		},
 	}
 }
@@ -176,22 +238,19 @@ func newTaskAssign(mc swarm.MemberContext) pubtools.Tool {
 			if err != nil {
 				return transitionError("task_assign", err), nil
 			}
-			if err := mc.Space.Store.TransitionTask(in.TaskID, store.StatusRunning, leaderActor(mc), ""); err != nil {
+			if t.Status == store.StatusBlocked {
+				unmet, _ := mc.Space.Store.UnmetDeps(in.TaskID)
+				return errf("task_assign: task #%d is blocked by %s — the engine auto-dispatches it when they "+
+					"complete. If a dependency was abandoned, force-unblock with task_update_status "+
+					`{"task_id":%d,"status":"pending"} and the engine takes it from there.`,
+					in.TaskID, idList(unmet), in.TaskID), nil
+			}
+			if err := mc.Space.Store.TransitionTask(in.TaskID, store.StatusRunning, memberActor(mc), ""); err != nil {
 				return transitionError("task_assign", err), nil
 			}
-			// Wake the assignee (the task wake source = a message, §5.5/§7.1).
-			refID := t.ID
-			body := fmt.Sprintf("You are assigned task #%d: %s", t.ID, t.Title)
-			if t.Spec != "" {
-				body += "\n\n" + t.Spec
-			}
-			if _, err := mc.Space.Bus.Send(store.Message{
-				Sender:    mc.Name,
-				Recipient: t.Assignee,
-				Subject:   fmt.Sprintf("Task #%d assigned", t.ID),
-				Body:      body,
-				RefTask:   &refID,
-			}); err != nil {
+			// Wake the assignee (the task wake source = a message, §5.5/§7.1) —
+			// the same mail body the DWF engine sends, minus the auto marker.
+			if _, err := mc.Space.Bus.Send(swarm.AssignmentMail(t, mc.Name, false)); err != nil {
 				return errf("task_assign: task #%d set running but notifying %s failed: %v", t.ID, t.Assignee, err), nil
 			}
 			return okf("Task #%d assigned to %s and set running.", t.ID, t.Assignee), nil
@@ -205,9 +264,10 @@ func newTaskUpdateStatus(mc swarm.MemberContext) pubtools.Tool {
 	return &swarmTool{
 		name: toolTaskUpdateStatus,
 		desc: "Move a task to a new status, enforcing the task state machine " +
-			"(pending→running→{suspended,verifying}, verifying→{completed,running}). " +
+			"(blocked→pending, pending→running→{suspended,verifying}, verifying→{completed,running}). " +
 			"Use task_assign for →running and task_verify for verifying decisions; this is the general writer " +
-			"for moves like running→suspended or running→verifying. Only the Leader writes status.",
+			"for moves like running→suspended, or blocked→pending to force-unblock a task whose dependency " +
+			"was abandoned (the engine then dispatches it). Only the Leader writes status.",
 		schema: `{"type":"object","properties":{` +
 			`"task_id":{"type":"integer","description":"Id of the task."},` +
 			`"status":{"type":"string","enum":["pending","running","suspended","verifying","completed"],"description":"Target status."},` +
@@ -222,10 +282,14 @@ func newTaskUpdateStatus(mc swarm.MemberContext) pubtools.Tool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return errf("task_update_status: invalid input: %v", err), nil
 			}
-			if err := mc.Space.Store.TransitionTask(in.TaskID, store.Status(in.Status), leaderActor(mc), in.Note); err != nil {
+			if err := mc.Space.Store.TransitionTask(in.TaskID, store.Status(in.Status), memberActor(mc), in.Note); err != nil {
 				return transitionError("task_update_status", err), nil
 			}
-			return okf("Task #%d → %s.", in.TaskID, in.Status), nil
+			var cascade string
+			if store.Status(in.Status) == store.StatusCompleted {
+				cascade = dispatchNote(mc.Space)
+			}
+			return okf("Task #%d → %s.%s", in.TaskID, in.Status, cascade), nil
 		},
 	}
 }
@@ -256,11 +320,11 @@ func newTaskVerify(mc swarm.MemberContext) pubtools.Tool {
 			if in.Approve {
 				to = store.StatusCompleted
 			}
-			if err := mc.Space.Store.TransitionTask(in.TaskID, to, leaderActor(mc), in.Note); err != nil {
+			if err := mc.Space.Store.TransitionTask(in.TaskID, to, memberActor(mc), in.Note); err != nil {
 				return transitionError("task_verify", err), nil
 			}
 			if in.Approve {
-				return okf("Task #%d verified and completed.", in.TaskID), nil
+				return okf("Task #%d verified and completed.%s", in.TaskID, dispatchNote(mc.Space)), nil
 			}
 			return okf("Task #%d rejected — back to running for rework.", in.TaskID), nil
 		},
@@ -275,7 +339,7 @@ func newTaskList(mc swarm.MemberContext) pubtools.Tool {
 			"(default 20, max 50) plus the total count; completed tasks are newest-first — page back through " +
 			"older ones with offset (the result tells you the next offset). Read-only.",
 		schema: `{"type":"object","properties":{` +
-			`"status":{"type":"string","enum":["pending","running","suspended","verifying","completed"],"description":"Optional status filter."},` +
+			`"status":{"type":"string","enum":["pending","blocked","running","suspended","verifying","completed"],"description":"Optional status filter."},` +
 			`"assignee":{"type":"string","description":"Optional assignee filter."},` +
 			`"limit":{"type":"integer","description":"Max tasks to return (default 20, max 50)."},` +
 			`"offset":{"type":"integer","description":"Skip this many matches for paging; the result reports the next offset when more remain."}` +
@@ -330,8 +394,9 @@ func newTaskList(mc swarm.MemberContext) pubtools.Tool {
 // newMyTasks lists the calling worker's own tasks (assignee baked).
 func newMyTasks(mc swarm.MemberContext) pubtools.Tool {
 	return &swarmTool{
-		name:   toolMyTasks,
-		desc:   "List the tasks assigned to you. Read-only.",
+		name: toolMyTasks,
+		desc: "List the tasks assigned to you. A 'blocked' task is waiting on its dependencies — " +
+			"the engine starts it for you when they complete; do nothing until then. Read-only.",
 		schema: `{"type":"object","properties":{}}`,
 		exec: func(_ context.Context, _ json.RawMessage) (pubtools.Result, error) {
 			tasks, err := mc.Space.Store.ListTasks(store.TaskFilter{Assignee: mc.Name})
@@ -369,6 +434,76 @@ func newTaskGet(mc swarm.MemberContext) pubtools.Tool {
 				return errf("task_get: %v", err), nil
 			}
 			return pubtools.Result{Content: formatTask(t, mc.Space.TaskStaleThreshold()), Metadata: t}, nil
+		},
+	}
+}
+
+// --- Worker write (DWF §4: one edge, own task only) --------------------------
+
+// newTaskDone is the worker's single ledger write: report your own task
+// finished — result recorded + running→verifying in one store transaction
+// (the writer matrix enforces ownership). What happens next is the task's
+// verify policy: 'leader' mails the leader to inspect, so its wake starts at
+// judgment instead of bookkeeping; 'auto' lets the engine complete the task
+// immediately and dispatch whatever depended on it — zero leader wakes.
+func newTaskDone(mc swarm.MemberContext) pubtools.Tool {
+	return &swarmTool{
+		name: toolTaskDone,
+		desc: "Report YOUR assigned task finished: records the result and moves it running→verifying in one " +
+			"step — use this instead of messaging the leader that you are done. On a verify:'leader' task the " +
+			"leader is notified to inspect; on verify:'auto' the task completes instantly and dependent tasks " +
+			"dispatch. Only the task's assignee may call this.",
+		schema: `{"type":"object","properties":{` +
+			`"task_id":{"type":"integer","description":"Id of your running task."},` +
+			`"result":{"type":"string","description":"What you produced and where (files, commits, findings) — this is what verification judges."}` +
+			`},"required":["task_id","result"]}`,
+		exec: func(_ context.Context, input json.RawMessage) (pubtools.Result, error) {
+			var in struct {
+				TaskID int64  `json:"task_id"`
+				Result string `json:"result"`
+			}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return errf("task_done: invalid input: %v", err), nil
+			}
+			t, err := mc.Space.Store.GetTask(in.TaskID)
+			if err != nil {
+				return transitionError("task_done", err), nil
+			}
+			if t.Assignee != mc.Name {
+				return errf("task_done: task #%d is assigned to %s, not you", in.TaskID, t.Assignee), nil
+			}
+			if err := mc.Space.Store.CompleteWork(in.TaskID, memberActor(mc), in.Result); err != nil {
+				return transitionError("task_done", err), nil
+			}
+
+			if t.VerifyPolicy == store.VerifyAuto {
+				// Declared-mechanical: the engine settles it and cascades. No
+				// leader mail — silence is the feature; the ledger, board, and
+				// event log carry the record (DWF §5.3).
+				sys := store.Actor{Name: swarm.EngineSender, Role: store.RoleSystem}
+				if err := mc.Space.Store.TransitionTask(in.TaskID, store.StatusCompleted, sys, "auto-verified (policy: auto)"); err != nil {
+					return okf("Task #%d done → verifying, but auto-complete failed (%v) — the leader will settle it.", in.TaskID, err), nil
+				}
+				return okf("Task #%d done and auto-completed (verify policy: auto).%s", in.TaskID, dispatchNote(mc.Space)), nil
+			}
+
+			// Leader-verified: one durable mail starts the inspection.
+			leaderName := "leader"
+			if mc.Space.Roster != nil {
+				leaderName = mc.Space.Roster.LeaderName()
+			}
+			refID := t.ID
+			if _, err := mc.Space.Bus.Send(store.Message{
+				Sender:    mc.Name,
+				Recipient: leaderName,
+				Subject:   fmt.Sprintf("Task #%d done by %s", t.ID, mc.Name),
+				Body: fmt.Sprintf("Task #%d %q is done and in verifying.\n\nResult: %s\n\nInspect and task_verify {approve:true|false}.",
+					t.ID, t.Title, in.Result),
+				RefTask: &refID,
+			}); err != nil {
+				return okf("Task #%d done → verifying, but notifying the leader failed: %v (the stale-task watchdog is the backstop).", in.TaskID, err), nil
+			}
+			return okf("Task #%d done → verifying; result recorded and the leader notified.", in.TaskID), nil
 		},
 	}
 }

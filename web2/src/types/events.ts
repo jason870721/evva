@@ -34,6 +34,12 @@ export type EventKind =
   // Synthetic — exists only on the /chatlog replay wire (operator mail folded
   // into the conversation); the live WS never carries it.
   | 'user_message'
+  // DWF engine lines (space-level synthetics, live WS + event log alike):
+  // the engine acting on leader-declared structure. TextPayload carries a
+  // one-line narration.
+  | 'task_dispatched'
+  | 'member_spawned'
+  | 'member_retired'
 
 export interface QuestionOption {
   Label: string

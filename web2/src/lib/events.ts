@@ -9,6 +9,7 @@ import type { TaskInfo, TaskStatus, MessageInfo } from '../types/wire'
 
 export const TASK_STATES: readonly TaskStatus[] = [
   'pending',
+  'blocked',
   'running',
   'suspended',
   'verifying',
@@ -57,8 +58,17 @@ export interface UserTurn {
   text: string
   at?: number
 }
+// SystemTurn is a DWF engine line (task auto-dispatched, member spawned /
+// retired) — one greppable sentence from the space itself, no member run
+// behind it.
+export interface SystemTurn {
+  type: 'system'
+  agentId: string
+  text: string
+  at?: number
+}
 export type StreamTurn = AssistantTurn | ThinkingTurn
-export type Turn = StreamTurn | ToolTurn | ErrorTurn | UserTurn
+export type Turn = StreamTurn | ToolTurn | ErrorTurn | UserTurn | SystemTurn
 
 // textOf / thinkingOf pull the renderable delta out of a text(-chunk) event.
 export function textOf(ev?: WireEvent | null): string {
@@ -189,6 +199,20 @@ export function reduceChat(turns: Turn[], ev: WireEvent): Turn[] {
       turns.push(t)
       return turns
     }
+    // DWF engine lines: the space acting on leader-declared structure —
+    // auto-dispatches and the ephemeral-member lifecycle. TextPayload carries
+    // the one-line narration.
+    case 'task_dispatched':
+    case 'member_spawned':
+    case 'member_retired': {
+      closeAgentOpen(turns, agent)
+      const text = textOf(ev)
+      if (!text) return turns
+      const t: SystemTurn = { type: 'system', agentId: agent, text }
+      if (at !== undefined) t.at = at
+      turns.push(t)
+      return turns
+    }
     case 'turn_end':
     case 'run_end':
       closeAgentOpen(turns, agent)
@@ -198,8 +222,8 @@ export function reduceChat(turns: Turn[], ev: WireEvent): Turn[] {
   }
 }
 
-// groupTasks buckets a task list into the 5 board columns, preserving order.
-// Unknown statuses are dropped (defensive).
+// groupTasks buckets a task list into the board columns (one per TASK_STATES
+// entry), preserving order. Unknown statuses are dropped (defensive).
 export function groupTasks(tasks: TaskInfo[]): Record<TaskStatus, TaskInfo[]> {
   const cols = {} as Record<TaskStatus, TaskInfo[]>
   for (const s of TASK_STATES) cols[s] = []

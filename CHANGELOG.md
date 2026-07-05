@@ -14,6 +14,43 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Swarm dynamic workflow (DWF-1..8, the v1.10 wave).** The task ledger
+  becomes a dependency graph the engine executes — the leader plans once,
+  the machine dispatches, judgment stays human-shaped:
+  - **Task graph + auto-dispatch.** `task_create` gains `depends_on` (AND-join
+    edges, immutable, acyclic by construction) and a sixth ledger state
+    `blocked`; the moment a task's last dependency completes, the engine flips
+    it to `running` and delivers the same assignment mail a manual
+    `task_assign` sends — zero leader wakes per hop. One idempotent store
+    sweep (`SweepDispatchable`) serves both the completion hook and the
+    rescan-tick crash backstop. Migration 0006 (`task_deps` + `verify_policy`).
+  - **Writer matrix.** The single-writer invariant evolves without losing its
+    point: a `system` actor may perform exactly three mechanical,
+    leader-declared transitions, and a worker gains exactly one edge —
+    `task_done {task_id, result}` on its OWN task (running → verifying, result
+    recorded, leader mailed) — enforced in the store, table-tested cell by
+    cell.
+  - **Per-task verify policy.** `verify: "leader"` (default, unchanged
+    human-judgment flow) or `"auto"` — the task completes the instant the
+    worker reports done and its dependents cascade, so declared-mechanical
+    chains flow end-to-end leaderlessly.
+  - **Ephemeral fan-out members.** Leader-only `member_spawn {from, count,
+    retire}` clones an existing worker under derived names (`base-2`, `-3`, …)
+    with no agent dir written and the manifest untouched; clones inherit
+    prompt/tools/model/budget, retire themselves once their work completes and
+    they go idle (`on_complete`), survive restarts via `runtime.json`
+    (re-cloned before mail requeue), and are discarded by a fresh register.
+    `settings.max_members` (default 16) caps the live roster —
+    the guardrail is on the model, operator surfaces stay uncapped.
+    `member_retire` retires a clone by hand; the leader itself never clones.
+  - **Surfaces.** Board grows the `blocked` column with ⛓ dependency badges
+    and a `verify: auto` chip; roster marks clones with a ⧉ pill; engine
+    actions emit `task_dispatched` / `member_spawned` / `member_retired`
+    events (live WS + durable event log + chatlog replay as system lines);
+    metrics gain `autoDispatches` / `membersSpawned` / `membersRetired`;
+    team protocol teaches graph-first planning, `task_done` reporting, and
+    clone-sized fan-outs. New example: `examples/evva-swarm/fanout-refactor`.
+
 - **Anthropic prompt caching (`pkg/llm/claude`).** Every request now carries
   the three `cache_control: ephemeral` breakpoints the API needs to reuse
   work across the agent loop's serial calls: last tool schema, the system

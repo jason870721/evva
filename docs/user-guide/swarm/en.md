@@ -57,14 +57,17 @@ Two commands:
 | | Leader (`agents/main/…`) | Worker (`agents/sub/…`) |
 | --- | --- | --- |
 | Owns | planning, assignment, verification | doing the work, reporting back |
-| Task tools | `task_create`, `task_assign`, `task_update_status`, `task_verify`, `task_list`, `proposal_list`, `proposal_accept`, `proposal_decline` | `my_tasks`, `task_get` (read-only), `task_propose` (file work) |
+| Task tools | `task_create` (with `depends_on`/`verify`), `task_assign`, `task_update_status`, `task_verify`, `task_list`, `proposal_list`, `proposal_accept`, `proposal_decline` | `my_tasks`, `task_get` (read-only), `task_done` (report own task finished), `task_propose` (file work) |
 | Talk | `send_message`, `list_members` | `send_message`, `list_members` |
+| Fan-out | `member_spawn`, `member_retire` (ephemeral clones) | — |
 | Institutionalize | `skill_publish` (publish a team-shared skill) | — (loads shared skills, never authors) |
-| Writes the ledger? | **Yes** (sole writer) | No |
+| Writes the ledger? | **Yes** (every edge) | One edge: `task_done` on its OWN task |
 
-The leader decomposes a goal into tasks, **pushes** each to a worker, and
-verifies the result before reporting to you. Workers can't write task status —
-they report progress with `send_message`, and the leader moves the task forward.
+The leader decomposes a goal into tasks — declaring dependency chains up front
+when order matters — **pushes** each to a worker (the engine dispatches the
+chained ones), and verifies results before reporting to you. A worker's only
+ledger write is `task_done` on its own task; everything else stays with the
+leader.
 
 ---
 
@@ -401,11 +404,30 @@ pick up their tasks, report back, and the board march to **completed**.
   You never declare these in `system_prompt.md` or `active.yml`; you only write
   the persona. (That's why the bullets below "just work" without you teaching
   them.)
-- **Task ledger (5 states).** Leader `task_create` → `task_assign` (→ `running`,
-  notifies the worker) → worker works + reports → leader `task_update_status`
-  → `verifying` → `task_verify` approve (→ `completed`) or reject (→ back to
-  `running`). The state machine is enforced in SQLite; illegal moves are
-  rejected.
+- **Task ledger (6 states).** Leader `task_create` → `task_assign` (→ `running`,
+  notifies the worker) → worker works, then `task_done {task_id, result}` (→
+  `verifying`, result recorded, leader notified) → `task_verify` approve (→
+  `completed`) or reject (→ back to `running`). The state machine is enforced
+  in SQLite; illegal moves are rejected. The sixth state is `blocked` — see the
+  next bullet.
+- **Dynamic workflows (task graph + auto-dispatch).** `task_create` accepts
+  `depends_on: [task ids]` — such a task is born `blocked` and the **engine**
+  dispatches it (→ `running`, assignee notified) the moment every dependency
+  completes, with zero leader wakes in between. The leader plans a whole
+  chain/fan-out/join graph in ONE run; completing a task cascades its
+  dependents automatically. Per-task `verify: "auto"` (default `"leader"`) lets
+  declared-mechanical steps complete the instant the worker reports
+  `task_done` — a chain of `auto` tasks flows end-to-end leaderlessly. All
+  judgment stays with the leader: the engine only executes structure the
+  leader declared at create time.
+- **Ephemeral clones (fan-out width on demand).** The leader's
+  `member_spawn {from, count, retire?}` clones an existing worker (same
+  prompt/tools/model/budget) under derived names (`backend-2`, `backend-3`, …)
+  — no dirs written, the manifest untouched. With `retire: "on_complete"` (the
+  default) a clone retires itself once its tasks complete and it goes idle;
+  `member_retire {name}` retires one by hand. `settings.max_members` (default
+  16) caps the live roster; clones survive service restarts and a fresh
+  `evva swarm .` register discards them.
 - **Worker task proposals (the bottom-up inlet).** When a worker discovers work
   that should be TRACKED (a defect, a risk, a lead worth chasing), it files
   `task_propose {title, spec, suggested_assignee?}` instead of burying it in
@@ -884,9 +906,10 @@ prefixes (the timezone is always system-local).
 
 These are added **automatically** based on the member's role — **never list them
 in `active.yml`**. Leader: `task_create`, `task_assign`, `task_update_status`,
-`task_verify`, `task_list`. Worker: `my_tasks`, `task_get`. Both: `send_message`,
-`list_members`. In `active.yml` you list only the regular evva tools your member
-needs — `read`, `write`, `edit`, `bash`, `grep`, `glob`, `tree`, `web_fetch`, …
+`task_verify`, `task_list`, `member_spawn`, `member_retire`. Worker: `my_tasks`,
+`task_get`, `task_done`. Both: `send_message`, `list_members`. In `active.yml`
+you list only the regular evva tools your member needs — `read`, `write`,
+`edit`, `bash`, `grep`, `glob`, `tree`, `web_fetch`, …
 
 ---
 

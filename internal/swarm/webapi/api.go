@@ -244,6 +244,11 @@ type MemberInfo struct {
 	TokensOut    int `json:"tokensOut,omitempty"`
 	TokensToday  int `json:"tokensToday,omitempty"`
 	TokensBudget int `json:"tokensBudget,omitempty"`
+	// Ephemeral / SpawnedFrom mark a DWF member_spawn clone (the roster's
+	// ephemeral pill): a spawned member that retires itself when its work
+	// completes, and the base it was cloned from.
+	Ephemeral   bool   `json:"ephemeral,omitempty"`
+	SpawnedFrom string `json:"spawnedFrom,omitempty"`
 	// Cron / SchedulePrompt expose the member's recurring timer (RP-7/RP-8), read
 	// live from the space's schedule map (the schedule's owner — it is NOT on
 	// MemberView). Empty when the member has no schedule.
@@ -301,8 +306,13 @@ type TaskInfo struct {
 	Result     string `json:"result,omitempty"`
 	VerifyNote string `json:"verifyNote,omitempty"`
 	ParentID   *int64 `json:"parentId,omitempty"`
-	CreatedAt  int64  `json:"createdAt"`
-	UpdatedAt  int64  `json:"updatedAt"`
+	// DependsOn / VerifyPolicy are the DWF task-graph fields: the dependency
+	// edges holding a blocked task (the board's dep badges) and who settles
+	// verifying ("leader" | "auto").
+	DependsOn    []int64 `json:"dependsOn,omitempty"`
+	VerifyPolicy string  `json:"verifyPolicy,omitempty"`
+	CreatedAt    int64   `json:"createdAt"`
+	UpdatedAt    int64   `json:"updatedAt"`
 }
 
 // TaskPage is a bounded slice of tasks plus the full match total, so a paged
@@ -375,9 +385,14 @@ type MetricsInfo struct {
 	HintsDropped  int64 `json:"hintsDropped"`
 	// TasksStale / MailboxStale count RP-22 workflow-watchdog notifications
 	// sent since the space started (stale-task reminders, backlog alerts).
-	TasksStale   int64                        `json:"tasksStale"`
-	MailboxStale int64                        `json:"mailboxStale"`
-	Members      map[string]MemberMetricsInfo `json:"members"`
+	TasksStale   int64 `json:"tasksStale"`
+	MailboxStale int64 `json:"mailboxStale"`
+	// DWF engine tallies: tasks the engine dispatched (no leader relay), and
+	// the ephemeral-member lifecycle.
+	AutoDispatches int64                        `json:"autoDispatches"`
+	MembersSpawned int64                        `json:"membersSpawned"`
+	MembersRetired int64                        `json:"membersRetired"`
+	Members        map[string]MemberMetricsInfo `json:"members"`
 }
 
 // MemberMetricsInfo is one member's scheduler counters. RunSeconds buckets

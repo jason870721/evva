@@ -20,6 +20,7 @@ const assigneeFilter = ref('')
 
 const titles: Record<TaskStatus, string> = {
   pending: 'Pending',
+  blocked: 'Blocked',
   running: 'Running',
   suspended: 'Suspended',
   verifying: 'Verifying',
@@ -109,7 +110,7 @@ function openTask(id: number) {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: var(--sp-2);
   overflow: auto;
 }

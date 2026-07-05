@@ -212,6 +212,116 @@ func (s *Supervisor) CreateMember(spec agentdef.MemberSpec) error {
 	return nil
 }
 
+// SpawnMember clones an existing worker into a live ephemeral member (DWF
+// member_spawn): derive the name, re-enter the base's construction path, book
+// provenance, start the run loop, persist. The cap gates only this — the
+// agent-driven path; operator surfaces stay uncapped (the guardrail is on the
+// model, not the human).
+func (s *Supervisor) SpawnMember(base, retire string) (string, error) {
+	s.mu.Lock()
+	started, ctx := s.started, s.rootCtx
+	s.mu.Unlock()
+	if !started {
+		return "", fmt.Errorf("swarm: SpawnMember %q before Start", base)
+	}
+	switch retire {
+	case "":
+		retire = RetireOnComplete
+	case RetireOnComplete, RetireManual:
+	default:
+		return "", fmt.Errorf("swarm: spawn: retire must be %q or %q (got %q)", RetireOnComplete, RetireManual, retire)
+	}
+	// Clones clone from bases, never from clones: naming and restart-resume
+	// both assume one level (a clone's base must exist at rebuild time).
+	if meta, ok := s.sp.SpawnedInfo(base); ok {
+		return "", fmt.Errorf("swarm: spawn: %q is itself a clone of %q — spawn from the base", base, meta.From)
+	}
+	limit := s.sp.settings.MaxMembers
+	if limit <= 0 {
+		limit = agentdef.DefaultMaxMembers
+	}
+	if live := len(s.sp.Roster.Snapshot()); live >= limit {
+		return "", fmt.Errorf("swarm: spawn refused: %d members live, max_members is %d — raise settings.max_members or retire clones first", live, limit)
+	}
+
+	name, seq := s.sp.nextCloneName(base)
+	if err := s.sp.CloneMember(base, name); err != nil {
+		return "", err
+	}
+	s.sp.recordSpawned(name, SpawnedMeta{From: base, Retire: retire, Seq: seq})
+	s.startMemberLoop(ctx, name)
+	s.sp.persistRuntime()
+	s.sp.metrics.countSpawned()
+	s.sp.emitEngineEvent(KindMemberSpawned, name,
+		fmt.Sprintf("member %s spawned (clone of %s, retire: %s)", name, base, retire))
+	s.log.Info("swarm member spawned", "member", name, "from", base, "retire", retire)
+	return name, nil
+}
+
+// RetireSpawned retires an ephemeral member by hand (leader member_retire).
+// Manifest members are refused — their membership is the operator's contract.
+// A busy clone is refused too: RemoveMember cancels an in-flight run, and a
+// manual retire should never chop work; on_complete clones retire themselves
+// when idle, and a manual-policy clone can be retried once it settles.
+func (s *Supervisor) RetireSpawned(name string) error {
+	meta, ok := s.sp.SpawnedInfo(name)
+	if !ok {
+		return fmt.Errorf("swarm: %q is not a spawned member — only clones retire this way", name)
+	}
+	for _, mv := range s.sp.Roster.Snapshot() {
+		if mv.Name == name && mv.Run != RunIdle {
+			return fmt.Errorf("swarm: %q is mid-run — retry when idle (or let on_complete retire it)", name)
+		}
+	}
+	if err := s.RemoveMember(name); err != nil {
+		return err
+	}
+	s.log.Info("swarm spawned member retired", "member", name, "from", meta.From, "via", "member_retire")
+	return nil
+}
+
+// sweepSpawnedRetire retires on_complete clones whose work is finished:
+// completed at least one task, holds no incomplete ones, idle, and no unread
+// mail. task_done executes INSIDE the clone's run, so the settling run is
+// still in flight when the ledger changes — this sweep only ever fires
+// between wakes, never mid-run (the DWF edge-safety rule). Runs off the
+// rescan tick; ≤ one tick of latency for a guaranteed-clean exit.
+func (s *Supervisor) sweepSpawnedRetire() {
+	var incomplete = []store.Status{store.StatusPending, store.StatusBlocked,
+		store.StatusRunning, store.StatusSuspended, store.StatusVerifying}
+	for name, meta := range s.sp.spawnedSnapshot() {
+		if meta.Retire != RetireOnComplete {
+			continue
+		}
+		idle := false
+		for _, mv := range s.sp.Roster.Snapshot() {
+			if mv.Name == name {
+				idle = mv.Membership == MembershipActive && mv.Run == RunIdle
+				break
+			}
+		}
+		if !idle {
+			continue
+		}
+		if ids, err := s.store.UnreadFor(name); err != nil || len(ids) > 0 {
+			continue
+		}
+		open, err := s.store.CountTasks(store.TaskFilter{Assignee: name, Statuses: incomplete})
+		if err != nil || open > 0 {
+			continue
+		}
+		done, err := s.store.CountTasks(store.TaskFilter{Assignee: name, Status: store.StatusCompleted})
+		if err != nil || done == 0 {
+			continue
+		}
+		if err := s.RemoveMember(name); err != nil {
+			s.log.Warn("swarm spawned retire failed", "member", name, "err", err)
+			continue
+		}
+		s.log.Info("swarm spawned member retired", "member", name, "from", meta.From, "completed", done, "via", "on_complete")
+	}
+}
+
 // RemoveMember retires a worker from the live space (RP-8): it stops the member's
 // run loop and any in-flight run, drops it from the roster, stops mail delivery,
 // and tears down its agent — then persists the new membership. The LEADER can
@@ -248,6 +358,13 @@ func (s *Supervisor) RemoveMember(name string) error {
 	// tombstone alike) — a later re-add starts from the manifest, not from a
 	// cadence set against the old incarnation (RP-20).
 	_ = s.store.DeleteSchedule(name)
+	// Ephemeral provenance dies with the member too (DWF): retires and
+	// operator removals converge here, so a removed clone never resurrects at
+	// the next rebuild. Transcripts and ledger rows are untouched, as always.
+	if s.sp.dropSpawned(name) {
+		s.sp.metrics.countRetired()
+		s.sp.emitEngineEvent(KindMemberRetired, name, fmt.Sprintf("spawned member %s retired", name))
+	}
 	s.sp.persistRuntime()
 	return nil
 }

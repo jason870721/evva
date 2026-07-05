@@ -69,6 +69,11 @@ type Settings struct {
 	// BudgetStayFrozen keeps a budget-frozen member frozen across the day
 	// rollover, requiring a manual unfreeze (default false = auto-unfreeze).
 	BudgetStayFrozen bool
+	// MaxMembers caps the LIVE roster size the leader's member_spawn may grow
+	// to (DWF). 0 = DefaultMaxMembers. It gates only agent-driven spawning —
+	// operator surfaces (add member, web form) are deliberately uncapped: the
+	// guardrail is on the model, not the human. Negatives normalize to 0.
+	MaxMembers int
 	// StallThreshold is the RP-14 watchdog alert line: a member busy longer
 	// than this (and not waiting on a human) raises a one-per-run stall notice
 	// to the operator and the leader. 0 = disabled; a manifest that omits the
@@ -113,6 +118,11 @@ type Settings struct {
 // settings.stall_threshold. Long enough that legitimate tool-heavy runs don't
 // page the operator; short enough that a hung run is noticed the same hour.
 const DefaultStallThreshold = 10 * time.Minute
+
+// DefaultMaxMembers is the live-roster ceiling member_spawn enforces when the
+// manifest omits max_members (DWF): double the largest shipped example's
+// roster (werewolf's 13) minus headroom — a guardrail, not a wall.
+const DefaultMaxMembers = 16
 
 // DefaultRetentionDays is the ledger retention window a manifest gets when it
 // does not set settings.retention_days. A month keeps the web/API working set
@@ -212,6 +222,7 @@ type manifestYml struct {
 		MaxIterations         int    `yaml:"max_iterations,omitempty"`
 		DailyBudgetTokens     int    `yaml:"daily_budget_tokens,omitempty"`
 		BudgetStayFrozen      bool   `yaml:"budget_stay_frozen,omitempty"`
+		MaxMembers            int    `yaml:"max_members,omitempty"`
 		StallThreshold        string `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
 		StallHardTimeout      string `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
 		WebhookSecret         string `yaml:"webhook_secret,omitempty"`
@@ -343,6 +354,7 @@ func LoadManifest(path string) (Manifest, error) {
 			MaxIterations:         y.Settings.MaxIterations,
 			DailyBudgetTokens:     budget,
 			BudgetStayFrozen:      y.Settings.BudgetStayFrozen,
+			MaxMembers:            max(y.Settings.MaxMembers, 0),
 			StallThreshold:        stall,
 			StallHardTimeout:      hard,
 			WebhookSecret:         strings.TrimSpace(y.Settings.WebhookSecret),
@@ -392,6 +404,7 @@ func WriteManifest(path string, m Manifest) error {
 	y.Settings.MaxIterations = m.Settings.MaxIterations
 	y.Settings.DailyBudgetTokens = m.Settings.DailyBudgetTokens
 	y.Settings.BudgetStayFrozen = m.Settings.BudgetStayFrozen
+	y.Settings.MaxMembers = m.Settings.MaxMembers
 	// Stall knobs round-trip losslessly: the default emits nothing (reloads as
 	// the default), an explicit off emits "0", anything else its duration.
 	switch m.Settings.StallThreshold {

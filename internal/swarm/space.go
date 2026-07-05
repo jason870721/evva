@@ -81,6 +81,21 @@ type SwarmSpace struct {
 	// allocated in registerPersonaDef.
 	personaMembers map[string]bool
 
+	// defs retains each member's RAW pre-hardening Loaded, keyed by name — the
+	// clone source for ephemeral spawns (DWF member_spawn): a clone re-enters
+	// registerDef/constructMember from the same material its base was built
+	// from, so the name-dependent hardening (protocol grounding, memory dir,
+	// member context) composes for the clone's own name. Lazily allocated in
+	// registerDef.
+	defs map[string]agentdef.Loaded
+
+	// spawned tracks ephemeral members (DWF): clone name → provenance +
+	// retire policy + per-base sequence. Persisted in runtime.json so a
+	// rebuild re-clones them (a fresh register discards them); names are
+	// never reused within a space's life, so a respawn can never resume a
+	// retired clone's transcript. Lazily allocated.
+	spawned map[string]SpawnedMeta
+
 	// permOverrides holds RUNTIME-SET permission-mode switches (web per-member
 	// control) — overrides ONLY, never the construction-time seeds, so a
 	// manifest edit stays authoritative for members the operator never touched
@@ -199,6 +214,16 @@ func NewSpace(id string, m agentdef.Manifest, loaded []agentdef.Loaded, ts ToolS
 // members (RP-29) are composed from the registry instead and may fail when
 // the referenced persona does not exist or is not main-tier.
 func (sp *SwarmSpace) registerDef(ld *agentdef.Loaded) error {
+	// Retain the raw pre-hardening definition — the DWF clone source. Stored
+	// before any composition below so a clone re-derives its own grounding
+	// instead of inheriting text rendered for the base's name.
+	sp.mu.Lock()
+	if sp.defs == nil {
+		sp.defs = map[string]agentdef.Loaded{}
+	}
+	sp.defs[ld.Def.Name] = *ld
+	sp.mu.Unlock()
+
 	if ld.FromPersona {
 		return sp.registerPersonaDef(ld)
 	}
@@ -243,14 +268,23 @@ func (sp *SwarmSpace) registerDef(ld *agentdef.Loaded) error {
 // values.
 func (sp *SwarmSpace) registerPersonaDef(ld *agentdef.Loaded) error {
 	name := ld.Def.Name
-	base, ok := sp.reg.Get(name)
+	// An ephemeral clone resolves its BASE persona but registers under its own
+	// name (DWF). By clone time the registry holds the base member's composed
+	// def — re-composing over it is idempotent (hardening flags, tool forcing)
+	// and the name-dependent pieces are re-derived for the clone below.
+	src := ld.PersonaSource
+	if src == "" {
+		src = name
+	}
+	base, ok := sp.reg.Get(src)
 	if !ok {
-		return fmt.Errorf("persona member %q: no such persona in the registry (built-ins + <appHome>/agents)", name)
+		return fmt.Errorf("persona member %q: no such persona %q in the registry (built-ins + <appHome>/agents)", name, src)
 	}
 	if !base.IsMain() {
-		return fmt.Errorf("persona member %q: not a main-tier persona", name)
+		return fmt.Errorf("persona member %q: persona %q is not main-tier", name, src)
 	}
 	def := base
+	def.Name = name
 	def.As = ensureMain(def.As)
 	def.LongRunning = true
 	def.AdvertiseSkills = true

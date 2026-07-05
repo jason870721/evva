@@ -17,6 +17,8 @@ const expanded = ref(false)
       <span class="id">#{{ task.id }}</span>
       <span class="assignee"><span class="dot" :style="{ background: agentColor(task.assignee) }" />{{ task.assignee || '—' }}</span>
       <span v-if="task.parentId" class="parent">↳#{{ task.parentId }}</span>
+      <span v-if="task.dependsOn?.length" class="deps" title="dependencies — the engine dispatches this task when they complete">⛓ {{ task.dependsOn.map((d) => '#' + d).join(' ') }}</span>
+      <span v-if="task.verifyPolicy === 'auto'" class="auto" title="verify: auto — completes the instant the worker reports done">auto</span>
       <span class="time">{{ relTime(task.updatedAt, now) }}</span>
     </div>
     <div v-if="expanded" class="detail">
@@ -59,6 +61,16 @@ const expanded = ref(false)
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+}
+.deps {
+  color: var(--color-text-faint);
+}
+.auto {
+  border: 1px solid var(--color-text-faint);
+  border-radius: var(--r-sm);
+  padding: 0 0.25rem;
+  font-size: var(--fs-xxs, var(--fs-xs));
+  color: var(--color-text-muted);
 }
 .dot {
   width: 0.45rem;

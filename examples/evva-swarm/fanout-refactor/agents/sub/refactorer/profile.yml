@@ -1,0 +1,4 @@
+effort: medium
+when_to_use: "Executes one refactor unit per task (template for member_spawn clones)."
+inject_memory: false
+advertise_skills: false
