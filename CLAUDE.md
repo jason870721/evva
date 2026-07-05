@@ -91,6 +91,7 @@ Wave → minor map (append a row whenever a new wave is planned):
 | v1.7 | Persona members (RP-29) — registry main-tier personas join a swarm as leader/worker with full identity + team protocol |
 | v1.8 | Auto-memory consolidation (dream) — a gated, fenced background agent that merges/prunes/re-indexes the global memory store when idle; PRD: `docs/roadmap/PRD/auto-dream.md` |
 | v1.9 | Swarm worktree isolation (SWT-1..8) — per-member git worktrees + leader merge-back for coding swarms; PRD: `docs/roadmap/PRD/swarm-worktree-isolation.md` |
+| v1.10 | Swarm dynamic workflow (DWF-1..8) — ledger task graph (depends_on + blocked + engine auto-dispatch), worker task_done + verify policy, ephemeral fan-out members (member_spawn/auto-retire); PRD: `docs/roadmap/PRD/swarm-dynamic-workflow.md` |
 
 ### The four release commands
 
