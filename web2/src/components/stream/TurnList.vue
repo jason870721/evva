@@ -108,6 +108,7 @@ watch(
           <ThinkingTurn v-else-if="t.type === 'thinking'" :turn="t" />
           <ToolCard v-else-if="t.type === 'tool'" :turn="t" />
           <ErrorTurn v-else-if="t.type === 'error'" :turn="t" />
+          <div v-else-if="t.type === 'system'" class="systemturn">⚙ {{ t.text }}</div>
           <div v-else class="userturn"><span class="me">you →</span> {{ t.text }}</div>
         </div>
       </div>
@@ -172,6 +173,13 @@ watch(
   padding-left: 0.5rem;
   color: var(--color-text);
   white-space: pre-wrap;
+}
+.systemturn {
+  border-left: 2px dotted var(--color-text-faint);
+  padding-left: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
 }
 .me {
   color: var(--color-accent);

@@ -3,7 +3,7 @@
 // shape, the consuming TS goes red here instead of failing silently at runtime.
 
 export type RunState = 'idle' | 'busy' | 'suspended'
-export type TaskStatus = 'pending' | 'running' | 'suspended' | 'verifying' | 'completed'
+export type TaskStatus = 'pending' | 'blocked' | 'running' | 'suspended' | 'verifying' | 'completed'
 
 // SpaceInfo — GET /api/swarms (api.go:116). leader/busy are live-roster
 // reads: present only for running spaces.
@@ -48,6 +48,10 @@ export interface MemberInfo {
   tokensOut?: number
   tokensToday?: number
   tokensBudget?: number
+  // DWF member_spawn clone: an ephemeral seat that retires itself when its
+  // work completes, and the base member it was cloned from.
+  ephemeral?: boolean
+  spawnedFrom?: string
 }
 
 // MemberSpec — POST /api/members add-agent form (api.go:148).
@@ -87,6 +91,10 @@ export interface TaskInfo {
   result?: string
   verifyNote?: string
   parentId?: number
+  // DWF task graph: the dependency edges holding a blocked task (dep badges),
+  // and who settles verifying ('leader' | 'auto').
+  dependsOn?: number[]
+  verifyPolicy?: string
   createdAt: number
   updatedAt: number
 }

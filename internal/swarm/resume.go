@@ -2,6 +2,8 @@ package swarm
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -51,6 +53,13 @@ type runtimeState struct {
 	// schedules lesson applied from day one). Reload reapplies entries for
 	// members still on the roster; a fresh register discards the field.
 	PermModes map[string]string `json:"perm_modes,omitempty"`
+
+	// Spawned records the live ephemeral members (DWF member_spawn) so a
+	// rebuild re-clones them before mail requeues — their durable mailboxes
+	// and assigned tasks survive a restart exactly like manifest members'. A
+	// fresh register discards the field (manifest is authoritative; clones
+	// are runtime state).
+	Spawned map[string]SpawnedMeta `json:"spawned,omitempty"`
 }
 
 func runtimePath(workdir string) string {
@@ -83,6 +92,10 @@ func (sp *SwarmSpace) persistRuntime() {
 	if len(sp.permOverrides) > 0 {
 		rs.PermModes = make(map[string]string, len(sp.permOverrides))
 		maps.Copy(rs.PermModes, sp.permOverrides)
+	}
+	if len(sp.spawned) > 0 {
+		rs.Spawned = make(map[string]SpawnedMeta, len(sp.spawned))
+		maps.Copy(rs.Spawned, sp.spawned)
 	}
 	sp.mu.Unlock()
 	writeRuntime(sp.Workdir, rs)
@@ -123,12 +136,21 @@ func loadRuntime(workdir string) runtimeState {
 // vero.db, so a rebuilt space already sees the same ledger (a row left `running`
 // is still `running`). Reload is idempotent.
 func (sp *SwarmSpace) Reload() {
+	rt := loadRuntime(sp.Workdir)
+
+	// Re-clone spawned members FIRST (DWF-6), before the member snapshot
+	// below, so every restore step that follows — session resume, dangling
+	// claim reset, unread requeue (§6.2: after the inbox exists), frozen
+	// membership, perm overrides — applies to clones exactly as it does to
+	// manifest members. A clone whose base vanished (manifest edited while
+	// down) is dropped with one durable leader mail; its ledger rows remain
+	// for reassignment.
+	sp.restoreSpawned(rt.Spawned)
+
 	sp.mu.Lock()
 	members := make(map[string]agent.Agent, len(sp.agents))
 	maps.Copy(members, sp.agents)
 	sp.mu.Unlock()
-
-	rt := loadRuntime(sp.Workdir)
 
 	// Runtime schedule overrides live in the store (RP-20); a hand-built lite
 	// space (tests) may have none — skip like the nil-safe metrics.
@@ -209,6 +231,46 @@ func (sp *SwarmSpace) Reload() {
 	if rt.Schedules != nil {
 		sp.persistRuntime()
 	}
+}
+
+// restoreSpawned re-clones the ephemeral members a previous life spawned
+// (DWF-6). Construction alone suffices here: the supervisor's Start (which
+// runs after Reload) iterates the roster to start every member's loop, clones
+// included. Best-effort per clone — one failure costs that clone, never the
+// rebuild.
+func (sp *SwarmSpace) restoreSpawned(recs map[string]SpawnedMeta) {
+	for name, meta := range recs {
+		if _, live := sp.Roster.membership(name); live {
+			continue
+		}
+		if err := sp.CloneMember(meta.From, name); err != nil {
+			slog.Warn("swarm: spawned member not restored", "member", name, "from", meta.From, "err", err)
+			if sp.Bus != nil && sp.Roster != nil {
+				_, _ = sp.Bus.Send(store.Message{
+					Sender:    "system",
+					Recipient: sp.Roster.LeaderName(),
+					Subject:   fmt.Sprintf("Spawned member %s not restored", name),
+					Body: fmt.Sprintf("Ephemeral member %q (cloned from %q) could not be rebuilt after restart: %v.\n"+
+						"Its assigned tasks are still on the ledger — reassign them or re-spawn from a live base.", name, meta.From, err),
+				})
+			}
+			continue
+		}
+		sp.recordSpawned(name, meta)
+	}
+}
+
+// DiscardRuntimeSpawned drops the persisted ephemeral-member records — the
+// fresh-register path (DWF-6): an explicit `evva swarm .` means "take the
+// manifest as written", and clones are runtime state, not manifest state.
+// Mirrors DiscardRuntimePermModes; called BEFORE Reload would re-clone them.
+func (sp *SwarmSpace) DiscardRuntimeSpawned() {
+	rt := loadRuntime(sp.Workdir)
+	if len(rt.Spawned) == 0 {
+		return
+	}
+	rt.Spawned = nil
+	writeRuntime(sp.Workdir, rt)
 }
 
 // importLegacySchedules is the one-time RP-20 upgrade for a pre-RP-20

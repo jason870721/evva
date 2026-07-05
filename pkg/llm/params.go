@@ -14,6 +14,16 @@ type LLMParams struct {
 	System        string
 	Effort        int // from 1~n (every model provider should adapt their own impl)
 
+	// PromptCacheDisabled turns off provider-side prompt caching for
+	// providers that require explicit opt-in markers (Anthropic
+	// cache_control breakpoints). Zero value = caching ON — the correct
+	// default for an agent loop, where every iteration replays the same
+	// system prompt + tool schemas + transcript prefix. Set it only when
+	// talking to an Anthropic-compatible endpoint that rejects
+	// cache_control blocks. Providers with automatic server-side caching
+	// (DeepSeek, OpenAI) ignore this flag.
+	PromptCacheDisabled bool
+
 	// HTTPClient overrides the transport used to talk to the provider.
 	// nil → http.DefaultClient.
 	HTTPClient *http.Client
@@ -32,6 +42,9 @@ func WithStopSequences(seqs ...string) Option {
 }
 func WithSystem(s string) Option           { return func(p *LLMParams) { p.System = s } }
 func WithEffort(e int) Option              { return func(p *LLMParams) { p.Effort = e } }
+func WithPromptCacheDisabled(v bool) Option {
+	return func(p *LLMParams) { p.PromptCacheDisabled = v }
+}
 func WithHTTPClient(c *http.Client) Option { return func(p *LLMParams) { p.HTTPClient = c } }
 func UnsetTemperature() Option              { return func(p *LLMParams) { p.Temperature = nil } }
 func UnsetTopK() Option                     { return func(p *LLMParams) { p.TopK = nil } }

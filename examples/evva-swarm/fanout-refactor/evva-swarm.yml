@@ -1,0 +1,26 @@
+# fanout-refactor — the dynamic-workflow demo (DWF): one leader plans a task
+# GRAPH once (depends_on chains + a fan-out/join), spawns ephemeral clones of
+# the one template worker for width, and the ENGINE dispatches every chained
+# task the moment its dependencies complete — zero leader relays. Watch the
+# board: blocked tasks flip to running on their own, clones appear with a
+# ⧉ pill and fold themselves away when their work completes.
+name: fanout-refactor
+workdir: .
+
+leader:
+  agent: lead
+
+workers:
+  # ONE template worker. The leader widens the team at runtime with
+  # member_spawn { from: "refactorer", count: N } — clones inherit this
+  # definition (prompt, tools, model, budget) under names refactorer-2, -3, …
+  - agent: refactorer
+
+settings:
+  # bypass = hands-off demo (workers write files without per-action approval);
+  # use `default` for a supervised run — see the starter example's notes.
+  permission_mode: bypass
+  max_iterations: 40
+  # The live-roster ceiling member_spawn may grow to (leader + template +
+  # clones). Raise it for wider fan-outs; the default without this knob is 16.
+  max_members: 8

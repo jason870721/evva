@@ -1,7 +1,10 @@
 package claude
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"log/slog"
 	"testing"
 
 	"github.com/johnny1110/evva/pkg/llm"
@@ -224,5 +227,113 @@ func TestAnthropicEffort(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("anthropicEffort(%d) = %q, want %q", tt.level, got, tt.want)
 		}
+	}
+}
+
+// --- prompt caching -------------------------------------------------------
+
+type cacheStubTool struct{ name string }
+
+func (s cacheStubTool) Name() string            { return s.name }
+func (s cacheStubTool) Description() string     { return "stub " + s.name }
+func (s cacheStubTool) Schema() json.RawMessage { return nil }
+func (s cacheStubTool) Execute(ctx context.Context, logger *slog.Logger, input json.RawMessage) (tools.Result, error) {
+	return tools.Result{}, nil
+}
+
+func cacheTestMessages() []llm.Message {
+	return []llm.Message{
+		{Role: llm.RoleUser, Content: "first"},
+		{
+			Role:              llm.RoleAssistant,
+			Content:           "on it",
+			Thinking:          "hmm",
+			ThinkingSignature: "sig",
+			ToolCalls:         []*tools.Call{{ID: "toolu_1", Name: "read", Input: json.RawMessage(`{}`)}},
+		},
+		{Role: llm.RoleTool, ToolResults: []*llm.ToolResult{{ID: "toolu_1", Content: "file body"}}},
+	}
+}
+
+func TestBuildRequestBody_PromptCacheBreakpoints(t *testing.T) {
+	c := New(llm.APIConfig{}, "claude-test", llm.WithSystem("system prompt"))
+	body := c.buildRequestBody(cacheTestMessages(), []tools.Tool{cacheStubTool{"a"}, cacheStubTool{"b"}})
+
+	if body.Tools[0].CacheControl != nil {
+		t.Errorf("first tool must not carry cache_control")
+	}
+	if body.Tools[1].CacheControl == nil {
+		t.Errorf("last tool must carry cache_control")
+	}
+
+	sys, ok := body.System.([]block)
+	if !ok || len(sys) != 1 {
+		t.Fatalf("system must be a single-block array when caching is on, got %#v", body.System)
+	}
+	if sys[0].Text != "system prompt" || sys[0].CacheControl == nil {
+		t.Errorf("system block must keep the text and carry cache_control, got %#v", sys[0])
+	}
+
+	last := body.Messages[len(body.Messages)-1]
+	if last.Content[len(last.Content)-1].CacheControl == nil {
+		t.Errorf("last block of last message must carry cache_control")
+	}
+	for _, m := range body.Messages[:len(body.Messages)-1] {
+		for _, b := range m.Content {
+			if b.CacheControl != nil {
+				t.Errorf("only the last message may carry cache_control, found on %q block", b.Type)
+			}
+		}
+	}
+
+	// Exactly 3 breakpoints total — the API rejects more than 4.
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(raw, []byte(`"cache_control"`)); n != 3 {
+		t.Errorf("want exactly 3 cache_control markers on the wire, got %d", n)
+	}
+}
+
+func TestBuildRequestBody_PromptCacheDisabled(t *testing.T) {
+	c := New(llm.APIConfig{}, "claude-test",
+		llm.WithSystem("system prompt"), llm.WithPromptCacheDisabled(true))
+	body := c.buildRequestBody(cacheTestMessages(), []tools.Tool{cacheStubTool{"a"}})
+
+	if s, ok := body.System.(string); !ok || s != "system prompt" {
+		t.Errorf("system must stay a plain string when caching is disabled, got %#v", body.System)
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(`"cache_control"`)) {
+		t.Errorf("no cache_control markers may appear when caching is disabled")
+	}
+}
+
+func TestBuildRequestBody_CacheSkipsThinkingBlock(t *testing.T) {
+	// A trailing assistant message whose last block is thinking: the
+	// breakpoint must land on an earlier non-thinking block, never on the
+	// thinking block itself.
+	msgs := []llm.Message{{
+		Role:              llm.RoleAssistant,
+		Content:           "",
+		Thinking:          "…",
+		ThinkingSignature: "sig",
+		ToolCalls:         []*tools.Call{{ID: "t1", Name: "read", Input: json.RawMessage(`{}`)}},
+	}}
+	c := New(llm.APIConfig{}, "claude-test")
+	body := c.buildRequestBody(msgs, nil)
+
+	last := body.Messages[0]
+	for _, b := range last.Content {
+		if b.Type == "thinking" && b.CacheControl != nil {
+			t.Fatalf("cache_control must never land on a thinking block")
+		}
+	}
+	if last.Content[len(last.Content)-1].CacheControl == nil {
+		t.Errorf("breakpoint should land on the trailing tool_use block")
 	}
 }

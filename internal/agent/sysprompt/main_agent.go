@@ -33,13 +33,13 @@ import (
 //  10. project memory (EVVA.md) — user-authored repo rules.
 //  11. user profile             — long-lived cross-project preferences.
 //  12. session-specific         — !-shell prefix, ask_user_question on
-//     denied tools, subagent vs direct search,
-//     skills usage.
-//  13. skills catalog           — listed when any skills are installed.
-//  14. summarize tool results   — write down load-bearing info; results
+//     denied tools, direct search, skills usage.
+//  13. context preservation     — write down load-bearing info; results
 //     may be cleared later.
+//  14. skills catalog           — listed when any skills are installed.
 //  15. todo planning            — multi-step work protocol.
-//  16. deferred tools           — pre-loaded <functions> schemas.
+//  16. deferred tools           — name-only catalog
+//     (<available-deferred-tools>); schemas load via tool_search.
 //  17. dev feedback             — only if ctx.Env == "dev".
 //
 // Plan-mode guidance is deliberately NOT in the system prompt. It arrives
@@ -66,7 +66,6 @@ func buildMainPrompt(ctx PromptContext) string {
 		sessionSpecificGuidanceSection(),
 		contextPreservationSection(),
 		skillsSection(ctx.Skills, ctx.OmitSkillAuthoring),
-		summarizeToolResultsSection(),
 		mainTodoSection(),
 		mainDeferredToolsSection(ctx.DeferredTools),
 		devSectionIfEnabled(ctx),
@@ -106,9 +105,9 @@ func devSectionIfEnabled(ctx PromptContext) string {
 
 // mainToolsGuideSection covers tool selection plus the TOOL_SEARCH protocol
 // — the single most important rule that distinguishes this harness from a
-// vanilla chat loop. Deferred tools are advertised by name in system
-// reminders; the model MUST load their schemas via tool_search before
-// invoking them.
+// vanilla chat loop. Deferred tools are advertised name-only in the
+// <available-deferred-tools> catalog near the bottom of the prompt; the
+// model MUST load their schemas via tool_search before invoking them.
 //
 // All tool names interpolate from toolnames.go so a rename in
 // internal/tools/name.go is caught by the link test instead of silently
@@ -142,7 +141,7 @@ func mainToolsGuideSection() string {
 		"For commands you don't need the result of immediately (long builds, watch loops, dev servers, background fetches), set `run_in_background: true` on `" + nameBash + "`. The tool returns a daemon id; the process keeps running while you continue other work. When it finishes, you'll receive a `<system-reminder>` on a later turn carrying the final status + captured output — there's no need to poll.\n" +
 		"Use `" + nameDaemonList + "` to enumerate active daemons (optional `kind` filter), `" + nameDaemonOutput + "` to read captured stdout/stderr or recent monitor events, and `" + nameDaemonStop + "` to terminate one by id. `" + nameDaemonStop + "` works uniformly across bash bg, monitors, and async subagents — never fall back to `bash kill <pid>`. For per-line streaming (log watchers, file-change loops) use `" + nameMonitor + "` instead of `run_in_background` — each stdout line becomes its own notification.\n\n" +
 		"## Alarms (`" + nameAlarmCreate + "` / `" + nameAlarmList + "` / `" + nameAlarmCancel + "`)\n" +
-		"Deferred. A one-shot **alarm clock**: it wakes you at an ABSOLUTE wall-clock instant (second precision) and re-enters the conversation with a prompt you wrote, as a fresh user message. Non-blocking (it returns an id immediately — you keep working or go idle), durable by default (survives restarts), and may fire arbitrarily far in the future.\n" +
+		"These are deferred tools. A one-shot **alarm clock**: it wakes you at an ABSOLUTE wall-clock instant (second precision) and re-enters the conversation with a prompt you wrote, as a fresh user message. Non-blocking (it returns an id immediately — you keep working or go idle), durable by default (survives restarts), and may fire arbitrarily far in the future.\n" +
 		"- `" + nameAlarmCreate + "` takes `at` (\"2006-01-02 15:04:05\" in local time, or RFC3339 with an offset; must be in the future) and a self-contained `prompt` (write it as a note-to-self — it lands with no other context). When it fires, if you are idle a fresh turn starts on its own; if you are mid-task it lands at the next step. It fires once, then is gone.\n" +
 		"- `" + nameAlarmList + "` shows pending alarms (id, fire time, time remaining); `" + nameAlarmCancel + "` removes one by id.\n" +
 		"- Pick the right tool: `" + nameScheduleWakeup + "` is a BLOCKING relative sleep capped at 1 hour — right for \"poll again in 60s\". An alarm is the tool for a SPECIFIC date/time or any wait longer than an hour (\"resume this tomorrow 09:00\", \"follow up at 2026-09-11 12:31:50\"). For a RECURRING cadence use cron, not a chain of alarms.\n\n" +
@@ -197,6 +196,7 @@ func mainToolsGuideSection() string {
 		"Rules:\n" +
 		"- Brief the subagent like a colleague who just walked in: state the goal, give the relevant file paths / symbols you already know, and say what shape the answer should take (\"under 200 words\", \"list the file:line of every caller\"). Terse prompts produce shallow reports.\n" +
 		"- Don't delegate understanding. The subagent's report is input to your judgment, not a substitute for it. Never write \"based on your findings, do X\" — synthesize first, then act with specifics (file paths, line numbers, exact changes).\n" +
+		"- Avoid duplicating work a subagent is already doing — once you delegate a search or investigation, don't also run the same queries yourself; wait for the report.\n" +
 		"- Subagents cannot spawn subagents — the hierarchy is one layer. Don't ask one to \"use the agent tool to delegate further.\""
 }
 

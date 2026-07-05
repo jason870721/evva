@@ -24,6 +24,7 @@ const (
 	toolTaskList         = "task_list"
 	toolMyTasks          = "my_tasks"
 	toolTaskGet          = "task_get"
+	toolTaskDone         = "task_done"
 	toolScheduleSet      = "schedule_set"
 	toolScheduleClear    = "schedule_clear"
 	toolAlarmSet         = "alarm_set"
@@ -33,6 +34,8 @@ const (
 	toolProposalAccept   = "proposal_accept"
 	toolProposalDecline  = "proposal_decline"
 	toolSkillPublish     = "skill_publish"
+	toolMemberSpawn      = "member_spawn"
+	toolMemberRetire     = "member_retire"
 )
 
 // init classifies the swarm's coordination tools as auto-allow in
@@ -55,11 +58,17 @@ const (
 func init() {
 	for _, n := range []string{
 		toolSendMessage, toolListMembers, toolTaskList, toolMyTasks, toolTaskGet,
-		toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify,
+		toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskDone,
 		toolScheduleSet, toolScheduleClear,
 		toolAlarmSet, toolAlarmClear,
 		toolTaskPropose, toolProposalList, toolProposalAccept, toolProposalDecline,
 		toolSkillPublish,
+		// member_spawn/member_retire are governance-shaped like the rest:
+		// spawning writes no file and runs no shell — it clones an existing,
+		// operator-authored definition, bounded by settings.max_members and
+		// each clone's inherited budget cap; retiring touches only spawned
+		// members. The events self-audit and the web lists every clone.
+		toolMemberSpawn, toolMemberRetire,
 	} {
 		permission.ReadOnlyOrSelfTools[n] = true
 	}
@@ -97,12 +106,14 @@ func toolNamesForRole(role agentdef.Role) []string {
 		// team procedure, and only into the shared dir.
 		return append(common, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList,
 			toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline,
-			toolSkillPublish)
+			toolSkillPublish, toolMemberSpawn, toolMemberRetire)
 	}
 	// task_propose is the worker's ONLY work-inlet (RP-23): file trackable
 	// work without piercing the ledger's single-writer invariant. The leader
-	// doesn't get it — it just task_creates.
-	return append(common, toolMyTasks, toolTaskGet, toolTaskPropose)
+	// doesn't get it — it just task_creates. task_done is the worker's ONLY
+	// ledger write (DWF §4): its own task, running→verifying, result attached
+	// — the store's writer matrix enforces ownership.
+	return append(common, toolMyTasks, toolTaskGet, toolTaskDone, toolTaskPropose)
 }
 
 // factories maps a tool name to its build factory. Each recovers the member's
@@ -117,6 +128,7 @@ var factories = map[string]func(pubtools.State) (pubtools.Tool, error){
 	toolTaskList:         bind(newTaskList),
 	toolMyTasks:          bind(newMyTasks),
 	toolTaskGet:          bind(newTaskGet),
+	toolTaskDone:         bind(newTaskDone),
 	toolScheduleSet:      bind(newScheduleSet),
 	toolScheduleClear:    bind(newScheduleClear),
 	toolAlarmSet:         bind(newAlarmSet),
@@ -126,6 +138,8 @@ var factories = map[string]func(pubtools.State) (pubtools.Tool, error){
 	toolProposalAccept:   bind(newProposalAccept),
 	toolProposalDecline:  bind(newProposalDecline),
 	toolSkillPublish:     bind(newSkillPublish),
+	toolMemberSpawn:      bind(newMemberSpawn),
+	toolMemberRetire:     bind(newMemberRetire),
 }
 
 // bind adapts a MemberContext tool constructor into a pkg/toolset factory: it

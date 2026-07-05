@@ -20,17 +20,19 @@ import (
 // read-only task views plus the common send_message/list_members.
 func TestToolNamesForRole(t *testing.T) {
 	leader := toolNamesForRole(agentdef.RoleLeader)
-	wantLeader := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList, toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline, toolSkillPublish}
+	wantLeader := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList, toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline, toolSkillPublish, toolMemberSpawn, toolMemberRetire}
 	if !reflect.DeepEqual(leader, wantLeader) {
 		t.Fatalf("leader tools = %v\nwant %v", leader, wantLeader)
 	}
 
 	worker := toolNamesForRole(agentdef.RoleWorker)
-	wantWorker := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolMyTasks, toolTaskGet, toolTaskPropose}
+	wantWorker := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolMyTasks, toolTaskGet, toolTaskDone, toolTaskPropose}
 	if !reflect.DeepEqual(worker, wantWorker) {
 		t.Fatalf("worker tools = %v\nwant %v", worker, wantWorker)
 	}
 
+	// task_done is deliberately absent here: it IS a ledger write, but scoped
+	// to the worker's own task by the store's writer matrix (DWF §4).
 	for _, n := range worker {
 		switch n {
 		case toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify,
@@ -41,11 +43,11 @@ func TestToolNamesForRole(t *testing.T) {
 }
 
 func TestSetForReturnsOptionPerTool(t *testing.T) {
-	if got := len(Set{}.For("leader", agentdef.RoleLeader, nil)); got != 15 {
-		t.Errorf("leader options = %d, want 15", got)
+	if got := len(Set{}.For("leader", agentdef.RoleLeader, nil)); got != 17 {
+		t.Errorf("leader options = %d, want 17", got)
 	}
-	if got := len(Set{}.For("w", agentdef.RoleWorker, nil)); got != 7 {
-		t.Errorf("worker options = %d, want 7", got)
+	if got := len(Set{}.For("w", agentdef.RoleWorker, nil)); got != 8 {
+		t.Errorf("worker options = %d, want 8", got)
 	}
 }
 
@@ -60,11 +62,11 @@ func TestPermissionClassification(t *testing.T) {
 	}
 	autoAllow := []string{
 		toolSendMessage, toolListMembers, toolTaskList, toolMyTasks, toolTaskGet,
-		toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify,
+		toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskDone,
 		toolScheduleSet, toolScheduleClear,
 		toolAlarmSet, toolAlarmClear,
 		toolTaskPropose, toolProposalList, toolProposalAccept, toolProposalDecline,
-		toolSkillPublish,
+		toolSkillPublish, toolMemberSpawn, toolMemberRetire,
 	}
 	for _, n := range autoAllow {
 		if b := decide(n); b != permission.BehaviorAllow {

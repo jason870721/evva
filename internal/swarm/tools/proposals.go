@@ -143,7 +143,7 @@ func newProposalAccept(mc swarm.MemberContext) pubtools.Tool {
 				return errf("proposal_accept: no member named %q. Valid members: %s.", assignee, strings.Join(names, ", ")), nil
 			}
 
-			task, err := mc.Space.Store.AcceptProposal(p.ID, leaderActor(mc), assignee)
+			task, err := mc.Space.Store.AcceptProposal(p.ID, memberActor(mc), assignee)
 			if err != nil {
 				return errf("proposal_accept: %v", err), nil
 			}
@@ -203,7 +203,7 @@ func newProposalDecline(mc swarm.MemberContext) pubtools.Tool {
 			if err != nil {
 				return errf("proposal_decline: %v", err), nil
 			}
-			if err := mc.Space.Store.DeclineProposal(p.ID, leaderActor(mc), in.Note); err != nil {
+			if err := mc.Space.Store.DeclineProposal(p.ID, memberActor(mc), in.Note); err != nil {
 				return errf("proposal_decline: %v", err), nil
 			}
 			if p.Proposer != mc.Name {

@@ -134,9 +134,22 @@ func TestOpenIsIdempotent(t *testing.T) {
 }
 
 // taskInState creates a fresh task and drives it through the canonical legal
-// path to the requested state. Used to seed each cell of the matrix.
+// path to the requested state. Used to seed each cell of the matrix. blocked
+// is birth-only, so it is seeded by creating a dependency edge on an
+// incomplete task rather than by transitioning.
 func taskInState(t *testing.T, st *Store, target Status) int64 {
 	t.Helper()
+	if target == StatusBlocked {
+		dep, err := st.CreateTask(Task{Title: "dep", Spec: "s", Assignee: "w", CreatedBy: "leader"})
+		if err != nil {
+			t.Fatalf("CreateTask(dep): %v", err)
+		}
+		id, err := st.CreateTask(Task{Title: "t", Spec: "s", Assignee: "w", CreatedBy: "leader", DependsOn: []int64{dep}})
+		if err != nil {
+			t.Fatalf("CreateTask(blocked): %v", err)
+		}
+		return id
+	}
 	id, err := st.CreateTask(Task{Title: "t", Spec: "s", Assignee: "w", CreatedBy: "leader"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -157,13 +170,14 @@ func taskInState(t *testing.T, st *Store, target Status) int64 {
 }
 
 // TestTaskStateMachine is the centerpiece (AC#2): every (from,to) pair across
-// all 5 states. The expected legal set is hardcoded here, independent of the
+// all 6 states. The expected legal set is hardcoded here, independent of the
 // implementation's map, so a bug in legalTransitions can't pass by testing
 // itself. Illegal transitions must error AND leave the row unmutated.
 func TestTaskStateMachine(t *testing.T) {
-	all := []Status{StatusPending, StatusRunning, StatusSuspended, StatusVerifying, StatusCompleted}
+	all := []Status{StatusPending, StatusBlocked, StatusRunning, StatusSuspended, StatusVerifying, StatusCompleted}
 	expected := map[Status]map[Status]bool{
 		StatusPending:   {StatusRunning: true},
+		StatusBlocked:   {StatusPending: true},
 		StatusRunning:   {StatusSuspended: true, StatusVerifying: true},
 		StatusSuspended: {StatusRunning: true},
 		StatusVerifying: {StatusCompleted: true, StatusRunning: true},

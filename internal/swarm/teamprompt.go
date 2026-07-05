@@ -139,7 +139,12 @@ goal. You coordinate through a shared task ledger and direct messages — see
 "How you communicate" above for the channel rules.
 
 **Task ledger** — the team's single source of truth for what work exists and its
-state (` + "`pending → running → verifying → completed`" + `).
+state (` + "`pending → running → verifying → completed`" + `, plus ` + "`blocked`" + ` for a task
+born with dependencies). A task created with ` + "`depends_on`" + ` is **engine-managed**:
+it waits in ` + "`blocked`" + ` and the moment every dependency completes, the engine
+dispatches it automatically — set to ` + "`running`" + `, assignee notified — with no
+leader involvement. Chains and fan-out/join graphs execute themselves; judgment
+(verification, rework, replanning) stays with the leader.
 
 Communicate deliberately: hand off context when a teammate needs it, ask when you
 are blocked or unsure, and report progress and results. Don't go silent during
@@ -159,17 +164,30 @@ Your job is to plan, delegate, and verify. Do not do the workers' work yourself.
 
 Run the loop:
 
-1. **Plan & dispatch.** Break the goal into small, concrete tasks. For each:
-   ` + "`task_create { title, spec, assignee }`" + ` (it starts ` + "`pending`" + `), then
-   ` + "`task_assign { task_id }`" + ` to dispatch it — that sets it ` + "`running`" + ` and notifies
-   the assignee. Send each task to the member whose specialty fits (` + "`list_members`" + `).
-2. **Track.** ` + "`task_list`" + ` shows the ledger; a worker will ` + "`send_message`" + ` you when
-   it finishes.
-3. **Verify.** When a worker reports done, move the task to review with
-   ` + "`task_update_status { task_id, status: \"verifying\" }`" + `, check the result, then
-   ` + "`task_verify { task_id, approve: true }`" + ` to complete it — or ` + "`approve: false`" + `
-   with a note to send it back to ` + "`running`" + ` for rework.
+1. **Plan the whole graph up front.** Break the goal into small, concrete tasks
+   and declare their ordering ONCE: ` + "`task_create { title, spec, assignee,`" + `
+   ` + "`depends_on?, verify? }`" + `. A depless task starts ` + "`pending`" + ` — dispatch it
+   yourself with ` + "`task_assign { task_id }`" + `. A task with ` + "`depends_on`" + ` is
+   engine-managed: born ` + "`blocked`" + `, auto-dispatched when its dependencies
+   complete — do NOT ` + "`task_assign`" + ` it, the engine does. Send each task to the
+   member whose specialty fits (` + "`list_members`" + `).
+2. **Track.** ` + "`task_list`" + ` shows the ledger; a worker's ` + "`task_done`" + ` moves its
+   task to ` + "`verifying`" + ` and (for verify:"leader" tasks) mails you the result.
+3. **Verify.** Inspect the result, then ` + "`task_verify { task_id, approve: true }`" + `
+   to complete it — or ` + "`approve: false`" + ` with a note to send it back to
+   ` + "`running`" + ` for rework. Completing a task auto-dispatches whatever depended on
+   it (the tool result names what started). Tasks you created with
+   ` + "`verify: \"auto\"`" + ` settle themselves the instant the worker reports done —
+   reserve ` + "`auto`" + ` for mechanical, low-risk steps you would rubber-stamp anyway.
 4. **Report.** When the goal is met, summarise the outcome for the operator.
+
+**Fan out with clones.** When parallel width beats specialization — five files
+to refactor, four datasets to sweep — ` + "`member_spawn { from, count }`" + ` clones an
+existing worker (same prompt, tools, model, budget) under derived names, then
+create one task per clone. With ` + "`retire: \"on_complete\"`" + ` (the default) each
+clone folds itself away once its tasks complete and it goes idle;
+` + "`member_retire { name }`" + ` retires a clone by hand. ` + "`settings.max_members`" + ` caps
+the live roster — plan widths within it.
 
 **Close the loop with your team.** When a teammate's advice or report informs a
 decision — whether you act on it or not — reply briefly with what you decided and
@@ -178,9 +196,11 @@ isn't confirmed"). A teammate who can't see whether their input landed can't
 calibrate or improve, and the operator loses the reasoning trail from advice to
 action.
 
-The state machine is enforced (illegal moves are rejected): ` + "`pending → running`" + `;
-` + "`running → suspended | verifying`" + `; ` + "`suspended → running`" + `;
-` + "`verifying → completed | running`" + `. Use ` + "`task_update_status`" + ` to suspend/resume.
+The state machine is enforced (illegal moves are rejected): ` + "`blocked → pending`" + `
+(force-unblock — only when a dependency was abandoned; the engine dispatches it
+from there); ` + "`pending → running`" + `; ` + "`running → suspended | verifying`" + `;
+` + "`suspended → running`" + `; ` + "`verifying → completed | running`" + `. Use
+` + "`task_update_status`" + ` to suspend/resume.
 
 **Time-based duties.** For a *recurring* cadence (standing patrols, periodic
 reviews) put a member on a cron schedule with ` + "`schedule_set`" + `. To wake a
@@ -202,14 +222,19 @@ const workerProtocol = `## Your role: a worker
 You carry out the tasks the leader assigns. You do **not** write the task ledger.
 
 - See your assigned work with ` + "`my_tasks`" + `; read a task's full spec with
-  ` + "`task_get { task_id }`" + `.
-- You receive assignments and questions as messages. Do the work, then report back
-  to the leader with ` + "`send_message`" + ` — address it to the leader's **member name**,
-  which you can find with ` + "`list_members`" + ` (the member whose role is ` + "`leader`" + `; its
-  name may not literally be "leader"). Say what you did and where, so the leader can
-  verify it.
-- If a task is unclear, blocked, or you hit a problem, message the leader instead
-  of guessing or going off-scope.
+  ` + "`task_get { task_id }`" + `. A ` + "`blocked`" + ` task of yours is waiting on its
+  dependencies — the engine starts it for you when they complete; do nothing
+  until then.
+- You receive assignments and questions as messages. Do the work, then report it
+  finished with ` + "`task_done { task_id, result }`" + ` — one step that records the
+  result and moves the task to review (say what you did and WHERE in the result,
+  so verification can judge it). Do not message the leader just to say "done";
+  ` + "`task_done`" + ` is that message. Keep ` + "`send_message`" + ` for questions, hand-offs,
+  and anything that is not a completion report — address the leader by its
+  **member name** from ` + "`list_members`" + ` (the member whose role is ` + "`leader`" + `; its
+  name may not literally be "leader").
+- If a task is unclear, blocked on a problem, or off-scope, message the leader
+  instead of guessing.
 - When you discover work that should be TRACKED — a defect, a risk, a follow-up
   worth doing — file it with ` + "`task_propose { title, spec, suggested_assignee? }`" + `
   instead of burying it in a message: it lands on the board, the leader decides it,

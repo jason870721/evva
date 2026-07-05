@@ -1035,6 +1035,19 @@ func (a *Agent) SwitchLLM(provider constant.LLMProvider, model constant.Model) e
 	newProfile := a.profile
 	newProfile.LLMProvider = provider
 	newProfile.LLMModel = model
+	// Re-render the system prompt against the new provider/model — the
+	// environment section carries a "- Model:" line that must not go
+	// stale. Same re-resolve seam as ReloadSkills / the workdir switch; on
+	// failure keep the old prompt (a stale model line beats a dead switch).
+	if a.cfg != nil && a.activePersona != "" {
+		np, perr := resolveMainProfileWithExtra(a.cfg, a.agentRegistry, a.activePersona, a.skillRefs, a.memSnap, baseLLMOptions(a.profile.LLMOptions), provider, model, a.mcpDiscoveredNames(), a.repoMap)
+		if perr == nil {
+			newProfile.SystemPrompt = np.SystemPrompt
+			newProfile.LLMOptions = np.LLMOptions
+		} else {
+			a.logger.Warn("agent: re-render sysprompt on llm switch", "err", perr)
+		}
+	}
 	effortOpts := append(newProfile.LLMOptions, llm.WithEffort(llm.ParseEffort(a.effort)))
 	client, err := buildLLMClient(a.cfg, provider, model, effortOpts)
 	if err != nil {

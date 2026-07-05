@@ -227,14 +227,11 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 			// call. If so, loop one more iteration so the model can
 			// react before we hand control back to the user. Same
 			// safety as the drain at iter start — we're between turns,
-			// every prior assistant tool_calls is answered.
+			// every prior assistant tool_calls is answered. The
+			// assistant turn was already appended above; the next
+			// iteration's drains land the signal as a user message
+			// right after it.
 			if a.hasPendingSignals() {
-				a.session.Append(llm.Message{
-					Role:              llm.RoleAssistant,
-					Content:           resp.Content,
-					Thinking:          resp.Thinking,
-					ThinkingSignature: resp.ThinkingSignature,
-				})
 				a.persistSession()
 				a.logger.Debug("run.continue.pending_signals", "iter", iter)
 				continue

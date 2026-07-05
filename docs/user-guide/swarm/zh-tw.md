@@ -55,8 +55,9 @@ evva 是一個終端程式設計 agent。**Veronica** 是它的 *swarm（蜂群�
 | | Leader（`agents/main/…`） | Worker（`agents/sub/…`） |
 | --- | --- | --- |
 | 負責 | 規劃、派發、驗收 | 幹活、回報 |
-| 任務工具 | `task_create`、`task_assign`、`task_update_status`、`task_verify`、`task_list`、`proposal_list`、`proposal_accept`、`proposal_decline` | `my_tasks`、`task_get`（只讀）、`task_propose`（提案） |
+| 任務工具 | `task_create`（含 `depends_on`／`verify`）、`task_assign`、`task_update_status`、`task_verify`、`task_list`、`proposal_list`、`proposal_accept`、`proposal_decline` | `my_tasks`、`task_get`（只讀）、`task_done`（回報自己的任務完成）、`task_propose`（提案） |
 | 溝通 | `send_message`、`list_members` | `send_message`、`list_members` |
+| 扇出 | `member_spawn`、`member_retire`（臨時分身） | — |
 | 制度沉澱 | `skill_publish`（釋出全隊共享 skill） | —（載入共享 skill，不著作） |
 | 能寫賬本？ | **能**（唯一寫者） | 不能 |
 
@@ -371,10 +372,24 @@ Web 介面（`:8888`）針對每個 space 提供：
   協議，worker 拿到只讀任務工具 + worker 協議。你**永遠不用**在 `system_prompt.md`
   或 `active.yml` 裡宣告這些；你只寫人設。（這就是下面這些機制「開箱即用」、不用你
   教的原因。）
-- **任務賬本（5 狀態）。** leader `task_create` → `task_assign`（轉 `running`，
-  通知 worker）→ worker 幹活並回報 → leader `task_update_status` → `verifying`
-  → `task_verify` 批准（轉 `completed`）或駁回（退回 `running`）。狀態機在 SQLite
-  裡強制執行，非法躍遷會被拒絕。
+- **任務賬本（6 狀態）。** leader `task_create` → `task_assign`（轉 `running`，
+  通知 worker）→ worker 幹活，然後 `task_done {task_id, result}`（轉
+  `verifying`、結果入賬、leader 收到通知）→ `task_verify` 批准（轉 `completed`）
+  或駁回（退回 `running`）。狀態機在 SQLite 裡強制執行，非法躍遷會被拒絕。第六個
+  狀態是 `blocked` —— 見下一條。
+- **動態工作流（任務圖 + 自動派工）。** `task_create` 接受
+  `depends_on: [任務 id]` —— 這種任務出生即 `blocked`，所有前置一完成，**引擎**
+  就自動派工（轉 `running`、通知 assignee），中間零次 leader 喚醒。leader 在
+  一個 run 裡把整條鏈／扇出／匯合圖一次規劃完；每完成一個任務就自動級聯它的
+  後續。逐任務的 `verify: "auto"`（預設 `"leader"`）讓宣告為機械性的步驟在
+  worker 回報 `task_done` 的瞬間直接完成 —— 一條 `auto` 鏈可以無 leader 全程
+  自流。判斷永遠留在 leader 手上：引擎只執行 leader 在建立時就宣告好的結構。
+- **臨時分身（隨需擴充扇出寬度）。** leader 的
+  `member_spawn {from, count, retire?}` 會複製一個既有 worker（同 prompt／
+  工具／模型／預算）成派生名字（`backend-2`、`backend-3`⋯）—— 不寫目錄、不動
+  manifest。`retire: "on_complete"`（預設）讓分身在任務全完成且閒置後自行退場；
+  `member_retire {name}` 手動退。`settings.max_members`（預設 16）封頂在線
+  名單；分身能活過 service 重啟，但全新的 `evva swarm .` 註冊會捨棄它們。
 - **Worker 任務提案（bottom-up 入口）。** worker 發現值得**追蹤**的工作（缺陷、
   風險、值得跟進的線索）時，用 `task_propose {title, spec, suggested_assignee?}`
   把它放上看板，而不是埋在聊天裡。leader 收到通知後用 `proposal_accept`（**一步**
@@ -771,9 +786,10 @@ swarm 的 cron 是自寫的、刻意精簡。五個欄位——`分 時 日 月 
 
 這些會**根據角色自動注入** —— **永遠不要在 `active.yml` 裡列它們**。
 Leader：`task_create`、`task_assign`、`task_update_status`、`task_verify`、
-`task_list`。Worker：`my_tasks`、`task_get`。兩者都有：`send_message`、
-`list_members`。`active.yml` 裡只列成員需要的常規 evva 工具 —— `read`、`write`、
-`edit`、`bash`、`grep`、`glob`、`tree`、`web_fetch`……
+`task_list`、`member_spawn`、`member_retire`。Worker：`my_tasks`、`task_get`、
+`task_done`。兩者都有：`send_message`、`list_members`。`active.yml` 裡只列成員
+需要的常規 evva 工具 —— `read`、`write`、`edit`、`bash`、`grep`、`glob`、
+`tree`、`web_fetch`……
 
 ---
 

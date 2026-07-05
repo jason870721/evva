@@ -452,6 +452,7 @@ func (s *Service) register(id, name string, m agentdef.Manifest, loaded []agentd
 			s.log.Warn("swarm: discard runtime schedules on register failed — stale overrides may apply", "id", id, "err", err)
 		}
 		sp.DiscardRuntimePermModes()
+		sp.DiscardRuntimeSpawned()
 	}
 
 	// Restore any prior on-disk state (transcripts, unread mail, frozen
@@ -1066,6 +1067,11 @@ func (s *Service) Roster(id string) ([]webapi.MemberInfo, bool) {
 		if sch, ok := ent.space.ScheduleFor(v.Name); ok {
 			mi.Cron, mi.SchedulePrompt = sch.Cron, sch.Prompt
 		}
+		// Ephemeral provenance (DWF member_spawn) — the roster pill that says
+		// "this seat is a clone and will fold itself away".
+		if meta, ok := ent.space.SpawnedInfo(v.Name); ok {
+			mi.Ephemeral, mi.SpawnedFrom = true, meta.From
+		}
 		out = append(out, mi)
 	}
 	return out, true
@@ -1076,9 +1082,10 @@ func (s *Service) Roster(id string) ([]webapi.MemberInfo, bool) {
 // the full history is paged on-demand via TasksByStatus (the Completed tab) (RP-6).
 const boardCompletedPreview = 5
 
-// activeStatuses are the four non-terminal states — the board's live columns.
+// activeStatuses are the five non-terminal states — the board's live columns
+// (blocked joined with the DWF task graph).
 func activeStatuses() []store.Status {
-	return []store.Status{store.StatusPending, store.StatusRunning, store.StatusSuspended, store.StatusVerifying}
+	return []store.Status{store.StatusPending, store.StatusBlocked, store.StatusRunning, store.StatusSuspended, store.StatusVerifying}
 }
 
 func toTaskInfo(t store.Task) webapi.TaskInfo {
@@ -1086,6 +1093,7 @@ func toTaskInfo(t store.Task) webapi.TaskInfo {
 		ID: t.ID, Title: t.Title, Spec: t.Spec, Status: string(t.Status),
 		Assignee: t.Assignee, CreatedBy: t.CreatedBy, Result: t.Result,
 		VerifyNote: t.VerifyNote, ParentID: t.ParentID,
+		DependsOn: t.DependsOn, VerifyPolicy: t.VerifyPolicy,
 		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
 }
@@ -1702,8 +1710,9 @@ func (s *Service) SelectableTools() []string {
 		// collaboration tools — role-injected, not in the global registry:
 		"send_message": true, "list_members": true,
 		"task_create": true, "task_assign": true, "task_update_status": true,
-		"task_verify": true, "task_list": true, "my_tasks": true, "task_get": true,
+		"task_verify": true, "task_list": true, "my_tasks": true, "task_get": true, "task_done": true,
 		"schedule_set": true, "schedule_clear": true,
+		"member_spawn": true, "member_retire": true,
 	}
 	var out []string
 	for _, n := range toolset.DefaultRegistry().Names() {
@@ -1925,6 +1934,7 @@ func (s *Service) Metrics(ref string) (webapi.MetricsInfo, bool) {
 		Members:      make(map[string]webapi.MemberMetricsInfo, len(members)),
 	}
 	mi.TasksStale, mi.MailboxStale = sp.WorkflowStaleCounts()
+	mi.AutoDispatches, mi.MembersSpawned, mi.MembersRetired = sp.EngineCounts()
 	if !started.IsZero() {
 		mi.UptimeSecs = int64(time.Since(started).Seconds())
 	}

@@ -510,8 +510,26 @@ func (s *Supervisor) rescanTick(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			s.dispatchDue()
+			s.sweepSpawnedRetire()
 			s.rescanUnread()
 		}
+	}
+}
+
+// dispatchDue runs the DWF engine sweep off the rescan tick: the
+// crash-recovery backstop for graph dispatches whose completion hook never
+// fired, and the eventual path for any engine-managed task left short of
+// running. Idempotent and one cheap query when the graph is quiet — the same
+// philosophy as rescanUnread (DB is truth, the tick converges it).
+func (s *Supervisor) dispatchDue() {
+	ready, err := s.sp.DispatchReady()
+	if err != nil {
+		s.log.Warn("swarm dispatch sweep failed", "err", err)
+		return
+	}
+	for _, t := range ready {
+		s.log.Info("swarm task auto-dispatched", "task", t.ID, "assignee", t.Assignee, "via", "sweep")
 	}
 }
 

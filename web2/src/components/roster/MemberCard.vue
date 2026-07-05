@@ -66,6 +66,7 @@ function permTone(mode: string): 'warning' | 'info' {
       />
       <span class="name"><span class="dot" :style="{ background: agentColor(member.name) }" />{{ member.name }}</span>
       <span class="role" :class="member.role">{{ member.role }}</span>
+      <span v-if="member.ephemeral" class="eph" :title="'ephemeral clone of ' + (member.spawnedFrom || '?') + ' — retires itself when its work completes'">⧉ clone</span>
       <span v-if="busy" class="cspin"><EvSpinner :size="12" /></span>
       <button v-if="!selectMode" class="more" aria-label="member actions" @click.stop="menu = !menu">⋯</button>
     </div>
@@ -197,6 +198,13 @@ function permTone(mode: string): 'warning' | 'info' {
 }
 .role.leader {
   color: var(--color-accent);
+}
+.eph {
+  font-size: var(--fs-xs);
+  color: var(--color-text-faint);
+  border: 1px dotted var(--color-text-faint);
+  border-radius: var(--r-sm);
+  padding: 0 0.25rem;
 }
 .more {
   margin-left: auto;

@@ -116,7 +116,20 @@ type block struct {
 	// thinking block precedes a tool_use in a subsequent turn.
 	Thinking  string `json:"thinking,omitempty"`
 	Signature string `json:"signature,omitempty"`
+	// CacheControl marks this block as a prompt-cache breakpoint. Set only
+	// by applyCacheBreakpoints; never on thinking blocks (the API rejects
+	// that).
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
+
+// cacheControl is Anthropic's prompt-caching marker. The only supported
+// type is "ephemeral" (5-minute TTL, refreshed on every hit).
+type cacheControl struct {
+	Type string `json:"type"`
+}
+
+// ephemeralCache is shared across requests — the marker is immutable.
+var ephemeralCache = &cacheControl{Type: "ephemeral"}
 
 // blockContentItem is one element of a tool_result's content array.
 // Used when a tool returns multimodal content (text + image blocks).
@@ -140,15 +153,19 @@ type apiOutputConfig struct {
 }
 
 type apiTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	InputSchema  json.RawMessage `json:"input_schema"`
+	CacheControl *cacheControl   `json:"cache_control,omitempty"`
 }
 
 type apiRequest struct {
-	Model         string           `json:"model"`
-	Messages      []apiMessage     `json:"messages"`
-	System        string           `json:"system,omitempty"`
+	Model    string       `json:"model"`
+	Messages []apiMessage `json:"messages"`
+	// System is either a plain string (caching disabled) or a []block with a
+	// cache_control marker on its last element (caching enabled). Anthropic
+	// accepts both encodings; nil omits the field.
+	System        any              `json:"system,omitempty"`
 	MaxTokens     int              `json:"max_tokens"`
 	Temperature   *float64         `json:"temperature,omitempty"`
 	TopP          *float64         `json:"top_p,omitempty"`
@@ -184,13 +201,15 @@ func (c *Client) buildRequestBody(messages []llm.Message, toolSet []tools.Tool) 
 	body := apiRequest{
 		Model:         c.model,
 		Messages:      toAPIMessages(messages),
-		System:        c.params.System,
 		MaxTokens:     c.params.MaxTokens,
 		Temperature:   c.params.Temperature,
 		TopP:          c.params.TopP,
 		TopK:          c.params.TopK,
 		StopSequences: c.params.StopSequences,
 		Tools:         toAPITools(toolSet),
+	}
+	if c.params.System != "" {
+		body.System = c.params.System
 	}
 	if body.MaxTokens == 0 {
 		body.MaxTokens = DefaultMaxTokens
@@ -201,7 +220,47 @@ func (c *Client) buildRequestBody(messages []llm.Message, toolSet []tools.Tool) 
 	if effort := anthropicEffort(c.params.Effort); effort != "" {
 		body.OutputConfig = &apiOutputConfig{Effort: effort}
 	}
+	if !c.params.PromptCacheDisabled {
+		applyCacheBreakpoints(&body)
+	}
 	return body
+}
+
+// applyCacheBreakpoints marks the three prompt-cache breakpoints Anthropic
+// needs to reuse work across the agent loop's serial calls (API limit: 4):
+//
+//  1. last tool        — caches every tool schema (they precede system in
+//     the cache hierarchy and change only on deferred-tool discovery);
+//  2. system block     — caches the system prompt (static per session);
+//  3. last block of the last message — the sliding conversation breakpoint.
+//     Call N caches [tools, system, msgs 0..N]; call N+1's prefix matches
+//     that entry exactly, so each iteration re-reads everything before it
+//     at the cached rate and pays full price only for the newest turn.
+//
+// The message breakpoint is never placed on a thinking block (the API
+// rejects cache_control there); in practice the last message of an agent
+// request is a user / tool_result message, so the walk rarely moves.
+//
+// A prefix under the model's minimum cacheable length (1024 tokens) simply
+// doesn't cache — the markers are harmless.
+func applyCacheBreakpoints(body *apiRequest) {
+	if len(body.Tools) > 0 {
+		body.Tools[len(body.Tools)-1].CacheControl = ephemeralCache
+	}
+	if s, ok := body.System.(string); ok && s != "" {
+		body.System = []block{{Type: "text", Text: s, CacheControl: ephemeralCache}}
+	}
+	if len(body.Messages) == 0 {
+		return
+	}
+	last := &body.Messages[len(body.Messages)-1]
+	for i := len(last.Content) - 1; i >= 0; i-- {
+		if last.Content[i].Type == "thinking" {
+			continue
+		}
+		last.Content[i].CacheControl = ephemeralCache
+		return
+	}
 }
 
 func (c *Client) Complete(ctx context.Context, messages []llm.Message, toolSet []tools.Tool) (llm.Response, error) {

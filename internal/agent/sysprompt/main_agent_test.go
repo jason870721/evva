@@ -27,7 +27,7 @@ func TestMainAgent_ContainsAllStaticSections(t *testing.T) {
 	for _, want := range []string{
 		"You are evva, an interactive coding agent for the terminal.",
 		"# Priorities",
-		"# Core Principles",
+		"# Core principles",
 		"# System",
 		"# Doing tasks",
 		"# Executing actions with care",
@@ -36,10 +36,10 @@ func TestMainAgent_ContainsAllStaticSections(t *testing.T) {
 		"# Communicating with the user",
 		"# Environment",
 		"# Session-specific guidance",
-		"# Context Preservation",
+		"# Context preservation",
 		"# Multi-step work",
 		"## Deferred tools and `tool_search`",
-		"When working with tool results, write down any important information",
+		"as the original tool result may be cleared later",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing section/marker %q\nfull:\n%s", want, got)
@@ -59,7 +59,7 @@ func TestMainAgent_SectionOrder(t *testing.T) {
 	}{
 		{"identity", "You are evva,"},
 		{"priorities", "# Priorities"},
-		{"core-principles", "# Core Principles"},
+		{"core-principles", "# Core principles"},
 		{"system", "# System"},
 		{"doing-tasks", "# Doing tasks"},
 		{"actions", "# Executing actions with care"},
@@ -68,7 +68,7 @@ func TestMainAgent_SectionOrder(t *testing.T) {
 		{"communicating", "# Communicating with the user"},
 		{"environment", "# Environment"},
 		{"session-guidance", "# Session-specific guidance"},
-		{"summarize", "When working with tool results"},
+		{"context-preservation", "# Context preservation"},
 		{"multi-step", "# Multi-step work"},
 	}
 
@@ -110,12 +110,25 @@ func TestMainAgent_EnvironmentRendersFields(t *testing.T) {
 	for _, want := range []string{
 		"OS / shell: darwin / zsh",
 		"Working directory: /tmp",
-		"AAP_HOME (global: config, skills, memory): /tmp/.evva",
+		"EVVA_HOME (global: config, skills, memory): /tmp/.evva",
 		"Monday May 18 2026",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing env field %q", want)
 		}
+	}
+}
+
+func TestMainAgent_EnvironmentModelLine(t *testing.T) {
+	ctx := mainCtx()
+	ctx.Model = "claude-sonnet-4-6"
+	got := buildMainPrompt(ctx)
+	if !strings.Contains(got, "- Model: claude-sonnet-4-6") {
+		t.Errorf("expected model line when ctx.Model is set")
+	}
+	// Contract: empty Model skips the line entirely.
+	if strings.Contains(buildMainPrompt(mainCtx()), "- Model:") {
+		t.Errorf("model line must be absent when ctx.Model is empty")
 	}
 }
 
@@ -125,7 +138,7 @@ func TestMainAgent_EnvironmentPlaceholdersForEmptyFields(t *testing.T) {
 	for _, want := range []string{
 		"OS / shell: (unknown) / (unknown)",
 		"Working directory: (unknown)",
-		"AAP_HOME (global: config, skills, memory): (unset)",
+		"EVVA_HOME (global: config, skills, memory): (unset)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing placeholder %q", want)

@@ -40,8 +40,12 @@ func (u Usage) Sub(v Usage) Usage {
 	}
 }
 
-// Total returns InputTokens + OutputTokens. Cache fields are subsets of
-// InputTokens (per Anthropic's accounting), so they are not double-counted.
+// Total returns InputTokens + OutputTokens — the tokens billed at the full
+// input/output rates. NOTE: per Anthropic's accounting the cache fields are
+// DISJOINT from InputTokens (input_tokens covers only the uncached suffix),
+// so Total understates the full prompt size when caching is active; callers
+// that need "how big was the prompt" must add CacheReadTokens +
+// CacheCreationTokens (see session.RecordTurn).
 func (u Usage) Total() int {
 	return u.InputTokens + u.OutputTokens
 }

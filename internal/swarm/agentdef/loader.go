@@ -42,6 +42,11 @@ type Loaded struct {
 	// (RP-29): no disk dir was read; the space resolves the def from its
 	// persona registry at assembly time.
 	FromPersona bool
+	// PersonaSource names the registry persona to resolve when it differs
+	// from Def.Name — set only on ephemeral clones of persona members (DWF):
+	// the clone registers under its own name but composes from the base
+	// persona. Empty means "resolve Def.Name" (every non-clone).
+	PersonaSource string
 }
 
 // Warning is a non-fatal load issue (e.g. a malformed SKILL.md). Surfaced by
