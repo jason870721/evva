@@ -13,6 +13,7 @@ user documentation (see [../user-guide/](../user-guide/README.md) for that).
 | Area | What |
 |---|---|
 | [overview.md](overview.md) | **Progress tracker** — status of every PRD (shipped / beta / proposed) across the whole roadmap tree. Start here if you're unsure what's done. Refresh at each release. |
+| [long-range.md](long-range.md) | **Direction — 2026 H2 → 2028.** 19 waves across 5 horizons (TUI excellence, interop, Swarm 2.0, platform/v2.0), the ARC refactor track, new explore spikes, dependency graph. Concept PRDs it spawned live in [PRD/](PRD/) marked "long-range concept draft" — each needs a live-source audit before build. |
 | [roadmap_healthcheck.md](roadmap_healthcheck.md) | Codebase + design-gap audit (must-have vs nice-to-have). |
 | [v1/](v1/) | Phase plans for the v1.x line — hooks, OpenAI provider, MCP, bundled skills, config tool. |
 | [design/](design/) | Subsystem designs — agent runtime, daemon model, task ledger, LSP, fs-edit gate parity. |

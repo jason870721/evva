@@ -69,6 +69,26 @@ in a `-beta.N` on `pre-release`, not yet promoted) · ⚠️ Anomaly (wave claim
 in CLAUDE.md, no implementation) · 📝 Proposed (PRD written, no wave claimed,
 no code).
 
+**Plus 32 long-range concept PRDs** (added 2026-07-06 by the
+[long-range.md](long-range.md) planning pass, in two batches, not
+duplicated as rows here until they claim waves):
+
+- *Backbone (W1–W19):* secret-redaction, context-engine,
+  memory-semantic-recall, session-tree, steering-v2, model-routing,
+  vision-completion, acp-editor-integration, ci-headless-runner,
+  browser-tools, swarm-federation, swarm-leader-takeover, workflow-scripts,
+  gardener, persona-ecosystem, arch-v2.
+- *Batch 2 (W20–W35):* onboarding-doctor, swarm-templates, diff-review-ui,
+  plan-mode-v2, test-watch-loop, git-intelligence, provider-expansion,
+  batch-api-background, treesitter-code-intel, multi-root-workspaces,
+  dap-debugger, replay-lab, human-in-the-swarm, swarm-retrospective,
+  audit-trail, chat-bridges.
+
+All carry `Status: long-range concept draft` — **not audited against live
+source**; per the concept → build gate in long-range §8, each needs an
+audit pass before implementation. Full sequencing lives in long-range §3
+(backbone) and §3b (batch 2).
+
 ---
 
 ## 3. Veronica — multi-agent swarm project (`docs/roadmap/veronica/`)
@@ -115,7 +135,8 @@ Everything with no code yet, grouped by what it needs from the operator:
 - **Old, non-swarm, never slotted** (all "proposed since v1.6-ish", all still small/self-contained): `edit-diagnostics-sync.md`, `output-styles.md`, `structured-output-tool.md`.
 - **Swarm v1.11+ candidates** (all from the 2026-07-04/05 design review, none claim a minor yet): `swarm-blackboard.md`, `swarm-cost-accounting.md`, `swarm-doctor.md`, `swarm-outbound-notifications.md`, `swarm-tui-attach.md`, `swarm-verify-checks.md`.
 - **New this session** (2026-07-06, researched against current industry trends — see each PRD's header for prior-art citations): `sandbox-isolation.md`, `mcp-server-mode.md`, `agent-eval-harness.md`.
-- **Un-graduated explore spikes** (no PRD at all yet, just a hypothesis): EX-2 (remote persona), EX-3 (leader takeover), EX-4 (replay/eval harness — note the new `agent-eval-harness.md` generalizes this; see its own header for the boundary), EX-5 (wake jitter).
+- **Un-graduated explore spikes** (no PRD at all yet, just a hypothesis): EX-2 (remote persona — graduation path now drafted as `swarm-federation.md`), EX-3 (leader takeover — graduation path now drafted as `swarm-leader-takeover.md`), EX-4 (replay/eval harness — note the new `agent-eval-harness.md` generalizes this; see its own header for the boundary), EX-5 (wake jitter).
+- **Long-range concept PRDs** (2026-07-06, 16 files — see the note under §2 and [long-range.md](long-range.md) §3 for the full sequenced list): concept-grade drafts for horizons W3–W19; each requires a live-source audit pass before build.
 
 None of the above has claimed a wave/minor. Per `CLAUDE.md`, that happens at
 planning time when an operator picks it up — this document doesn't presume
