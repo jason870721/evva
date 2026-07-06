@@ -61,6 +61,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 		a.checkpoints.Begin(len(a.session.Messages), a.session.GetFullCompactCount(), prompt)
 	}
 
+	// Each Run's structured-output result reflects that run alone: clear any
+	// prior run's captured payload. Continue() deliberately skips this — an
+	// iter-limit resume keeps capturing into the same turn.
+	a.resetStructured()
+
 	// Inject any plan-mode reminders before the user's prompt lands so
 	// the model sees them framed correctly relative to the input — the
 	// reminder explains the current mode, the user's text comes next.
@@ -259,7 +264,16 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 			// Persist before the terminal return so the final assistant
 			// turn lands on disk. Subagent guard lives inside the helper.
 			a.persistSession()
-			return a.done(iter, resp), nil // break loop.
+			out := a.done(iter, resp)
+			// Structured mode was armed but the model ended its turn without
+			// calling structured_output: return the prose WITH
+			// ErrNoStructuredOutput so the caller can tell "got JSON" from
+			// "model declined the channel" — never prose masquerading as the
+			// requested contract.
+			if _, captured := a.structuredResult(); a.structuredArmed() && !captured {
+				return out, ErrNoStructuredOutput
+			}
+			return out, nil // break loop.
 		}
 
 		// Dispatch every tool call from this turn in parallel. Tool results
@@ -284,6 +298,17 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 		// Iteration boundary: persist the post-tool-result state so a
 		// crash before the next LLM call doesn't lose this round-trip.
 		a.persistSession()
+
+		// structured_output was called in this batch: the captured payload
+		// IS the final answer — return it without another LLM turn (the
+		// structured analog of the no-tool-calls exit above). The RoleTool
+		// result is already appended, so the persisted transcript stays
+		// well-formed. An IsError'd structured_output call never captures,
+		// so the loop naturally continues and the model may retry.
+		if payload, ok := a.structuredResult(); ok && toolErr == nil {
+			a.logger.Debug("run.end.structured", "iter", iter, "payload_bytes", len(payload))
+			return a.done(iter, llm.Response{Content: payload, Usage: resp.Usage}), nil
+		}
 
 		a.logger.Debug("turn.end",
 			"iter", iter,

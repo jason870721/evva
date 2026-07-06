@@ -1036,6 +1036,7 @@ evva -permission-mode=plan          # boot in plan mode (read-only)
 evva -permission-mode=bypass        # boot with the gate disabled
 evva -no-tui "explain loop.go"      # one-shot plain-text mode
 echo "list files in /tmp" | evva -no-tui   # piped prompt
+evva -no-tui -output-schema s.json "find bugs"  # headless run, final answer as JSON
 ```
 
 ---
@@ -1045,6 +1046,28 @@ echo "list files in /tmp" | evva -no-tui   # piped prompt
 **Interactive TUI** (default when stdout is a TTY). Transcript, panels, status bar, the works.
 
 **Plain CLI** (`-no-tui`, or when stdout is piped). One-shot flow: read a prompt from args/stdin → run the agent → stream events as plain text → exit. CLI mode has no interactive approval surface — any call that would prompt is **denied automatically** with a hint to pass `-permission-mode=bypass` or add a rule to `permissions.json`. Useful for scripts and CI.
+
+**Structured output** (`-output-schema <file.json>`, CLI mode only). Supply a
+JSON-Schema file and the run's final answer comes back as JSON matching it
+instead of prose: the agent gets a one-off `structured_output` tool whose input
+schema is your schema, and the run ends the moment the model calls it. The
+event trace moves to stderr so **stdout carries exactly one thing — the final
+JSON** — piping into `jq` just works:
+
+```bash
+cat > /tmp/verdict.json <<'EOF'
+{"type":"object","required":["summary","ok"],
+ "properties":{"summary":{"type":"string"},"ok":{"type":"boolean"}}}
+EOF
+evva -no-tui -permission-mode=bypass -output-schema /tmp/verdict.json \
+  "run the test suite and report" | jq .ok
+```
+
+If the model answers in prose instead of calling the tool, evva exits non-zero
+with `run ended without structured output` and stdout stays empty — a script
+never mistakes prose for the contract. The flag is ignored (with a warning) in
+TUI mode. SDK hosts get the same feature via `agent.WithStructuredOutput`
+(§13).
 
 ---
 
@@ -1123,6 +1146,29 @@ PermissionMode: "bypass"})`, then call `ag.Run(ctx, "your prompt")`. With
 no sink the agent auto-denies approvals (so a request never hangs);
 `"bypass"` auto-allows for trusted/CI runs.
 
+Need the answer as data instead of prose? Arm the run with a JSON schema —
+`Run` then returns validated JSON you can unmarshal directly:
+
+```go
+schema := json.RawMessage(`{"type":"object","required":["bugs"],
+    "properties":{"bugs":{"type":"array","items":{"type":"string"}}}}`)
+
+ag, _ := agent.New(agent.Config{AppConfig: cfg, PermissionMode: "bypass"},
+    agent.WithStructuredOutput(schema))
+
+out, err := ag.Run(ctx, "find bugs in ./pkg/foo")
+if errors.Is(err, agent.ErrNoStructuredOutput) {
+    // model answered in prose; out holds the prose — retry or fall back
+}
+var v struct{ Bugs []string `json:"bugs"` }
+_ = json.Unmarshal([]byte(out), &v)
+```
+
+The model sees a one-off `structured_output` tool whose input schema is your
+schema (schema-enforcing providers constrain the payload server-side) and the
+run terminates on the first call to it. Headless-only: don't combine it with
+an interactive UI.
+
 ### Extension points at a glance
 
 Every piece is swappable through a `pkg/*` seam:
@@ -1131,6 +1177,7 @@ Every piece is swappable through a `pkg/*` seam:
 | --- | --- |
 | Add an LLM provider | Register a factory on `llm.DefaultRegistry()`; your `llm.Client` satisfies `Name` / `Model` / `SupportsDeferLoading` / `Complete` / `Stream` / `Apply`. |
 | Add a tool | Implement `tools.Tool`; pass `agent.WithCustomTool(name, factory)` or register on `toolset.DefaultRegistry()`. |
+| Get the final answer as JSON | `agent.WithStructuredOutput(schema)` (headless only); `Run` returns the payload, `errors.Is(err, agent.ErrNoStructuredOutput)` detects a declined contract. |
 | Add a persona | `agent.BuildAgentRegistry` + `reg.Register(agent.AgentDefinition{...})` (or drop files under `<AppHome>/agents/<name>/`); pass `Config.Personas` + `Config.Persona`. Drives `/profile` and subagents. |
 | Control approvals | `Config.PermissionMode`, `Config.PermissionStore`, or a custom `agent.WithPermissionBroker` (build with `permission.NewBroker` + `SetOnRequest`). |
 | Build a custom UI | Implement `ui.UI`; drive the agent through the fully-public `ui.Controller`. Or embed `pkg/ui/bubbletea`. |

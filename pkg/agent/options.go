@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 
 	agent_impl "github.com/johnny1110/evva/internal/agent"
 	"github.com/johnny1110/evva/pkg/config"
@@ -68,6 +69,26 @@ func WithStream(stream bool) Option {
 // it.
 func WithCustomTool(name tools.ToolName, factory pubtoolset.ToolFactory) Option {
 	return agent_impl.WithCustomTool(name, factory)
+}
+
+// WithStructuredOutput makes the agent expose a one-off structured_output
+// tool whose input schema is schema (a JSON-Schema object), and makes Run
+// return the model's structured payload as a JSON string instead of prose.
+// The schema goes to the provider as the tool's input schema, so
+// schema-enforcing providers (Anthropic, OpenAI) constrain the payload
+// server-side; a light required-keys check backs the rest.
+//
+// The run terminates as soon as the model calls the tool. When the model
+// ends the run without calling it, Run returns the prose answer together
+// with ErrNoStructuredOutput so the caller can tell the two apart.
+//
+// Headless-only: pair it with a non-interactive host (cmd/evva wires it
+// exclusively behind -no-tui via --output-schema). Do not combine it with
+// an interactive UI — the JSON payload becomes the run's final message.
+// An invalid schema disarms the feature with a logged warning; the agent
+// still constructs and runs normally.
+func WithStructuredOutput(schema json.RawMessage) Option {
+	return agent_impl.WithStructuredOutput(schema)
 }
 
 // WithRootContext installs the agent-lifetime context. The signal pump

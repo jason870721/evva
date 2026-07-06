@@ -1,11 +1,54 @@
 # PRD — StructuredOutput Tool — Implementation Plan
 
 > **Audience:** senior engineers implementing this phase.
-> **Status:** proposed; ready to build after roadmap slotting.
-> **Target release:** TBD (proposed `v1.6+` candidate; small, SDK-facing).
+> **Status:** ✅ IMPLEMENTED on `feature/structured-output-tool` (2026-07-06);
+> see §0 for the as-built deltas.
+> **Target release:** rides the weekend v1.10.x patch batch (no wave→minor
+> claim — small, self-contained, within-wave).
 > **Roadmap source:** `CLAUDE.md` → State of v1.0.0 (the SDK v2 surface +
 > "separate-module host proof") — this completes the headless/SDK story.
 > **Reference source:** `ref/src/tools/SyntheticOutputTool/SyntheticOutputTool.ts`.
+
+---
+
+## 0. As-built (2026-07-06)
+
+Implemented as specified, with three deliberate deltas:
+
+1. **The headless gate is structural, not a threaded flag.** The PRD's
+   Task 3.1 proposed threading a `NonInteractive` boolean into agent
+   construction. As built, `WithStructuredOutput` itself is the single
+   opt-in: no static profile ever lists the tool, `activeToolNames` appends
+   it only when a schema is armed (surviving every active-set rebuild, the
+   custom-tools precedent), and cmd/evva honors `--output-schema`
+   exclusively on the `runCLI` path (TUI mode warns and ignores it). A
+   second "am I interactive" source of truth — which §2.1 itself warned
+   about — never exists; an interactive evva session structurally cannot
+   grow the tool. SDK hosts that attach a UI *and* pass the option are
+   documented as unsupported rather than runtime-detected.
+2. **Registration is a ToolState-backed builtin, not a post-Build append.**
+   Instead of appending a live instance after tools are built (Task 3.2),
+   the factory registers in `internal/toolset/builtins.go` like every other
+   builtin, reading the per-agent schema + sink from two new `ToolState`
+   slots (`SetStructuredOutput`, mirroring `SetCheckpointSink`). Auditing
+   the tool surface stays "read builtins.go"; A7 holds because only the
+   armed agent's active list ever contains the name.
+3. **CLI stdout hygiene.** `--output-schema` also moves the cliSink event
+   trace to stderr, so stdout carries exactly the final JSON payload —
+   `evva -no-tui --output-schema s.json "…" | jq .` works without filtering.
+   An invalid schema file exits 2 before the agent boots; a prose-ending run
+   exits non-zero with empty stdout (never prose masquerading as contract).
+
+Everything else — the `Sink`/`SinkLookup` controller idiom, the verbatim
+prompt port, light validation (object + top-level `required` keys),
+`ErrNoStructuredOutput` (§5.5), per-Run capture reset, the
+`ReadOnlyOrSelfTools` permission entry, `pkg/tools/structured` at the
+Experimental tier — landed as written. Tests: 7 tool-level + 6 agent-level
+(scripted `llm.Client`) covering A1–A8 + §5.5; full suite green, `-race`
+clean, `GOOS=windows` build/vet clean. One extra touchpoint the PRD missed:
+`internal/agent/sysprompt/disk_tools_guide.go` has a guard test requiring a
+guideline line for every builtin — added one (the tool never appears in a
+disk persona's tools.yml, but the catalog must stay total).
 
 ---
 

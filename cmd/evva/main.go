@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -87,6 +88,7 @@ func main() {
 	noTUI := flag.Bool("no-tui", false, "disable the interactive TUI; read a prompt and run once with plain CLI output")
 	tuiName := flag.String("tui", "bubbletea", "interactive UI to use (available: "+strings.Join(ui.Names(), ", ")+")")
 	permModeFlag := flag.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
+	outputSchema := flag.String("output-schema", "", "headless only: path to a JSON-Schema file; the run's final answer is printed to stdout as JSON matching it (progress goes to stderr)")
 	flag.Parse()
 
 	// First-session notice for auto-memory: no MEMORY.md index yet. Quiet
@@ -128,10 +130,16 @@ func main() {
 
 	useTUI := !*noTUI && isTTY(os.Stdout)
 	if useTUI {
+		// Structured output is headless-only (see agent.WithStructuredOutput):
+		// the flag is honored exclusively on the runCLI path below, so an
+		// interactive session can never grow the structured_output tool.
+		if *outputSchema != "" {
+			fmt.Fprintln(os.Stderr, "evva: --output-schema is headless-only; ignored in TUI mode (add -no-tui or pipe stdout)")
+		}
 		runTUI(ctx, acfg, cfg.AppHome, *tuiName)
 		return
 	}
-	runCLI(ctx, acfg)
+	runCLI(ctx, acfg, *outputSchema)
 }
 
 // runTUI is the interactive path. The selected UI owns the screen; the
@@ -176,23 +184,46 @@ func runTUI(ctx context.Context, acfg agent.Config, evvaHome, tuiName string) {
 // Preserves the original behavior: read prompt → run → stream events as
 // plain text → exit. ErrIterLimit triggers a synchronous "press Enter to
 // continue" prompt on stderr.
-func runCLI(ctx context.Context, acfg agent.Config) {
+//
+// schemaPath, when non-empty (--output-schema), arms structured-output
+// mode: the event trace moves to stderr so stdout carries exactly one
+// thing — the final JSON payload — and `evva -no-tui --output-schema s.json
+// -p "..." | jq .` just works.
+func runCLI(ctx context.Context, acfg agent.Config, schemaPath string) {
 	prompt, err := readPrompt(flag.Args())
 	if err != nil {
 		exitf(2, "evva: %v", err)
 	}
 	if prompt == "" {
-		exitf(2, "usage: evva [-temp 0.7] [-max-tokens N] [-max-iters N] [-no-tui] [-permission-mode default|accept_edits|plan|bypass] <prompt>")
+		exitf(2, "usage: evva [-temp 0.7] [-max-tokens N] [-max-iters N] [-no-tui] [-permission-mode default|accept_edits|plan|bypass] [-output-schema file.json] <prompt>")
+	}
+
+	var extraOpts []agent.Option
+	if schemaPath != "" {
+		raw, rerr := os.ReadFile(schemaPath)
+		if rerr != nil {
+			exitf(2, "evva: --output-schema: %v", rerr)
+		}
+		if !json.Valid(raw) {
+			exitf(2, "evva: --output-schema: %s is not valid JSON", schemaPath)
+		}
+		extraOpts = append(extraOpts, agent.WithStructuredOutput(raw))
 	}
 
 	// CLI mode has no interactive surface. The agent emits approval /
 	// question requests to the sink; cliSink resolves them headlessly
 	// (deny / empty) through the Controller so scripts fail fast instead
 	// of hanging on a phantom prompt.
-	sink := &cliSink{out: os.Stdout}
+	traceOut := io.Writer(os.Stdout)
+	if schemaPath != "" {
+		traceOut = os.Stderr
+	}
+	sink := &cliSink{out: traceOut}
 	ag, err := agent.New(acfg,
-		agent.WithSink(sink),
-		agent.WithRootContext(ctx),
+		append([]agent.Option{
+			agent.WithSink(sink),
+			agent.WithRootContext(ctx),
+		}, extraOpts...)...,
 	)
 	if err != nil {
 		exitf(1, "evva: %v", err)
@@ -218,9 +249,18 @@ func runCLI(ctx context.Context, acfg agent.Config) {
 			fmt.Fprintln(os.Stderr, "\ninterrupted")
 			os.Exit(130)
 		}
+		// ErrNoStructuredOutput lands here too: the model answered in prose
+		// (already on stderr via the trace) instead of calling
+		// structured_output — stdout stays empty so a consumer parsing it
+		// never mistakes prose for the contract.
 		exitf(1, "evva: %v", err)
 	}
 
+	if schemaPath != "" {
+		// Structured mode: stdout carries exactly the captured JSON payload.
+		fmt.Println(resp)
+		return
+	}
 	_ = resp
 }
 

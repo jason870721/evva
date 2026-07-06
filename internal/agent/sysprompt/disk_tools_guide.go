@@ -97,6 +97,11 @@ var toolGuidelines = map[tools.ToolName]string{
 	// MCP.
 	tools.LIST_MCP_RESOURCES: "List the resources exposed by configured MCP servers.",
 	tools.READ_MCP_RESOURCE:  "Read one MCP resource by server name and URI.",
+
+	// Structured output (headless-only; registered dynamically per run, never
+	// in a disk persona's tools.yml — the entry exists for the guard test and
+	// for the rare host that arms an SDK persona with a schema).
+	tools.STRUCTURED_OUTPUT: "Return your final answer by calling this tool exactly once with JSON matching its schema — never as plain text.",
 }
 
 // toolGuideOrder fixes the rendering order of the per-tool lines, grouped by
@@ -114,6 +119,7 @@ var toolGuideOrder = []tools.ToolName{
 	tools.CRON_CREATE, tools.CRON_LIST, tools.CRON_DELETE, tools.REMOTE_TRIGGER,
 	tools.ALARM_CREATE, tools.ALARM_LIST, tools.ALARM_CANCEL, tools.SCHEDULE_WAKEUP,
 	tools.LIST_MCP_RESOURCES, tools.READ_MCP_RESOURCE,
+	tools.STRUCTURED_OUTPUT,
 }
 
 // untrustedContentProtocolLine is the model-side half of the RP-21

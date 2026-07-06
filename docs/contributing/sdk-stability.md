@@ -50,6 +50,7 @@ specific minor version and watch the changelog before upgrading.
 | `pkg/tools/kits` | Phase 19d ships four kits (GeneralPurpose / ReadOnly / Coding / Research); the exact membership of each kit may grow as new tool families land. The named-kit pattern itself is stable. |
 | `pkg/hooks` | Lifecycle hook engine (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / Notification). The event set and payload shapes follow Claude Code's settings-file contract; the Go surface (`Registry`, `Dispatcher`, `BasePayload`, `WithHookRegistry`) may flex as downstream consumers exercise it. |
 | `pkg/mcp` | MCP client (Model Context Protocol) — `Manager`, `ServerConfig`, `Open`/`Load`, the OAuth bridge, and result conversion. Wraps the official `modelcontextprotocol/go-sdk` for the protocol layer. Surface may flex as downstream usage exercises edge cases (transport quirks, OAuth token persistence, result-type expansion). |
+| `pkg/tools/structured` | The `structured_output` tool behind `agent.WithStructuredOutput` (headless typed final answers). The option + `ErrNoStructuredOutput` live in Stable `pkg/agent`; this package's `Sink`/`SinkLookup` seam may flex if multi-payload or streamed structured output ever lands. |
 
 ### Internal helper
 

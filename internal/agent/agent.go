@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -175,6 +176,20 @@ type Agent struct {
 	// appended to ActiveTools before toolset.Build runs. Idempotent across
 	// agent constructions — a duplicate registration is a no-op.
 	customTools []customToolEntry
+
+	// structuredSchema, when non-nil (WithStructuredOutput), arms
+	// structured-output mode: activeToolNames appends STRUCTURED_OUTPUT to
+	// the active set, the agent installs itself as the capture sink, and the
+	// loop terminates the run when a payload lands. structuredSchemaErr
+	// carries an invalid-schema diagnosis from the option to New's logger
+	// (the option runs before the logger exists). The payload fields are
+	// written by tool-dispatch goroutines and read by the loop, hence the
+	// mutex. See internal/agent/structured.go.
+	structuredSchema    json.RawMessage
+	structuredSchemaErr error
+	structuredMu        sync.Mutex
+	structuredPayload   json.RawMessage
+	structuredSet       bool
 
 	// permissionStore + permissionBroker are shared instances. permissionStore
 	// holds project/user/session rules; permissionBroker brokers the
@@ -486,6 +501,18 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 	// byte-identical) when EnableRepoMap is off.
 	a.buildRepoMap(lgr)
 
+	// Structured-output mode (WithStructuredOutput): install the schema and
+	// the agent itself as capture sink on the ToolState BEFORE toolset.Build
+	// so the structured_output factory sees them; activeToolNames appends
+	// the tool's name. An invalid schema disarms the feature with a warning
+	// — never a half-registered broken tool.
+	if a.structuredSchemaErr != nil {
+		lgr.Warn("agent: structured output disabled", "err", a.structuredSchemaErr)
+	}
+	if a.structuredArmed() {
+		a.toolState.SetStructuredOutput(a.structuredSchema, a)
+	}
+
 	// Register any custom tools the caller staged via WithCustomTool, and
 	// extend the profile's active list so they show up to the LLM. Duplicate
 	// registrations are silently absorbed — agents constructed back-to-back
@@ -748,7 +775,7 @@ func (a *Agent) SetLLMTopP(v *float64) error {
 // injected tools — e.g. a swarm member losing its task_*/send_message tools
 // after a restart-resume, leaving it deadlocked with only its profile tools.
 func (a *Agent) activeToolNames(base []tools.ToolName) ([]tools.ToolName, error) {
-	if len(a.customTools) == 0 {
+	if len(a.customTools) == 0 && !a.structuredArmed() {
 		return base, nil
 	}
 	reg := pubtoolset.DefaultRegistry()
@@ -760,6 +787,15 @@ func (a *Agent) activeToolNames(base []tools.ToolName) ([]tools.ToolName, error)
 			}
 		}
 		out = append(out, ct.name)
+	}
+	// Structured-output mode: the tool rides the active set the same way
+	// custom tools do — merged on every rebuild — so a SwitchProfile /
+	// ResumeSnapshot / SwitchWorkdir never drops the output channel. The
+	// factory is a builtin (internal/toolset/builtins.go); no static
+	// profile ever lists the name, so the append here is the ONLY way it
+	// enters an active set.
+	if a.structuredArmed() {
+		out = append(out, tools.STRUCTURED_OUTPUT)
 	}
 	return out, nil
 }

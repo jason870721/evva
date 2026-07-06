@@ -21,6 +21,7 @@ package toolset
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -38,6 +39,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/fs"
 	"github.com/johnny1110/evva/pkg/tools/lsp"
+	"github.com/johnny1110/evva/pkg/tools/structured"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 )
@@ -110,6 +112,14 @@ type ToolState struct {
 	// internal/agent (no cycle). Filled by SetSignalSender; consumed by
 	// the DaemonHost methods below.
 	signalSender SignalSender
+
+	// structuredSchema + structuredSink back the structured_output tool.
+	// Both are set together by the agent (SetStructuredOutput) before
+	// toolset.Build runs, and only when the host opted in via
+	// agent.WithStructuredOutput — nil otherwise, and the tool is then
+	// never in any active list to be built.
+	structuredSchema json.RawMessage
+	structuredSink   structured.Sink
 
 	// alarmScheduler backs the alarm_create / alarm_list / alarm_cancel tools.
 	// Lazy-allocated on first AlarmScheduler() access; its fire callback
@@ -274,6 +284,29 @@ func (s *ToolState) LSPSyncSink() fs.LSPSyncSink {
 // skip the notification entirely — when LSP is off.
 func (s *ToolState) SetLSPSyncSink(sink fs.LSPSyncSink) {
 	s.lspSyncSink = sink
+}
+
+// SetStructuredOutput installs the caller schema + capture sink the
+// structured_output tool builds against. The agent calls this exactly once,
+// before toolset.Build, and only when the host opted in via
+// agent.WithStructuredOutput — both stay nil otherwise, and the tool is
+// never appended to the active list to be built.
+func (s *ToolState) SetStructuredOutput(schema json.RawMessage, sink structured.Sink) {
+	s.structuredSchema = schema
+	s.structuredSink = sink
+}
+
+// StructuredSchema returns the caller-supplied structured-output schema, or
+// nil when the feature is off for this agent.
+func (s *ToolState) StructuredSchema() json.RawMessage {
+	return s.structuredSchema
+}
+
+// StructuredSink returns the structured-output capture sink, or nil. Used as
+// the late-bound lookup passed into structured.New so the tool reads the
+// agent at Execute time (mirrors PlanController).
+func (s *ToolState) StructuredSink() structured.Sink {
+	return s.structuredSink
 }
 
 // HasWakeupQueue reports whether a WakeupQueue has already been allocated.

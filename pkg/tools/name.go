@@ -166,4 +166,11 @@ const (
 	// Active on the Main profile; subagents don't get it. Permission posture:
 	// auto-allow on read, ask on write (see pkg/permission.Decide).
 	CONFIG ToolName = "config"
+
+	// STRUCTURED_OUTPUT — return the run's final answer as JSON matching a
+	// caller-supplied schema (pkg/tools/structured). Registered dynamically,
+	// per agent, only when the host passes agent.WithStructuredOutput — it
+	// must NEVER be added to a static profile's Active/Deferred lists, or it
+	// would leak into interactive sessions where it has no meaning.
+	STRUCTURED_OUTPUT ToolName = "structured_output"
 )

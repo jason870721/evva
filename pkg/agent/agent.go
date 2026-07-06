@@ -21,6 +21,13 @@ import (
 // pkg-only host can errors.Is against it.
 var ErrIterLimit = agent_impl.ErrIterLimit
 
+// ErrNoStructuredOutput is returned by Run / Continue when the agent was
+// armed with WithStructuredOutput but the model ended the run without
+// calling the structured_output tool. The returned string is the model's
+// prose answer — the structured contract was NOT met. Re-exported so a
+// pkg-only host can errors.Is against it.
+var ErrNoStructuredOutput = agent_impl.ErrNoStructuredOutput
+
 // Config is the declarative input for the one-call constructor New. Every
 // field is optional: an empty Config builds the bundled "evva" persona against
 // the process-wide config (config.Get()). Imperative extras — an event sink, a

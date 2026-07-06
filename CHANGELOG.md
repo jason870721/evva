@@ -31,6 +31,23 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   `DiagnosticsForFile`; `pkg/tools/fs` gains the `LSPSyncSink` interface
   (mirrors `CheckpointSink`'s nil-safe injection shape). PRD:
   `docs/roadmap/PRD/edit-diagnostics-sync.md`.
+- **Structured output for headless runs** (`docs/roadmap/PRD/structured-output-tool.md`).
+  An SDK/CLI caller can supply a JSON schema and receive the agent's final
+  answer as JSON matching it, instead of scraping prose:
+  - `agent.WithStructuredOutput(schema)` (new `pkg/agent` option) registers a
+    one-off `structured_output` tool whose input schema IS the caller schema —
+    schema-enforcing providers constrain the payload server-side, a light
+    required-keys check covers the rest. The run terminates the moment the
+    model calls the tool; `Run` returns the captured JSON. If the model ends
+    in prose instead, `Run` returns the prose plus the new
+    `agent.ErrNoStructuredOutput` so callers can tell the two apart.
+  - `evva -no-tui --output-schema <file.json> "<prompt>"` wires the same thing
+    from the CLI: the event trace moves to stderr and stdout carries exactly
+    one thing — the final JSON — so piping into `jq` just works.
+  - Absent by default and headless-only: no static profile lists the tool, the
+    TUI path ignores the flag with a warning, and an interactive session can
+    never grow the tool. New `pkg/tools/structured` package (Experimental
+    tier); capture rides the same controller idiom as plan mode.
 
 ## [v1.10.0-beta.1] — 2026-07-05
 

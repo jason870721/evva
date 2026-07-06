@@ -20,6 +20,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/notebook"
 	"github.com/johnny1110/evva/pkg/tools/repl"
 	"github.com/johnny1110/evva/pkg/tools/shell"
+	"github.com/johnny1110/evva/pkg/tools/structured"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/tools/util"
 	"github.com/johnny1110/evva/pkg/tools/web"
@@ -144,6 +145,16 @@ func init() {
 		return mode.NewList(ts.WorktreeController, ts.DaemonState()), nil
 	})
 	r.MustRegister(tools.NOTEBOOK_EDIT, func(tools.State) (tools.Tool, error) { return notebook.Edit, nil })
+
+	// --- structured_output (headless typed final answer) ---
+	// NOT in any static profile: the agent appends the name to its active
+	// set only when the host opted in via agent.WithStructuredOutput (which
+	// also installs the schema + sink on ToolState before Build). Keep it
+	// out of Active/DeferredTools lists — see the constant's doc comment.
+	r.MustRegister(tools.STRUCTURED_OUTPUT, func(s tools.State) (tools.Tool, error) {
+		ts := s.(*ToolState)
+		return structured.New(ts.StructuredSchema(), ts.StructuredSink), nil
+	})
 
 	// --- lsp (semantic code intelligence) ---
 	r.MustRegister(tools.LSP_REQUEST, func(s tools.State) (tools.Tool, error) {

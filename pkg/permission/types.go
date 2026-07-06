@@ -282,6 +282,10 @@ var ReadOnlyOrSelfTools = map[string]bool{
 	"lsp_request": true,
 	// repo map — read-only LSP/glob queries, same posture as lsp_request
 	"repo_map": true,
+	// structured_output — hands the final answer back to the host as JSON.
+	// Pure data return, no filesystem/shell side effects; headless-only by
+	// registration (agent.WithStructuredOutput), so it must never prompt.
+	"structured_output": true,
 }
 
 // AcceptEditsAutoAllow is the set of tools auto-allowed in addition to

@@ -1012,6 +1012,7 @@ evva -permission-mode=plan          # 以 plan 模式啟動（唯讀）
 evva -permission-mode=bypass        # 以關閉權限閘門啟動
 evva -no-tui "explain loop.go"      # 單次純文字模式
 echo "list files in /tmp" | evva -no-tui   # 管線輸入提示
+evva -no-tui -output-schema s.json "find bugs"  # headless 執行，最終答案輸出為 JSON
 ```
 
 ---
@@ -1021,6 +1022,26 @@ echo "list files in /tmp" | evva -no-tui   # 管線輸入提示
 **互動式 TUI**（stdout 為 TTY 時預設）。包含對話紀錄、面板、狀態列等完整功能。
 
 **純文字 CLI**（`-no-tui`，或 stdout 被管線重定向時）。單次流程：從參數/stdin 讀取提示 → 執行代理 → 以純文字串流事件 → 退出。CLI 模式沒有互動式核准介面——任何需要提示的呼叫都會**自動拒絕**，並提示可傳入 `-permission-mode=bypass` 或在 `permissions.json` 中新增規則。適用於腳本與 CI 環境。
+
+**結構化輸出**（`-output-schema <file.json>`，僅限 CLI 模式）。提供一個
+JSON-Schema 檔案，本次執行的最終答案就會以符合該 schema 的 JSON 回傳，而不是
+散文：代理會拿到一個一次性的 `structured_output` 工具，其輸入 schema 就是你的
+schema，模型一呼叫它執行就結束。事件軌跡改走 stderr，因此 **stdout 只承載一件
+事——最終的 JSON**——直接接 `jq` 就能用：
+
+```bash
+cat > /tmp/verdict.json <<'EOF'
+{"type":"object","required":["summary","ok"],
+ "properties":{"summary":{"type":"string"},"ok":{"type":"boolean"}}}
+EOF
+evva -no-tui -permission-mode=bypass -output-schema /tmp/verdict.json \
+  "run the test suite and report" | jq .ok
+```
+
+若模型最後以散文作答而沒有呼叫工具，evva 會以非零狀態碼退出並顯示
+`run ended without structured output`，且 stdout 保持空白——腳本永遠不會把散文
+誤當成契約結果。此旗標在 TUI 模式下會被忽略（附警告）。SDK 宿主可透過
+`agent.WithStructuredOutput` 使用同一功能（§13）。
 
 ---
 
@@ -1282,6 +1303,28 @@ func main() {
 
 不需要 TUI？拿掉它即可：用 `agent.New(agent.Config{AppConfig: cfg, PermissionMode: "bypass"})` 建構，再呼叫 `ag.Run(ctx, "你的提示")`。沒有 sink 時，agent 會自動拒絕核准請求（避免卡住）；`"bypass"` 則在可信任／CI 環境中全部自動放行。
 
+需要拿到資料而不是散文？給執行掛上一個 JSON schema——`Run` 就會回傳可直接
+unmarshal 的合規 JSON：
+
+```go
+schema := json.RawMessage(`{"type":"object","required":["bugs"],
+    "properties":{"bugs":{"type":"array","items":{"type":"string"}}}}`)
+
+ag, _ := agent.New(agent.Config{AppConfig: cfg, PermissionMode: "bypass"},
+    agent.WithStructuredOutput(schema))
+
+out, err := ag.Run(ctx, "find bugs in ./pkg/foo")
+if errors.Is(err, agent.ErrNoStructuredOutput) {
+    // 模型以散文作答；out 是散文——可重試或改走 fallback
+}
+var v struct{ Bugs []string `json:"bugs"` }
+_ = json.Unmarshal([]byte(out), &v)
+```
+
+模型會看到一個一次性的 `structured_output` 工具，其輸入 schema 就是你給的
+schema（支援 schema 約束的 provider 會在伺服器端強制形狀），模型第一次呼叫它
+執行就終止。僅限 headless：不要與互動式 UI 併用。
+
 ### 擴充點一覽
 
 每個部分都能透過 `pkg/*` 的接縫替換：
@@ -1290,6 +1333,7 @@ func main() {
 | --- | --- |
 | 新增 LLM 提供者 | 在 `llm.DefaultRegistry()` 註冊工廠函式；你的 `llm.Client` 需實作 `Name` / `Model` / `SupportsDeferLoading` / `Complete` / `Stream` / `Apply`。 |
 | 新增工具 | 實作 `tools.Tool`；以 `agent.WithCustomTool(name, factory)` 傳入，或註冊到 `toolset.DefaultRegistry()`。 |
+| 最終答案輸出為 JSON | `agent.WithStructuredOutput(schema)`（僅限 headless）；`Run` 回傳 payload，`errors.Is(err, agent.ErrNoStructuredOutput)` 偵測模型未履約。 |
 | 新增人格 | `agent.BuildAgentRegistry` + `reg.Register(agent.AgentDefinition{...})`（或在 `<AppHome>/agents/<name>/` 放置檔案）；以 `Config.Personas` + `Config.Persona` 傳入。會驅動 `/profile` 與子代理。 |
 | 控制核准 | `Config.PermissionMode`、`Config.PermissionStore`，或自訂 `agent.WithPermissionBroker`（以 `permission.NewBroker` + `SetOnRequest` 建立）。 |
 | 自製 UI | 實作 `ui.UI`；透過完全公開的 `ui.Controller` 驅動 agent。或直接嵌入 `pkg/ui/bubbletea`。 |
