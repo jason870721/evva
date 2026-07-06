@@ -1,14 +1,38 @@
 # PRD — Self-Healing Edits (Edit→LSP Diagnostics Sync) — Implementation Plan
 
 > **Audience:** senior engineers implementing this phase.
-> **Status:** proposed; ready to build after roadmap slotting.
-> **Target release:** TBD — a wave-sized minor (claims its minor at planning
-> per `CLAUDE.md` → Release workflow).
+> **Status:** ✅ IMPLEMENTED on `feature/edit-diagnostics-sync` (2026-07-06,
+> all 4 tasks — see "As-built" below). `go build/vet/test ./...` green.
+> **Target release:** rides the accumulated `v1.10.x` patch batch this
+> weekend's release cuts from `dev` — no wave→minor claim (this sharpens
+> shipped tools, it's a Z-bump like `resilient-edit`, not a new wave).
 > **Roadmap source:** `CLAUDE.md` → conventions; closes a gap in the shipped
 > LSP module (`pkg/tools/lsp`) + the `fs` edit/write tools.
 > **Reference source:** none — evva-native (no `ref/src/` analog). Rides the
 > 2026 "long-running autonomous workflows that self-correct" trend. Design
 > **reuses the `fs.CheckpointSink` injection pattern** shipped in v1.8.2-beta.2.
+
+---
+
+## 0. As-built (what shipped vs. this plan)
+
+Implemented essentially as designed, with one interface simplification worth
+recording: §4 Task 4 originally sketched the tool *itself* reaching the
+manager for a scoped drain (a `syncMode` bool on the tool + the tool calling
+`Manager.DiagnosticsForFile` directly). The shipped shape is cleaner: `fs.
+LSPSyncSink.NotifyEdited(absPath, newContent string) string` stays a single
+method, and the concrete adapter (`internal/agent/lspsync.go`) — not the
+`fs` tool — decides whether to wait, based on `cfg.GetLSPDiagnosticsOnEdit()`.
+This keeps `pkg/tools/fs` fully config-agnostic (it just appends whatever
+non-empty string comes back) and puts the only config-aware branch in the
+runtime layer that already owns config, matching the checkpoint sink's
+"consumer-side interface, policy lives in the installer" shape even more
+tightly than the original sketch. Everything else (full-sync `didChange`,
+per-URI versioning, `ClearFile` on change, the bounded ≤750ms wait via a new
+`Manager.DiagnosticsForFile` + `DiagnosticRegistry.TakeFile`, async dispatch
+by default) shipped as designed. Docs + CHANGELOG landed under `[Unreleased]`
+with no version bump, per the operator's instruction to batch this into the
+weekend's `v1.10.x` release rather than cut its own beta.
 
 ---
 

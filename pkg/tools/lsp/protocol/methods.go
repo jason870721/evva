@@ -53,6 +53,14 @@ type DidOpenTextDocumentParams struct {
 	TextDocument TextDocumentItem `json:"textDocument"`
 }
 
+// DidChangeTextDocumentParams for textDocument/didChange. evva always sends
+// exactly one full-document ContentChanges entry (see manager.go's DidChange)
+// — no incremental range-based sync.
+type DidChangeTextDocumentParams struct {
+	TextDocument   VersionedTextDocumentIdentifier  `json:"textDocument"`
+	ContentChanges []TextDocumentContentChangeEvent `json:"contentChanges"`
+}
+
 // DidCloseTextDocumentParams for textDocument/didClose.
 type DidCloseTextDocumentParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`

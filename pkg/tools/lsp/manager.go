@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/lsp/protocol"
@@ -21,8 +22,9 @@ type Manager struct {
 	extMap  map[string]string  // ".go" → "gopls"
 	extLang map[string]string  // ".go" → "go"
 
-	mu        sync.RWMutex
-	openFiles map[string]string // file URI → server name
+	mu          sync.RWMutex
+	openFiles   map[string]string // file URI → server name
+	docVersions map[string]int32  // file URI → last-sent didChange version
 
 	startGroup   singleflight.Group
 	diagRegistry *DiagnosticRegistry
@@ -39,6 +41,7 @@ func NewManager(configs map[string]LspServerConfig, rootURI string, logger *slog
 		extMap:       make(map[string]string),
 		extLang:      make(map[string]string),
 		openFiles:    make(map[string]string),
+		docVersions:  make(map[string]int32),
 		diagRegistry: NewDiagnosticRegistry(),
 		logger:       logger,
 	}
@@ -184,6 +187,99 @@ func (m *Manager) OpenFile(ctx context.Context, filePath, content string) error 
 	m.openFiles[uri] = srv.Name
 	m.mu.Unlock()
 	return nil
+}
+
+// DidChange tells the server responsible for filePath that its content is now
+// content (full-document sync — no incremental range math, see the PRD's
+// design rationale in docs/roadmap/PRD/edit-diagnostics-sync.md §5.2). First
+// touch lazy-opens the file (didOpen, v1) via OpenFile; subsequent calls bump
+// a per-URI version and send textDocument/didChange. Stale diagnostics for
+// the URI are cleared before the resync so the next publish is authoritative
+// (never a ghost error against a line the edit already fixed).
+//
+// Best-effort by contract: a missing/unhealthy server for this file's
+// language is a silent no-op, not an error — callers (the fs edit/write
+// tools, via the LSPSyncSink adapter) must never have a mutation fail or
+// block because of this.
+func (m *Manager) DidChange(ctx context.Context, filePath, content string) error {
+	srv, ok := m.ServerForFile(filePath)
+	if !ok {
+		return nil // no server configured for this language — no-op
+	}
+	if !srv.IsHealthy() {
+		return nil // server down/unstarted — no-op, the between-turns drain has nothing to lose
+	}
+
+	uri := fileURI(filePath)
+
+	m.mu.RLock()
+	_, alreadyOpen := m.openFiles[uri]
+	m.mu.RUnlock()
+
+	if !alreadyOpen {
+		return m.OpenFile(ctx, filePath, content)
+	}
+
+	m.diagRegistry.ClearFile(uri)
+
+	params := protocol.DidChangeTextDocumentParams{
+		TextDocument: protocol.VersionedTextDocumentIdentifier{
+			TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: uri},
+			Version:                m.nextVersion(uri),
+		},
+		ContentChanges: []protocol.TextDocumentContentChangeEvent{
+			{Text: content}, // full sync — no Range means "replace the whole document"
+		},
+	}
+	return srv.Notify(ctx, protocol.MethodDidChange, params)
+}
+
+// nextVersion returns the next didChange version for uri, starting at 2
+// (OpenFile already sent version 1 via didOpen) and incrementing on every
+// call. Lazily initializes docVersions so Manager literals built directly in
+// tests (without going through NewManager) don't panic on a nil map write.
+func (m *Manager) nextVersion(uri string) int32 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.docVersions == nil {
+		m.docVersions = make(map[string]int32)
+	}
+	v := max(m.docVersions[uri]+1, 2)
+	m.docVersions[uri] = v
+	return v
+}
+
+// diagnosticsForFilePollInterval is how often DiagnosticsForFile checks the
+// registry while waiting — diagnostics are server-pushed (no synchronous
+// "ask now" LSP call), so a short poll is the simplest bounded wait.
+const diagnosticsForFilePollInterval = 25 * time.Millisecond
+
+// DiagnosticsForFile blocks until a diagnostic for filePath arrives in the
+// registry, ctx is done, or timeout elapses — whichever comes first — then
+// returns and REMOVES just that file's pending entries (via
+// DiagnosticRegistry.TakeFile) so the passive between-turns drain
+// (DrainDiagnostics) never redelivers what this call already returned.
+// Returns nil on timeout/cancellation; never blocks past timeout.
+func (m *Manager) DiagnosticsForFile(ctx context.Context, filePath string, timeout time.Duration) []PendingDiagnostic {
+	uri := fileURI(filePath)
+	deadline := time.Now().Add(timeout)
+
+	ticker := time.NewTicker(diagnosticsForFilePollInterval)
+	defer ticker.Stop()
+
+	for {
+		if found := m.diagRegistry.TakeFile(uri); found != nil {
+			return found
+		}
+		if !time.Now().Before(deadline) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
 }
 
 // CloseFile sends textDocument/didClose for a previously opened file.

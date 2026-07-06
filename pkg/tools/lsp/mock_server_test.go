@@ -209,6 +209,26 @@ type mockConn struct {
 
 	cancel chan struct{}
 	wg     sync.WaitGroup
+
+	notifyMu      sync.Mutex
+	notifications []capturedNotify
+}
+
+// capturedNotify records one incoming JSON-RPC message's method and raw body,
+// so a test can assert a specific notification (e.g. textDocument/didChange)
+// was sent with the expected payload — not just "no error was returned".
+type capturedNotify struct {
+	Method string
+	Body   json.RawMessage
+}
+
+// Notifications returns a snapshot of every message the mock has seen so far.
+func (mc *mockConn) Notifications() []capturedNotify {
+	mc.notifyMu.Lock()
+	defer mc.notifyMu.Unlock()
+	out := make([]capturedNotify, len(mc.notifications))
+	copy(out, mc.notifications)
+	return out
 }
 
 func newMockConn() *mockConn {
@@ -252,6 +272,10 @@ func (mc *mockConn) mockLoop(stdin io.ReadCloser, stdout io.WriteCloser) {
 		if err := json.Unmarshal(body, &req); err != nil {
 			continue
 		}
+
+		mc.notifyMu.Lock()
+		mc.notifications = append(mc.notifications, capturedNotify{Method: req.Method, Body: body})
+		mc.notifyMu.Unlock()
 
 		switch req.Method {
 		case protocol.MethodInitialize:

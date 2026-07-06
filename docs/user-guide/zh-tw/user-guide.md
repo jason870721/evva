@@ -895,6 +895,10 @@ auto_dream_model: ""         # 留空 = 與召回相同的便宜 per-provider �
 enable_repo_map: false       # 選用；關閉時提示詞與現況逐位元組相同，零 LSP 呼叫
 repo_map_token_budget: 2000  # 限制地圖大小；超出時優先丟棄排名較低的符號
 
+# 自我修復編輯——見下方「自我修復編輯」。核心同步（didChange，讓下一輪的
+# 診斷是真的）只要有設定 LSP 就會運作，與此旗標無關；此旗標只控制「同步」層。
+lsp_diagnostics_on_edit: false  # 選用；在 edit/write 後加入一段有上限的等待（約 750ms）
+
 # Per-provider credentials. Empty api_url falls back to the constant's default.
 # glm（Zhipu/z.ai）走 Anthropic 相容端點;讀取圖片會以 image block 餵給 GLM,
 # 但要「看懂」圖片需選用具備 vision 能力的 GLM 模型。模型:glm-4.6(一般)、glm-5.2(大型,~1M ctx)。
@@ -960,6 +964,29 @@ evva 在 `~/.evva/memory/` 維護單一全域、以檔案為基礎的記憶。�
 - **關閉時的成本**：`enable_repo_map: false` 時主提示詞與從未有此功能的建置逐位元組
   相同，且**零** LSP 呼叫。地圖建構也受時間上限保護，因此冷啟動的語言伺服器索引絕不會
   卡住工作階段開始——附帶 `(indexing — partial)` 註記的部分地圖優於卡死的提示詞。
+
+### 自我修復編輯
+
+只要有設定語言伺服器（見 [lsp.md](lsp.md)），`edit` / `write` 現在都會通知它每一次
+異動，因此它發布的診斷是針對代理**剛剛真正寫下的內容**——不會是過期的，也不會因為
+伺服器沒有自行監看檔案系統而悄悄漏掉。
+
+- **核心層（只要有設定 LSP 就會運作）**：edit 或 write 成功後，工具會送出
+  `didOpen`（第一次接觸）或完整同步的 `didChange`（之後每次），並先清掉該檔案的過期
+  診斷。伺服器重新分析後，產生的診斷會在模型的**下一輪**以 `<system-reminder>`
+  送達——與倉庫地圖等功能相同的既有遞送路徑，只是現在可靠地餵給它內容，而非仰賴伺服器
+  自行注意到變化。
+- **同步層（選用，透過 `lsp_diagnostics_on_edit: true` 開啟）**：edit/write 這次
+  工具呼叫本身會等待一段有上限的短暫時間（約 750ms），等候該檔案的診斷，並直接把它們
+  併入同一次工具結果——讓模型能在**同一輪**就看到並修正自己的編譯／型別錯誤，不必等到
+  下一輪。若時間內沒有任何診斷抵達，呼叫會回傳正常摘要（核心層仍會在下一輪照常送達）。
+- **關閉時的成本**：沒有設定 LSP manager 時，兩層都是無操作——edit/write 的熱路徑不受
+  影響。有設定 LSP 但 `lsp_diagnostics_on_edit: false`（預設）時，核心層的 `didChange`
+  是非同步派送，不會為工具呼叫增加任何延遲。
+- **適用範圍**：跟著工具走，不是跟著人格走——任何在有 LSP manager 的情況下執行
+  `edit`/`write` 的代理（主代理或子代理）都會拿到這個功能。只涵蓋透過 `fs` 的
+  `edit`/`write` 工具所做的檔案異動；`bash` 造成的變更（如 `sed`、`go fmt`）是已知、
+  已記載的限制範圍之外（與 checkpoint/rewind 相同的限制）。
 
 ### .env（選用）
 

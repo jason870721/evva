@@ -242,3 +242,82 @@ func TestIntegrationGopls(t *testing.T) {
 		}
 	})
 }
+
+// TestIntegrationSelfHealingEdits exercises DidChange/DiagnosticsForFile
+// (docs/roadmap/PRD/edit-diagnostics-sync.md) against a real gopls process,
+// end to end: a syntax error introduced via DidChange must produce a real
+// diagnostic, and fixing it must not leave a ghost behind. This is the
+// closest a `go test` run gets to the PRD's own manual TTY verification step
+// ("edit a .go file to introduce a type error → next turn carries an LSP
+// diagnostic; fix it → the ghost error does not reappear").
+func TestIntegrationSelfHealingEdits(t *testing.T) {
+	root := findModuleRoot()
+	if root == "" {
+		t.Skip("not in a Go module — run from evva project")
+	}
+
+	// A throwaway file inside the lsp package's own directory so gopls loads
+	// it as a real part of the module (not an orphan file outside any
+	// package) without needing the full multi-minute workspace index a
+	// cross-file definition/reference lookup would — a syntax error is
+	// reported from a per-file parse, which is fast.
+	smokePath := filepath.Join(root, "pkg/tools/lsp", "zzz_editsync_smoke_temp.go")
+	// Deliberately just a package clause — any declaration (even an unused
+	// var) risks tripping one of gopls's lint-style analyzers (unusedwrite,
+	// staticcheck, ...), which would masquerade as "the fix didn't clear the
+	// diagnostic" below. A bare package clause is diagnostic-free by
+	// construction.
+	const validContent = "package lsp\n"
+	if err := os.WriteFile(smokePath, []byte(validContent), 0o644); err != nil {
+		t.Fatalf("seed smoke file: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(smokePath) })
+
+	cfg := lsp.LspServerConfig{
+		Command:        "gopls",
+		Extensions:     map[string]string{".go": "go"},
+		StartupTimeout: "120s",
+		MaxRestarts:    2,
+	}
+	mgr := lsp.NewManager(map[string]lsp.LspServerConfig{"gopls": cfg}, "file://"+root, nil)
+	defer mgr.Shutdown(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	if _, err := mgr.EnsureServerStarted(ctx, smokePath); err != nil {
+		t.Fatalf("start gopls: %v", err)
+	}
+
+	// First touch: DidChange behaves like OpenFile with the valid content —
+	// mirrors the fs edit/write tools' very first mutation of a session.
+	if err := mgr.DidChange(ctx, smokePath, validContent); err != nil {
+		t.Fatalf("DidChange (open): %v", err)
+	}
+
+	const brokenContent = "package lsp\n\nfunc zzzEditSyncSmokeTempBroken( {\n"
+	if err := mgr.DidChange(ctx, smokePath, brokenContent); err != nil {
+		t.Fatalf("DidChange (introduce syntax error): %v", err)
+	}
+
+	diags := mgr.DiagnosticsForFile(ctx, smokePath, 60*time.Second)
+	if len(diags) == 0 || len(diags[0].Diagnostics) == 0 {
+		t.Fatal("expected gopls to report at least one diagnostic for the broken content, got none")
+	}
+	t.Logf("gopls reported %d diagnostic(s) for the syntax error: %q",
+		len(diags[0].Diagnostics), diags[0].Diagnostics[0].Message)
+
+	// Fix it — the ghost error must not reappear (A5's ClearFile
+	// invalidation, now proven against a real server rather than the
+	// registry-level unit test).
+	if err := mgr.DidChange(ctx, smokePath, validContent); err != nil {
+		t.Fatalf("DidChange (fix): %v", err)
+	}
+	// gopls needs a moment to re-publish (an empty or absent set) for the
+	// now-valid file; DiagnosticsForFile's bounded wait covers that — a
+	// short timeout is enough since we're asserting ABSENCE, not waiting to
+	// discover something.
+	if stale := mgr.DiagnosticsForFile(ctx, smokePath, 5*time.Second); len(stale) != 0 {
+		t.Errorf("expected no diagnostics after fixing the file, got %+v", stale)
+	}
+}

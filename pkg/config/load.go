@@ -249,6 +249,13 @@ func Load(opts LoadOptions) (*Config, error) {
 		repoMapBudget = fileCfg.RepoMapTokenBudget
 	}
 
+	// Self-healing edits' synchronous tier is opt-in (default off) — it adds
+	// latency to every edit/write when an LSP manager is configured.
+	lspDiagnosticsOnEdit := false
+	if fileCfg.LSPDiagnosticsOnEdit != nil {
+		lspDiagnosticsOnEdit = *fileCfg.LSPDiagnosticsOnEdit
+	}
+
 	cfg := &Config{
 		AppName:    appName,
 		AppVersion: appVersion,
@@ -282,6 +289,7 @@ func Load(opts LoadOptions) (*Config, error) {
 		CheckpointMaxPerSession: checkpointMax,
 		EnableRepoMap:           enableRepoMap,
 		RepoMapTokenBudget:      repoMapBudget,
+		LSPDiagnosticsOnEdit:    lspDiagnosticsOnEdit,
 		TavilyAPIKey:            fileCfg.TavilyAPIKey,
 		FetchMaxBytes:           fileCfg.FetchMaxBytes,
 		DefaultProvider:         defProvider,

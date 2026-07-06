@@ -227,6 +227,93 @@ func TestEdit_SingleReplacement_HappyPath(t *testing.T) {
 	}
 }
 
+// fakeLSPSync is a recording LSPSyncSink test double: it captures every
+// NotifyEdited call (path + content) and returns a configurable diagnostics
+// string, so tests can assert both the call site (post-mutation, with the
+// new content) and that a non-empty return gets folded into the tool result.
+type fakeLSPSync struct {
+	calls []struct{ path, content string }
+	diag  string
+}
+
+func (f *fakeLSPSync) NotifyEdited(path, content string) string {
+	f.calls = append(f.calls, struct{ path, content string }{path, content})
+	return f.diag
+}
+
+func TestEdit_NotifiesLSPSyncAfterMutation(t *testing.T) {
+	path := writeTempFile(t, "alpha beta gamma")
+	tr := NewReadTracker()
+	recordFullRead(t, tr, path)
+	sink := &fakeLSPSync{}
+	tool := NewEdit(tr, "").WithLSPSync(sink)
+
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
+		`{"file_path":`+jstr(path)+`,"old_string":"beta","new_string":"BETA"}`))
+
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if len(sink.calls) != 1 {
+		t.Fatalf("expected exactly 1 NotifyEdited call, got %d", len(sink.calls))
+	}
+	if sink.calls[0].path != path {
+		t.Errorf("NotifyEdited path = %q, want %q", sink.calls[0].path, path)
+	}
+	if sink.calls[0].content != "alpha BETA gamma" {
+		t.Errorf("NotifyEdited content = %q, want the file's new content", sink.calls[0].content)
+	}
+}
+
+func TestEdit_AppendsSyncDiagnosticsToResult(t *testing.T) {
+	path := writeTempFile(t, "alpha beta gamma")
+	tr := NewReadTracker()
+	recordFullRead(t, tr, path)
+	sink := &fakeLSPSync{diag: "<system-reminder>fake diagnostic</system-reminder>"}
+	tool := NewEdit(tr, "").WithLSPSync(sink)
+
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
+		`{"file_path":`+jstr(path)+`,"old_string":"beta","new_string":"BETA"}`))
+
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "fake diagnostic") {
+		t.Errorf("expected sync-tier diagnostics folded into Content, got %q", res.Content)
+	}
+}
+
+func TestEdit_NilLSPSyncIsNoop(t *testing.T) {
+	path := writeTempFile(t, "alpha beta gamma")
+	tr := NewReadTracker()
+	recordFullRead(t, tr, path)
+	tool := NewEdit(tr, "") // no WithLSPSync call
+
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
+		`{"file_path":`+jstr(path)+`,"old_string":"beta","new_string":"BETA"}`))
+
+	if res.IsError {
+		t.Fatalf("unexpected error with nil sink: %s", res.Content)
+	}
+}
+
+func TestEdit_NotifiesLSPSyncOnFileCreate(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "new.txt")
+	sink := &fakeLSPSync{}
+	tool := NewEdit(NewReadTracker(), "").WithLSPSync(sink)
+
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
+		`{"file_path":`+jstr(target)+`,"old_string":"","new_string":"hello"}`))
+
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if len(sink.calls) != 1 || sink.calls[0].content != "hello" {
+		t.Fatalf("expected one NotifyEdited call with the created content, got %+v", sink.calls)
+	}
+}
+
 func TestEdit_ReplaceAll(t *testing.T) {
 	path := writeTempFile(t, "foo bar foo baz foo")
 	tr := NewReadTracker()
@@ -323,6 +410,23 @@ func TestEdit_EmptyOldStringOnEmptyFile(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	if string(got) != "populated" {
 		t.Errorf("file content: got %q, want %q", string(got), "populated")
+	}
+}
+
+func TestEdit_NotifiesLSPSyncOnEmptyFilePopulate(t *testing.T) {
+	path := writeTempFile(t, "")
+	tr := NewReadTracker()
+	recordFullRead(t, tr, path)
+	sink := &fakeLSPSync{}
+	tool := NewEdit(tr, "").WithLSPSync(sink)
+
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(), json.RawMessage(
+		`{"file_path":`+jstr(path)+`,"old_string":"","new_string":"populated"}`))
+	if res.IsError {
+		t.Fatalf("populating empty file should succeed; got: %s", res.Content)
+	}
+	if len(sink.calls) != 1 || sink.calls[0].content != "populated" {
+		t.Fatalf("expected one NotifyEdited call with the populated content, got %+v", sink.calls)
 	}
 }
 

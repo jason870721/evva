@@ -35,6 +35,74 @@ func TestWrite_NewFileSkipsReadGuard(t *testing.T) {
 	}
 }
 
+func TestWrite_NotifiesLSPSyncAfterCreate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "new.txt")
+	sink := &fakeLSPSync{}
+	tool := NewWrite(NewReadTracker(), "").WithLSPSync(sink)
+
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
+		json.RawMessage(`{"file_path":`+jstr(path)+`,"content":"hello"}`))
+
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if len(sink.calls) != 1 {
+		t.Fatalf("expected exactly 1 NotifyEdited call, got %d", len(sink.calls))
+	}
+	if sink.calls[0].path != path || sink.calls[0].content != "hello" {
+		t.Errorf("NotifyEdited call = %+v, want path=%q content=%q", sink.calls[0], path, "hello")
+	}
+}
+
+func TestWrite_NotifiesLSPSyncAfterOverwrite(t *testing.T) {
+	path := writeTempFile(t, "old")
+	tr := NewReadTracker()
+	recordFullRead(t, tr, path)
+	sink := &fakeLSPSync{}
+	tool := NewWrite(tr, "").WithLSPSync(sink)
+
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
+		json.RawMessage(`{"file_path":`+jstr(path)+`,"content":"new"}`))
+
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if len(sink.calls) != 1 || sink.calls[0].content != "new" {
+		t.Fatalf("expected one NotifyEdited call with the new content, got %+v", sink.calls)
+	}
+}
+
+func TestWrite_AppendsSyncDiagnosticsToResult(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "new.txt")
+	sink := &fakeLSPSync{diag: "<system-reminder>fake diagnostic</system-reminder>"}
+	tool := NewWrite(NewReadTracker(), "").WithLSPSync(sink)
+
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
+		json.RawMessage(`{"file_path":`+jstr(path)+`,"content":"hello"}`))
+
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "fake diagnostic") {
+		t.Errorf("expected sync-tier diagnostics folded into Content, got %q", res.Content)
+	}
+}
+
+func TestWrite_NilLSPSyncIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "new.txt")
+	tool := NewWrite(NewReadTracker(), "") // no WithLSPSync call
+
+	res, _ := tool.Execute(context.Background(), tools.NopLogger(),
+		json.RawMessage(`{"file_path":`+jstr(path)+`,"content":"hello"}`))
+
+	if res.IsError {
+		t.Fatalf("unexpected error with nil sink: %s", res.Content)
+	}
+}
+
 func TestWrite_OverwriteBlockedWithoutPriorRead(t *testing.T) {
 	path := writeTempFile(t, "old")
 	tool := NewWrite(NewReadTracker(), "")

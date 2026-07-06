@@ -16,6 +16,7 @@ type WriteTool struct {
 	tracker     *ReadTracker
 	workdir     string
 	checkpoints CheckpointSink
+	lspSync     LSPSyncSink
 }
 
 func NewWrite(tracker *ReadTracker, workdir string) *WriteTool {
@@ -30,10 +31,31 @@ func (t *WriteTool) WithCheckpoints(s CheckpointSink) *WriteTool {
 	return t
 }
 
+// WithLSPSync installs the LSP-sync notification sink (nil-safe). The
+// runtime calls this at tool construction; tests and embedders that omit it
+// get a no-op path — writes behave exactly as before this feature existed.
+// Returns the receiver for fluent construction.
+func (t *WriteTool) WithLSPSync(s LSPSyncSink) *WriteTool {
+	t.lspSync = s
+	return t
+}
+
 func (t *WriteTool) capture(path string) {
 	if t.checkpoints != nil {
 		t.checkpoints.CaptureBefore(path)
 	}
+}
+
+// notifyEdited reports path's new content to the LSP-sync sink if one is
+// installed, returning any diagnostics block it hands back (empty when no
+// sink is installed, the synchronous tier is off, or nothing arrived in
+// time). Called immediately after a successful write, with the bytes now on
+// disk.
+func (t *WriteTool) notifyEdited(path, content string) string {
+	if t.lspSync == nil {
+		return ""
+	}
+	return t.lspSync.NotifyEdited(path, content)
 }
 
 func (t *WriteTool) Name() string { return string(tools.WRITE_FILE) }
@@ -163,18 +185,21 @@ func (t *WriteTool) Execute(ctx context.Context, logger *slog.Logger, input json
 	newByteCount := len(in.Content)
 	oldLineCount := countLines(priorContent)
 	oldByteCount := len(priorContent)
+	diag := t.notifyEdited(resolved, in.Content)
 
 	if !existedBefore {
-		return tools.Result{
-			Content:  fmt.Sprintf("created %s (%d lines, %d bytes)", resolved, newLineCount, newByteCount),
-			Metadata: diff,
-		}, nil
+		content := fmt.Sprintf("created %s (%d lines, %d bytes)", resolved, newLineCount, newByteCount)
+		if diag != "" {
+			content += "\n\n" + diag
+		}
+		return tools.Result{Content: content, Metadata: diff}, nil
 	}
-	return tools.Result{
-		Content: fmt.Sprintf("overwrote %s (was %d lines / %d bytes, now %d lines / %d bytes)",
-			resolved, oldLineCount, oldByteCount, newLineCount, newByteCount),
-		Metadata: diff,
-	}, nil
+	content := fmt.Sprintf("overwrote %s (was %d lines / %d bytes, now %d lines / %d bytes)",
+		resolved, oldLineCount, oldByteCount, newLineCount, newByteCount)
+	if diag != "" {
+		content += "\n\n" + diag
+	}
+	return tools.Result{Content: content, Metadata: diff}, nil
 }
 
 func countLines(s string) int {

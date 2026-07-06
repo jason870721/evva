@@ -58,6 +58,7 @@ type ToolState struct {
 	worktreeController mode.WorktreeController
 	readTracker        *fs.ReadTracker
 	checkpointSink     fs.CheckpointSink
+	lspSyncSink        fs.LSPSyncSink
 	wakeupQueue        *meta.WakeupQueue
 	// userPromptQueue carries prompts the user typed while a Run was
 	// already in flight. The agent loop drains it between iterations
@@ -259,6 +260,20 @@ func (s *ToolState) CheckpointSink() fs.CheckpointSink {
 // nil interface — and skip capture entirely — when the feature is off.
 func (s *ToolState) SetCheckpointSink(sink fs.CheckpointSink) {
 	s.checkpointSink = sink
+}
+
+// LSPSyncSink returns the LSP-sync notification sink the fs tools
+// (edit/write) report post-mutation content to, or nil when no LSP manager
+// is installed. Set once by the agent at construction via SetLSPSyncSink.
+func (s *ToolState) LSPSyncSink() fs.LSPSyncSink {
+	return s.lspSyncSink
+}
+
+// SetLSPSyncSink installs the LSP-sync sink. The agent calls this only when
+// an LSP Manager exists, so the fs tools see a clean nil interface — and
+// skip the notification entirely — when LSP is off.
+func (s *ToolState) SetLSPSyncSink(sink fs.LSPSyncSink) {
+	s.lspSyncSink = sink
 }
 
 // HasWakeupQueue reports whether a WakeupQueue has already been allocated.

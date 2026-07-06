@@ -38,6 +38,21 @@ type TextDocumentPositionParams struct {
 	Position     Position               `json:"position"`
 }
 
+// VersionedTextDocumentIdentifier identifies a text document by URI at a
+// specific version, required by textDocument/didChange so the server can
+// detect out-of-order or dropped notifications.
+type VersionedTextDocumentIdentifier struct {
+	TextDocumentIdentifier
+	Version int32 `json:"version"`
+}
+
+// TextDocumentContentChangeEvent describes a change to a document's content.
+// evva only ever sends full-document sync (no Range/RangeLength — see
+// manager.go's DidChange), so Text is the caller's complete new content.
+type TextDocumentContentChangeEvent struct {
+	Text string `json:"text"`
+}
+
 // TextDocumentItem represents a document that is open in the editor.
 type TextDocumentItem struct {
 	URI        string `json:"uri"`

@@ -892,6 +892,11 @@ auto_dream_model: ""         # empty = the same cheap per-provider default as re
 enable_repo_map: false       # opt-in; off = prompt byte-identical to today, zero LSP calls
 repo_map_token_budget: 2000  # bounds the map; lower-ranked symbols dropped first to fit
 
+# Self-healing edits — see "Self-healing edits" below. Core sync (didChange
+# so the next turn's diagnostics are real) runs whenever LSP is configured,
+# regardless of this flag. This only gates the *synchronous* same-turn tier.
+lsp_diagnostics_on_edit: false  # opt-in; adds a short bounded wait (~750ms) after edit/write
+
 # Per-provider credentials. Empty api_url falls back to the constant's default.
 # glm (Zhipu/z.ai) speaks the Anthropic-compatible endpoint; reading an image
 # feeds it to GLM as an image block, but understanding it needs a vision-capable
@@ -975,6 +980,37 @@ into the main agent's prompt so it starts oriented.
   fire. Map construction is also time-boxed, so a cold language-server index
   never stalls session start — a partial map with an `(indexing — partial)` note
   beats a hung prompt.
+
+### Self-healing edits
+
+Whenever a language server is configured (see [lsp.md](lsp.md)), `edit` and
+`write` now tell it about every mutation, so the diagnostics it publishes are
+for what the agent *actually just wrote* — not stale, and not silently
+missing on a server that doesn't watch the filesystem on its own.
+
+- **Core tier (always on when LSP is configured):** after a successful edit
+  or write, the tool sends `didOpen` (first touch) or a full-sync `didChange`
+  (subsequent touches) for that file, clearing any stale diagnostics first.
+  The server re-analyzes and the resulting diagnostics arrive as a
+  `<system-reminder>` on the model's **next turn** — the same delivery path
+  repo map and everything else already used, just reliably fed now instead
+  of depending on a server noticing the change on its own.
+- **Synchronous tier (opt-in via `lsp_diagnostics_on_edit: true`):** the
+  edit/write tool call itself waits a short bounded window (~750ms) for
+  diagnostics on the file it just touched, and folds them straight into that
+  same tool result — so the model can see and fix its own compile/type error
+  **on the same turn**, without waiting for the next one. If nothing arrives
+  within the window, the call returns its normal summary (the core tier still
+  delivers the diagnostics next turn regardless).
+- **Cost when off:** with no LSP manager configured, both tiers are a no-op —
+  the edit/write hot path is unchanged. With LSP configured but
+  `lsp_diagnostics_on_edit: false` (the default), the core tier's `didChange`
+  dispatch is asynchronous and never adds latency to the tool call.
+- **Scope:** follows the tool, not the persona — any agent (main or
+  subagent) that runs `edit`/`write` with an LSP manager in scope gets this.
+  Only file mutations through the `fs` `edit`/`write` tools are covered;
+  `bash`-driven changes (e.g. `sed`, `go fmt`) are a known, documented
+  boundary (same limitation checkpoint/rewind already has).
 
 ### .env (optional)
 

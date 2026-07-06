@@ -134,6 +134,32 @@ func (r *DiagnosticRegistry) ClearFile(fileURI string) {
 	r.pending = filtered
 }
 
+// TakeFile removes and returns pending diagnostics for fileURI, marking
+// their identity keys delivered (so a later server re-publish or the
+// passive DrainDiagnostics path never redelivers what this call already
+// returned). Returns nil if nothing is pending for that file. Used by
+// DiagnosticsForFile's bounded wait — the synchronous-tier counterpart to
+// the passive Drain/ClearFile pair above.
+func (r *DiagnosticRegistry) TakeFile(fileURI string) []PendingDiagnostic {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var taken []PendingDiagnostic
+	filtered := r.pending[:0]
+	for _, p := range r.pending {
+		if p.FileURI != fileURI {
+			filtered = append(filtered, p)
+			continue
+		}
+		taken = append(taken, p)
+		for _, d := range p.Diagnostics {
+			r.delivered.Add(diagKey(fileURI, d))
+		}
+	}
+	r.pending = filtered
+	return taken
+}
+
 // ── diagnostic identity key ────────────────────────────────────────────
 
 // diagKey builds a stable identity key for a diagnostic.

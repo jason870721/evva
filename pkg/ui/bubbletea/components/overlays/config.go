@@ -477,6 +477,17 @@ func buildConfigFields(cfg *config.Config, ctrl ui.Controller) []ConfigField {
 			},
 		},
 		{
+			Label: "lsp_diagnostics_on_edit", Kind: cfgKindBool,
+			Get: func() string { return strconv.FormatBool(cfg.GetLSPDiagnosticsOnEdit()) },
+			Apply: func(s string) error {
+				b, err := strconv.ParseBool(strings.TrimSpace(s))
+				if err != nil {
+					return fmt.Errorf("not a bool: %s", s)
+				}
+				return cfg.SetLSPDiagnosticsOnEdit(b)
+			},
+		},
+		{
 			Label: "fetch_max_bytes", Kind: cfgKindInt,
 			Get: func() string { return strconv.Itoa(cfg.FetchMaxBytes) },
 			Apply: func(s string) error {

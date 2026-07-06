@@ -88,6 +88,13 @@ type FileConfig struct {
 	EnableRepoMap      *bool `yaml:"enable_repo_map,omitempty"`
 	RepoMapTokenBudget int   `yaml:"repo_map_token_budget,omitempty"`
 
+	// LSPDiagnosticsOnEdit gates the synchronous self-healing-edit tier: when
+	// true, edit/write wait a short bounded window for LSP diagnostics on the
+	// touched file and fold them into the tool's own result. Default false —
+	// opt-in, since it adds latency to every edit/write when an LSP manager
+	// is configured. Pointer so a missing key preserves the default.
+	LSPDiagnosticsOnEdit *bool `yaml:"lsp_diagnostics_on_edit,omitempty"`
+
 	Providers map[string]FileProviderConfig `yaml:"providers"`
 
 	// Custom is the downstream-app extension slot. Values round-trip through

@@ -47,11 +47,15 @@ func init() {
 	})
 	r.MustRegister(tools.WRITE_FILE, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
-		return fs.NewWrite(ts.ReadTracker(), ts.Workdir()).WithCheckpoints(ts.CheckpointSink()), nil
+		return fs.NewWrite(ts.ReadTracker(), ts.Workdir()).
+			WithCheckpoints(ts.CheckpointSink()).
+			WithLSPSync(ts.LSPSyncSink()), nil
 	})
 	r.MustRegister(tools.EDIT_FILE, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
-		return fs.NewEdit(ts.ReadTracker(), ts.Workdir()).WithCheckpoints(ts.CheckpointSink()), nil
+		return fs.NewEdit(ts.ReadTracker(), ts.Workdir()).
+			WithCheckpoints(ts.CheckpointSink()).
+			WithLSPSync(ts.LSPSyncSink()), nil
 	})
 	r.MustRegister(tools.GLOB, func(s tools.State) (tools.Tool, error) {
 		return fs.NewGlob(s.Workdir()), nil

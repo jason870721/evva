@@ -43,6 +43,7 @@ type EditTool struct {
 	tracker     *ReadTracker
 	workdir     string
 	checkpoints CheckpointSink
+	lspSync     LSPSyncSink
 }
 
 func NewEdit(tracker *ReadTracker, workdir string) *EditTool {
@@ -57,6 +58,15 @@ func (t *EditTool) WithCheckpoints(s CheckpointSink) *EditTool {
 	return t
 }
 
+// WithLSPSync installs the LSP-sync notification sink (nil-safe). The
+// runtime calls this at tool construction; tests and embedders that omit it
+// get a no-op path — edits behave exactly as before this feature existed.
+// Returns the receiver for fluent construction.
+func (t *EditTool) WithLSPSync(s LSPSyncSink) *EditTool {
+	t.lspSync = s
+	return t
+}
+
 // capture records path's before-image with the checkpoint sink if one is
 // installed. Called immediately before a mutation so the sink reads the
 // original bytes.
@@ -64,6 +74,18 @@ func (t *EditTool) capture(path string) {
 	if t.checkpoints != nil {
 		t.checkpoints.CaptureBefore(path)
 	}
+}
+
+// notifyEdited reports path's new content to the LSP-sync sink if one is
+// installed, returning any diagnostics block it hands back (empty when no
+// sink is installed, the synchronous tier is off, or nothing arrived in
+// time). Called immediately after a successful mutation, with the bytes now
+// on disk.
+func (t *EditTool) notifyEdited(path, content string) string {
+	if t.lspSync == nil {
+		return ""
+	}
+	return t.lspSync.NotifyEdited(path, content)
 }
 
 func (t *EditTool) Name() string { return string(tools.EDIT_FILE) }
@@ -300,8 +322,12 @@ func (t *EditTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 		}
 	}
 
+	content := editSummary(resolved, oldLineNums, in.ReplaceAll, m.strategy)
+	if diag := t.notifyEdited(resolved, after); diag != "" {
+		content += "\n\n" + diag
+	}
 	return tools.Result{
-		Content:  editSummary(resolved, oldLineNums, in.ReplaceAll, m.strategy),
+		Content:  content,
 		Metadata: diff,
 	}, nil
 }
@@ -326,8 +352,12 @@ func (t *EditTool) createNewFile(resolved string, in editInput) (tools.Result, e
 		}
 	}
 	diff := buildCreateDiff(resolved, in.NewString)
+	content := fmt.Sprintf("created %s (%d lines, %d bytes)", resolved, countLines(in.NewString), len(in.NewString))
+	if diag := t.notifyEdited(resolved, in.NewString); diag != "" {
+		content += "\n\n" + diag
+	}
 	return tools.Result{
-		Content:  fmt.Sprintf("created %s (%d lines, %d bytes)", resolved, countLines(in.NewString), len(in.NewString)),
+		Content:  content,
 		Metadata: diff,
 	}, nil
 }
@@ -361,8 +391,12 @@ func (t *EditTool) applyToEmptyFile(resolved string, info os.FileInfo, mem fileI
 		}
 	}
 	diff := buildCreateDiff(resolved, after)
+	content := fmt.Sprintf("populated empty file %s (%d lines, %d bytes)", resolved, countLines(after), len(after))
+	if diag := t.notifyEdited(resolved, after); diag != "" {
+		content += "\n\n" + diag
+	}
 	return tools.Result{
-		Content:  fmt.Sprintf("populated empty file %s (%d lines, %d bytes)", resolved, countLines(after), len(after)),
+		Content:  content,
 		Metadata: diff,
 	}, nil
 }

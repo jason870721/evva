@@ -185,6 +185,16 @@ type Config struct {
 	EnableRepoMap      bool
 	RepoMapTokenBudget int
 
+	// LSPDiagnosticsOnEdit gates the synchronous self-healing-edit tier. When
+	// true (opt-in; off by default), the edit/write tools wait a short bounded
+	// window (~750ms) after a mutation for LSP diagnostics on that file and
+	// fold them into the tool's own result, so the model sees its own
+	// compile/type error on the same turn it introduced it. The core tier
+	// (didChange sync so the between-turns drain has real content to deliver)
+	// runs regardless of this flag whenever an LSP manager is configured.
+	// See docs/roadmap/PRD/edit-diagnostics-sync.md.
+	LSPDiagnosticsOnEdit bool
+
 	// Web tools
 	TavilyAPIKey  string // empty → web_search reports "not configured"
 	FetchMaxBytes int    // cap on extracted text returned by web_fetch
@@ -272,6 +282,7 @@ func (c *Config) Clone() *Config {
 		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
 		EnableRepoMap:           c.EnableRepoMap,
 		RepoMapTokenBudget:      c.RepoMapTokenBudget,
+		LSPDiagnosticsOnEdit:    c.LSPDiagnosticsOnEdit,
 		TavilyAPIKey:            c.TavilyAPIKey,
 		FetchMaxBytes:           c.FetchMaxBytes,
 		LLMParamsTemperature:    c.LLMParamsTemperature,
@@ -434,6 +445,23 @@ func (c *Config) GetRepoMapTokenBudget() int {
 func (c *Config) SetRepoMapTokenBudget(v int) error {
 	c.mu.Lock()
 	c.RepoMapTokenBudget = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetLSPDiagnosticsOnEdit returns the synchronous self-healing-edit flag
+// under the read lock. Read by the LSP-sync adapter on every edit/write, not
+// cached, so toggling it via /config takes effect on the very next mutation.
+func (c *Config) GetLSPDiagnosticsOnEdit() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.LSPDiagnosticsOnEdit
+}
+
+// SetLSPDiagnosticsOnEdit toggles the synchronous tier and persists.
+func (c *Config) SetLSPDiagnosticsOnEdit(v bool) error {
+	c.mu.Lock()
+	c.LSPDiagnosticsOnEdit = v
 	c.mu.Unlock()
 	return c.SaveFile()
 }
@@ -853,6 +881,7 @@ func (c *Config) SaveFile() error {
 	enableAutoDream := c.EnableAutoDream
 	enableCheckpoints := c.EnableCheckpoints
 	enableRepoMap := c.EnableRepoMap
+	enableLSPDiagnosticsOnEdit := c.LSPDiagnosticsOnEdit
 	var customCopy map[string]any
 	if len(c.CustomConfig) > 0 {
 		customCopy = make(map[string]any, len(c.CustomConfig))
@@ -883,6 +912,7 @@ func (c *Config) SaveFile() error {
 		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
 		EnableRepoMap:           &enableRepoMap,
 		RepoMapTokenBudget:      c.RepoMapTokenBudget,
+		LSPDiagnosticsOnEdit:    &enableLSPDiagnosticsOnEdit,
 		Providers:               providers,
 		Custom:                  customCopy,
 	}

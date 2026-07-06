@@ -421,6 +421,11 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 			mgr := lsp.NewManager(lspCfg.Servers, rootURI, lgr)
 			mgr.SetDaemonState(a.toolState.DaemonState())
 			a.toolState.SetLSPManager(mgr)
+			// Self-healing edits (docs/roadmap/PRD/edit-diagnostics-sync.md):
+			// the edit/write tools notify this sink post-mutation so the
+			// server re-analyzes and the existing between-turns drain
+			// (drainLSPDiagnostics) has real content to deliver.
+			a.toolState.SetLSPSyncSink(newLSPSyncAdapter(mgr, lgr, a.cfg.GetLSPDiagnosticsOnEdit))
 			lgr.Info("lsp: manager started", "servers", len(lspCfg.Servers))
 		}
 	}
