@@ -73,8 +73,8 @@ type PromptContext struct {
 	Model    string // canonical model id ("claude-opus-4-8", "deepseek-chat", ...). Empty = skip the model line in env block.
 
 	// Catalogs
-	Skills         []SkillRef         // advertised skill list; empty = skip the section.
-	DeferredTools  []DeferredToolSpec // deferred-tool catalog; rendered as a <functions> block in the main prompt. Empty = skip the section.
+	Skills        []SkillRef         // advertised skill list; empty = skip the section.
+	DeferredTools []DeferredToolSpec // deferred-tool catalog; rendered as a <functions> block in the main prompt. Empty = skip the section.
 
 	// Memory (loaded by internal/memdir)
 	WorkdirMemory string // contents of <workdir>/EVVA.md (user-authored); "" = skip.
@@ -84,6 +84,12 @@ type PromptContext struct {
 	// sections in the main prompt. false → both sections are suppressed so the
 	// model isn't told about a memory system it can't use this session.
 	EnableAutoMemory bool
+
+	// EnableDynamicWorkflow swaps the multi-step-work protocol: true renders
+	// the dynamic-workflow board guidance (wf_task_* + engine dispatch) in
+	// place of the todo_write protocol, matching the tool swap the Main
+	// profile performs under the same flag. Solo main agent only.
+	EnableDynamicWorkflow bool
 
 	// RepoMap is the already-rendered, token-bounded repo-map body (built by
 	// internal/repomap from the LSP layer, or its glob fallback). "" → the

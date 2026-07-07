@@ -66,7 +66,7 @@ func buildMainPrompt(ctx PromptContext) string {
 		sessionSpecificGuidanceSection(),
 		contextPreservationSection(),
 		skillsSection(ctx.Skills, ctx.OmitSkillAuthoring),
-		mainTodoSection(),
+		multiStepWorkSection(ctx),
 		mainDeferredToolsSection(ctx.DeferredTools),
 		devSectionIfEnabled(ctx),
 	)
@@ -412,6 +412,37 @@ func memoryDirDisplay(ctx PromptContext) string {
 // memdir.MemoryTypes while keeping sysprompt's stdlib-only, memdir-free charter.
 func memoryTypesList() string {
 	return "user, feedback, project, reference"
+}
+
+// multiStepWorkSection picks the multi-step-work protocol matching the
+// mounted planning surface: the dynamic-workflow board when the flag is
+// on, the todo list otherwise. Exactly one renders — the prompt never
+// advertises a tool the profile didn't mount.
+func multiStepWorkSection(ctx PromptContext) string {
+	if ctx.EnableDynamicWorkflow {
+		return dynamicWorkflowSection()
+	}
+	return mainTodoSection()
+}
+
+// dynamicWorkflowSection is the solo dynamic-workflow protocol — the DWF
+// leader protocol (internal/swarm/teamprompt.go) transposed to solo: the
+// root agent plans a dependency graph once, the in-process engine
+// dispatches ephemeral subagent workers, judgment stays here. Tool-level
+// usage lives in each wf_task_* Description; this section is the
+// project-level operating doctrine.
+func dynamicWorkflowSection() string {
+	return "# Multi-step work — dynamic workflow\n" +
+		"This session runs the dynamic workflow: a dependency-graph task board (`" + nameWfTaskCreate + "`) whose engine dispatches ephemeral subagent workers for you. Plan once; the machine dispatches; judgment stays with you.\n\n" +
+		"Protocol:\n" +
+		"1. **Plan the whole graph up front.** For any non-trivial goal, decompose it into tasks with `" + nameWfTaskCreate + "` before starting work: `worker` tasks for delegable steps (the engine spawns a subagent the moment each is unblocked), self-tasks (no `worker`) for steps you do yourself. Wire ordering with `depends_on` — edges are immutable AND-joins over existing tasks; extend the graph by creating more tasks, never by editing edges.\n" +
+		"2. **Write worker descriptions as briefings.** A worker has none of this conversation — its task description plus its dependencies' results are ALL it sees. Include goals, file paths, constraints, and how to self-check.\n" +
+		"3. **Never hand-dispatch engine-managed tasks.** The engine starts them, bounded by the worker cap; excess ready tasks queue. Use the `" + nameAgent + "` tool only for ad-hoc work that does not belong on the board.\n" +
+		"4. **Reserve `verify:\"auto\"` for mechanical, low-blast-radius steps** (read-only research, formatting, report generation). Auto tasks complete and cascade silently — you get one settled summary, and the board (`" + nameWfTaskList + "`) carries the record. Default `verify:\"leader\"` routes every result back to you: judge it with `" + nameWfTaskVerify + "` against evidence, not the worker's claims.\n" +
+		"5. **Isolate parallel file-writers.** Give file-writing workers `isolation: \"worktree\"`; at verify time reconcile with `" + nameWorktreeList + "` and `" + nameExitWorktree + "` (action \"merge\"). NEVER combine `verify:\"auto\"` with worktree isolation — auto-completing unmerged work strands it.\n" +
+		"6. **Rework = fresh worker.** Rejecting with `" + nameWfTaskVerify + "` re-queues the task and the engine spawns a NEW worker (the old one is gone). Update the task description with the rework instruction BEFORE rejecting.\n" +
+		"7. **Walk your self-tasks honestly** with `" + nameWfTaskUpdate + "` (pending → running → completed) — completing one unblocks its dependents too. Keep the board truthful: it is the single source of progress for you, the engine, and the user.\n" +
+		"8. **Worker reports arrive as daemon events** between your turns: leader-verify results and failures wake you; a failed worker's task never auto-completes and waits for your judgment. On session resume, workers do not survive — check `" + nameWfTaskList + "`; interrupted tasks re-queue automatically."
 }
 
 // mainTodoSection tells the model when to reach for `todo_write`. The full

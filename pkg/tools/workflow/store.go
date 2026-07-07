@@ -38,7 +38,8 @@ type Store struct {
 	nextID  int64
 	dir     string // persistence root; "" = in-memory only
 	session string
-	logFile *os.File
+	logPath string   // <dir>/<session>.jsonl; "" = in-memory only
+	logFile *os.File // opened lazily on first append — an unused board leaves no file
 }
 
 // NewStore returns an empty, in-memory board. Call SetPersistence +
@@ -60,10 +61,12 @@ func (s *Store) SetPersistence(dir string) {
 }
 
 // SetSession rotates the board to the given session id: the in-memory
-// state is reset and, when a persistence dir is configured, the session's
-// log is replayed (a fresh id starts an empty board) and kept open for
-// appends. Mirrors checkpoint.Manager.SetSession — called at boot, on
-// resume, and on /clear.
+// state is reset and, when a persistence dir is configured, an existing
+// session log is replayed (a fresh id starts an empty board). The log
+// file itself is created lazily on the first mutation, so a session that
+// never touches the board leaves nothing on disk. Mirrors
+// checkpoint.Manager.SetSession — called at boot, on resume, and on
+// /clear.
 func (s *Store) SetSession(id string) error {
 	s.mu.Lock()
 	defer func() {
@@ -80,24 +83,21 @@ func (s *Store) SetSession(id string) error {
 	s.order = nil
 	s.nextID = 0
 	s.session = id
+	s.logPath = ""
 
 	if s.dir == "" || id == "" {
 		return nil
 	}
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
-		return fmt.Errorf("workflow: create log dir: %w", err)
-	}
-	path := filepath.Join(s.dir, id+".jsonl")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o644)
+	s.logPath = filepath.Join(s.dir, id+".jsonl")
+	f, err := os.Open(s.logPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // fresh session — nothing to replay
+		}
 		return fmt.Errorf("workflow: open session log: %w", err)
 	}
-	if err := s.replayLocked(f); err != nil {
-		_ = f.Close()
-		return err
-	}
-	s.logFile = f
-	return nil
+	defer f.Close()
+	return s.replayLocked(f)
 }
 
 // Close releases the session log handle. The board stays readable.
@@ -121,14 +121,10 @@ type logRecord struct {
 	TS   time.Time `json:"ts"`
 }
 
-// replayLocked rebuilds state from the open log. Tolerates CRLF endings,
+// replayLocked rebuilds state from a session log. Tolerates CRLF endings,
 // blank lines, and unparseable lines (skipped — the log is best-effort
-// session state, not a financial ledger). Reads from offset 0; the handle
-// is O_APPEND so later writes still land at the end.
+// session state, not a financial ledger).
 func (s *Store) replayLocked(f *os.File) error {
-	if _, err := f.Seek(0, 0); err != nil {
-		return fmt.Errorf("workflow: seek session log: %w", err)
-	}
 	sc := bufio.NewScanner(f)
 	// Results and descriptions can be long; the default 64KB token cap is
 	// too small. 4MB bounds a single record generously.
@@ -174,12 +170,23 @@ func (s *Store) removeFromOrderLocked(id string) {
 	}
 }
 
-// appendLocked writes one record to the session log. Best-effort: an
-// in-memory-only store (no log) is silent, and a write failure does not
-// roll back the in-memory mutation — the board favors availability.
+// appendLocked writes one record to the session log, opening it on first
+// use. Best-effort: an in-memory-only store (no path) is silent, and a
+// write failure does not roll back the in-memory mutation — the board
+// favors availability.
 func (s *Store) appendLocked(rec logRecord) {
-	if s.logFile == nil {
+	if s.logPath == "" {
 		return
+	}
+	if s.logFile == nil {
+		if err := os.MkdirAll(s.dir, 0o755); err != nil {
+			return
+		}
+		f, err := os.OpenFile(s.logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return
+		}
+		s.logFile = f
 	}
 	rec.TS = time.Now()
 	b, err := json.Marshal(rec)

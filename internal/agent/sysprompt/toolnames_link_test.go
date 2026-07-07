@@ -36,8 +36,8 @@ func TestToolNamesAppearInMainPrompt(t *testing.T) {
 		Shell:            "zsh",
 		WorkDir:          "/tmp",
 		EvvaHome:         "/tmp/.evva",
-		Env:              "dev",  // include dev section so `feedback` is in the prompt
-		EnableAutoMemory: true,   // include auto-memory section so its tool names render
+		Env:              "dev", // include dev section so `feedback` is in the prompt
+		EnableAutoMemory: true,  // include auto-memory section so its tool names render
 	}
 	prompt := sysprompt.MainAgent.BuildSystemPrompt(ctx)
 
@@ -112,6 +112,34 @@ func TestPlanSubagentNameMatchesAgentDefinition(t *testing.T) {
 	prompt := sysprompt.MainAgent.BuildSystemPrompt(ctx)
 	if !contains(prompt, `subagent_type: "plan"`) {
 		t.Errorf("main prompt should reference subagent_type: \"plan\" by literal string")
+	}
+}
+
+// Same drift guard for the dynamic-workflow protocol section: it only
+// renders under the flag, so it gets its own context. The default-off
+// prompt (asserted above) must keep todo_write and carry no wf names.
+func TestWorkflowToolNamesAppearInFlagOnPrompt(t *testing.T) {
+	ctx := sysprompt.PromptContext{
+		AgentName:             "evva",
+		OS:                    "darwin",
+		Shell:                 "zsh",
+		WorkDir:               "/tmp",
+		EvvaHome:              "/tmp/.evva",
+		EnableDynamicWorkflow: true,
+	}
+	prompt := sysprompt.MainAgent.BuildSystemPrompt(ctx)
+	required := []tools.ToolName{
+		tools.WF_TASK_CREATE,
+		tools.WF_TASK_UPDATE,
+		tools.WF_TASK_VERIFY,
+		tools.WF_TASK_LIST,
+		tools.WORKTREE_LIST,
+		tools.EXIT_WORKTREE,
+	}
+	for _, name := range required {
+		if !contains(prompt, string(name)) {
+			t.Errorf("workflow prompt missing canonical tool wire name %q — likely drift between toolnames.go and pkg/tools/name.go", name)
+		}
 	}
 }
 

@@ -73,6 +73,15 @@ var toolGuidelines = map[tools.ToolName]string{
 	tools.CONFIG:      "Read or change evva settings: pass `setting` alone to read, include `value` to write.",
 	tools.FEEDBACK:    "Report a bug, improvement, or tool wish to the evva developers (dev mode), with enough detail to act on without guessing.",
 
+	// Solo dynamic-workflow board (mounted in place of the todo list when
+	// enable_dynamic_workflow is on). Each line stands alone per the rule
+	// above — no sibling tool named in backticks.
+	tools.WF_TASK_CREATE: "Add a task to the workflow board: dependencies gate it, and a worker spec makes the engine dispatch a subagent for it the moment it is unblocked. The description is the worker's entire briefing.",
+	tools.WF_TASK_UPDATE: "Edit a board task, walk your own (worker-less) tasks pending → running → completed, force-unblock past dead dependencies, or delete a task created in error.",
+	tools.WF_TASK_VERIFY: "Judge a worker's recorded result: approve to complete the task and unblock dependents, reject to re-queue it for a fresh worker.",
+	tools.WF_TASK_LIST:   "List the workflow board — every task with status, worker, verify policy, and what it is waiting on.",
+	tools.WF_TASK_GET:    "Fetch one workflow task's full detail: briefing, dependencies, recorded result, and audit trail.",
+
 	// Modes.
 	tools.ENTER_PLAN_MODE: "Flip the session into a read-only planning stance before non-trivial implementation work; the user approves your plan before you write code.",
 	tools.EXIT_PLAN_MODE:  "Present the finished plan and ask the user to approve leaving the read-only planning stance.",
@@ -114,6 +123,7 @@ var toolGuideOrder = []tools.ToolName{
 	tools.WEB_SEARCH, tools.WEB_FETCH, tools.HTTP_REQUEST,
 	tools.JSON_QUERY, tools.CALC,
 	tools.AGENT, tools.SKILL, tools.TOOL_SEARCH, tools.TODO_WRITE, tools.CONFIG, tools.FEEDBACK,
+	tools.WF_TASK_CREATE, tools.WF_TASK_UPDATE, tools.WF_TASK_VERIFY, tools.WF_TASK_LIST, tools.WF_TASK_GET,
 	tools.ENTER_PLAN_MODE, tools.EXIT_PLAN_MODE, tools.ENTER_WORKTREE, tools.EXIT_WORKTREE, tools.WORKTREE_LIST,
 	tools.ASK_USER_QUESTION, tools.PUSH_NOTIFICATION,
 	tools.CRON_CREATE, tools.CRON_LIST, tools.CRON_DELETE, tools.REMOTE_TRIGGER,

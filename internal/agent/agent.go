@@ -90,6 +90,11 @@ type Agent struct {
 	// it. See docs/roadmap/PRD/checkpoint-rewind.md.
 	checkpoints *checkpoint.Manager
 
+	// workflowEngine is the dynamic-workflow dispatcher (solo main only,
+	// non-nil iff the resolved profile mounts the wf_task_* board). Session
+	// hooks (resume, /clear) re-scope its store alongside checkpoints.
+	workflowEngine *workflowEngine
+
 	// agentRegistry is the merged catalog of built-in + disk-loaded agent
 	// definitions. Subagent spawning routes through it; the /profile picker
 	// drives off of it. Subagents inherit the parent's registry via
@@ -599,6 +604,14 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		a.toolState.SetPlanController(a)     // only main agent can flip plan mode.
 		a.toolState.SetWorktreeController(a) // only main agent can enter/exit a worktree.
 	}
+
+	// Dynamic workflow (root only, and only when this profile actually
+	// mounts the board — the toolset is the single source of truth, so
+	// flag-off sessions and swarm-resident personas wire nothing). Sits
+	// after the spawner install above: the engine dispatches through it.
+	if !a.IsSubagent() && profileHasWorkflowBoard(a.profile) {
+		a.wireWorkflow()
+	}
 	// Install the default permission + question brokers and the sink bridge
 	// when the host didn't supply its own. Root-only: subagents inherit the
 	// root's wired brokers via spawn.go. Must run before SetQuestionBroker
@@ -1032,6 +1045,10 @@ func (a *Agent) ResumeSnapshot(snap *session.Snapshot) error {
 	// Re-scope checkpoints to the resumed session's namespace so /rewind lists
 	// that session's history (not the pre-resume one).
 	a.checkpoints.SetSession(a.ID)
+	// Re-scope the workflow board: replay the resumed session's graph,
+	// re-queue tasks whose workers did not survive the restart, and sweep
+	// so ready work re-dispatches.
+	a.rescopeWorkflow(true)
 
 	a.logger.Info("agent: session resumed",
 		"id", snap.SessionID,
@@ -1129,6 +1146,9 @@ func (a *Agent) ClearSession() error {
 	a.toolState.TodoStore().Clear()
 	// /clear starts a fresh checkpoint namespace under the new session id.
 	a.checkpoints.SetSession(a.ID)
+	// ...and a fresh, empty workflow board (no lost-worker recovery — a
+	// fresh session has no history to re-queue).
+	a.rescopeWorkflow(false)
 	a.sessionStartSource = "clear"
 	a.sessionStarted.Store(false)
 

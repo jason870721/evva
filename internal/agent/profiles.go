@@ -29,8 +29,8 @@ import (
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/alarm"
 	"github.com/johnny1110/evva/pkg/tools/cron"
-	"github.com/johnny1110/evva/pkg/tools/excel"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
+	"github.com/johnny1110/evva/pkg/tools/excel"
 	"github.com/johnny1110/evva/pkg/tools/fs"
 	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/monitor"
@@ -40,6 +40,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/tools/util"
 	"github.com/johnny1110/evva/pkg/tools/web"
+	"github.com/johnny1110/evva/pkg/tools/workflow"
 )
 
 // AgentType enumerates the kinds of agent we know how to bootstrap.
@@ -210,6 +211,17 @@ func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provid
 		activeTools = stripTools(activeTools, soloSchedulingTools())
 		deferredTools = stripTools(deferredTools, soloSchedulingTools())
 	}
+	// Dynamic workflow (solo main only): the wf_task_* board replaces the
+	// todo list — one planning surface, one mental model (see
+	// docs/roadmap/PRD/solo-dynamic-workflow.md). Swarm-resident personas
+	// never mount it: the swarm has its own ledger, and a solo engine
+	// spawning workers the roster cannot see would break the same
+	// invariant the scheduling-tool strip above protects.
+	dynamicWorkflow := cfg.GetEnableDynamicWorkflow() && !def.LongRunning
+	if dynamicWorkflow {
+		activeTools = stripTools(activeTools, todo.Names())
+		activeTools = append(activeTools, workflow.Names()...)
+	}
 
 	ctx := detectContext(cfg)
 	ctx.OmitDate = def.LongRunning
@@ -218,6 +230,7 @@ func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provid
 	ctx.WorkdirMemory = mem.WorkdirMemory
 	ctx.MemoryIndex = mem.MemoryIndex
 	ctx.EnableAutoMemory = cfg.GetEnableAutoMemory()
+	ctx.EnableDynamicWorkflow = dynamicWorkflow
 	ctx.RepoMap = repoMap
 	ctx.DeferredTools = deferredToolSpecs(deferredTools)
 	ctx.Model = string(model)

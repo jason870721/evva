@@ -3,11 +3,98 @@ package agent
 import (
 	"fmt"
 	"log/slog"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
+	"github.com/johnny1110/evva/internal/tools/meta"
+	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/workflow"
 )
+
+// profileHasWorkflowBoard reports whether the resolved profile mounts the
+// wf_task_* board — the single condition the agent wiring keys off (the
+// profile builder already folded in the flag + LongRunning exclusion).
+func profileHasWorkflowBoard(p Profile) bool {
+	return slices.Contains(p.ActiveTools, tools.WF_TASK_CREATE)
+}
+
+// wireWorkflow assembles the dynamic-workflow runtime on the root agent:
+// board persistence + session scoping, the dispatch engine bound to the
+// quiet spawn path, and the session workflow daemon carrying the engine's
+// wake lines. Called from New after the subagent spawner is installed.
+func (a *Agent) wireWorkflow() {
+	store := a.toolState.WorkflowStore()
+	store.SetPersistence(filepath.Join(a.cfg.AppHome, "workflows"))
+	if err := store.SetSession(a.ID); err != nil {
+		a.logger.Warn("workflow: session log unavailable — board is memory-only", "err", err)
+	}
+	engine := newWorkflowEngine(store, a.cfg.GetWorkflowMaxWorkers(), a.dispatchWorkflowWorker, a.logger)
+	wd := newWorkflowDaemon(a.toolState.DaemonState(), store, engine, a.ID)
+	engine.bindSignal(wd.EmitLine)
+	a.toolState.DaemonState().Register(wd)
+	a.toolState.SetWorkflowDispatcher(engine)
+	a.workflowEngine = engine
+}
+
+// rescopeWorkflow re-points the board at the agent's (new) session id.
+// recover=true additionally re-queues running tasks whose worker daemons
+// no longer exist and sweeps — the restart-resume recovery; /clear passes
+// false (a fresh board has nothing to recover).
+func (a *Agent) rescopeWorkflow(recover bool) {
+	if a.workflowEngine == nil {
+		return
+	}
+	store := a.toolState.WorkflowStore()
+	if err := store.SetSession(a.ID); err != nil {
+		a.logger.Warn("workflow: session log unavailable — board is memory-only", "err", err)
+	}
+	if !recover {
+		return
+	}
+	state := a.toolState.DaemonState()
+	reset := store.ResetLostRunning(func(owner string) bool {
+		_, ok := state.Get(owner)
+		return ok
+	})
+	if len(reset) > 0 {
+		a.logger.Info("workflow: re-queued tasks after resume", "count", len(reset))
+	}
+	a.workflowEngine.Sweep()
+}
+
+// dispatchWorkflowWorker is the engine's production dispatch binding: one
+// quiet async subagent per task, claimed on the board between daemon
+// registration and worker start (a worker can never run unclaimed). The
+// terminal report routes back into the engine and the worker daemon is
+// evicted — the board, not the catalog, is the record.
+func (a *Agent) dispatchWorkflowWorker(t workflow.Task, prompt string, claim func(daemonID string) error) error {
+	req := meta.SpawnRequest{
+		Name:      "wf-" + t.ID,
+		Kind:      t.Worker.AgentType,
+		Desc:      fmt.Sprintf("workflow #%s: %s", t.ID, t.Subject),
+		Prompt:    prompt,
+		Level:     t.Worker.Level,
+		AsyncMode: true,
+		Isolation: t.Worker.Isolation,
+	}
+	var daemonID string
+	_, err := a.spawnSubagent(a.rootCtx, req, spawnHooks{
+		quiet: true,
+		preRun: func(id string) error {
+			daemonID = id
+			return claim(id)
+		},
+		onDone: func(resp string, runErr error) {
+			a.workflowEngine.onWorkerDone(t.ID, resp, runErr)
+			if daemonID != "" {
+				a.toolState.DaemonState().Evict(daemonID)
+			}
+		},
+	})
+	return err
+}
 
 // workflowDispatchFn launches one ephemeral worker for a board task. The
 // implementation must invoke claim(daemonID) after the worker's daemon is
