@@ -92,6 +92,7 @@ Wave → minor map (append a row whenever a new wave is planned):
 | v1.8 | Auto-memory consolidation (dream) — a gated, fenced background agent that merges/prunes/re-indexes the global memory store when idle; PRD: `docs/roadmap/PRD/auto-dream.md` |
 | v1.9 | Swarm worktree isolation (SWT-1..8) — per-member git worktrees + leader merge-back for coding swarms; PRD: `docs/roadmap/PRD/swarm-worktree-isolation.md` |
 | v1.10 | Swarm dynamic workflow (DWF-1..8) — ledger task graph (depends_on + blocked + engine auto-dispatch), worker task_done + verify policy, ephemeral fan-out members (member_spawn/auto-retire); PRD: `docs/roadmap/PRD/swarm-dynamic-workflow.md` |
+| v1.11 | Solo dynamic workflow (SDW-1..8) — the DWF execution model for the solo TUI: `wf_task_*` graph board, in-process engine auto-dispatching ephemeral subagent workers, verify policy, `enable_dynamic_workflow` /config flag (default off); PRD: `docs/roadmap/PRD/solo-dynamic-workflow.md` |
 
 ### The four release commands
 

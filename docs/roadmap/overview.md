@@ -63,6 +63,7 @@ table stays trustworthy.
 | 22 | [sandbox-isolation.md](PRD/sandbox-isolation.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — OS-level sandboxing for bash/fan-out/swarm clones |
 | 23 | [mcp-server-mode.md](PRD/mcp-server-mode.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — expose evva as an MCP server |
 | 24 | [agent-eval-harness.md](PRD/agent-eval-harness.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — transcript replay + regression scoring |
+| 25 | [solo-dynamic-workflow.md](PRD/solo-dynamic-workflow.md) | ⏳ Built on `dev` — awaiting beta cut | v1.11 (claimed) | SDW-1..8: DWF execution model for solo TUI — `wf_task_*` board, engine auto-dispatch of subagent workers, `enable_dynamic_workflow` flag |
 
 **Status legend:** ✅ Stable (in a promoted `vX.Y.Z` on `main`) · 🟡 Beta (built,
 in a `-beta.N` on `pre-release`, not yet promoted) · ⚠️ Anomaly (wave claimed
