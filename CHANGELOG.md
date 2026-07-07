@@ -12,6 +12,15 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Startup deadlock with `enable_dynamic_workflow: true`.** The workflow
+  board's boot-time `SetSession` notify reached `bubbletea.UI.Emit` while
+  the agent was still being constructed — before `Run()` starts the tea
+  program's receive loop — so `Program.Send` blocked forever: evva hung
+  with no TUI and an empty agent log. `UI.Emit` now buffers events
+  emitted before `Run()` and flushes them once the program starts.
+
 ## [v1.11.0-beta.1] — 2026-07-07
 
 ### Added
