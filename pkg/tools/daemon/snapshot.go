@@ -81,6 +81,23 @@ type MonitorMeta struct {
 
 func (MonitorMeta) daemonMetadata() {}
 
+// LocalWorkflowMeta is the payload for KindLocalWorkflow snapshots — the
+// solo dynamic-workflow engine's presence in the daemon catalog. Counts
+// mirror the board; Paused is set once the operator kills the daemon
+// (dispatch stops, the board tools keep working).
+type LocalWorkflowMeta struct {
+	Total      int
+	Blocked    int
+	Pending    int
+	Running    int
+	Verifying  int
+	Completed  int
+	MaxWorkers int
+	Paused     bool
+}
+
+func (LocalWorkflowMeta) daemonMetadata() {}
+
 // LSPMeta is the payload for KindLSP snapshots.
 type LSPMeta struct {
 	ServerName   string

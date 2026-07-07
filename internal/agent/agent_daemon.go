@@ -48,6 +48,13 @@ type agentDaemon struct {
 	worktreePath   string
 	worktreeBranch string
 
+	// quiet suppresses the terminal Lifecycle emit for async subagents whose
+	// completion is owned by another reporter (the workflow engine records
+	// the result on the board and authors its own wake messages). The daemon
+	// stays fully visible to the TUI strip, daemon_list, and daemon_stop.
+	// Set before Register, immutable after.
+	quiet bool
+
 	// Guarded by mu.
 	status  daemon.DaemonStatus
 	phase   constant.AgentStatus
@@ -202,7 +209,7 @@ func (d *agentDaemon) Report(summary string) {
 	d.endedAt = time.Now()
 	async := d.async
 	d.mu.Unlock()
-	if async {
+	if async && !d.quiet {
 		d.state.Emit(daemon.NewLifecycleSignal(d, daemon.StatusCompleted))
 	}
 }
@@ -245,7 +252,7 @@ func (d *agentDaemon) Crush(summary string, err error, terminalStatus daemon.Dae
 	d.endedAt = time.Now()
 	async := d.async
 	d.mu.Unlock()
-	if async {
+	if async && !d.quiet {
 		d.state.Emit(daemon.NewLifecycleSignal(d, terminalStatus))
 	}
 }

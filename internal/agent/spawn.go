@@ -38,6 +38,27 @@ import (
 //     parent's loop drains the lifecycle on its next iter and folds it
 //     into the conversation as a <system-reminder>.
 func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error) {
+	return a.spawnSubagent(ctx, req, spawnHooks{})
+}
+
+// spawnHooks customizes a spawn for internal callers (the workflow
+// engine). The zero value is the AGENT-tool behavior, byte-identical to
+// the pre-hooks implementation.
+type spawnHooks struct {
+	// quiet suppresses the async terminal Lifecycle signal — the caller
+	// owns reporting (see agentDaemon.quiet).
+	quiet bool
+	// preRun fires after the daemon is registered (id known) and before
+	// the child starts. A non-nil error aborts the spawn: the daemon is
+	// evicted and an isolation worktree cleaned up. The workflow engine
+	// claims the board task here so a worker can never run unclaimed.
+	preRun func(daemonID string) error
+	// onDone fires after the child's terminal Report/Crush with its final
+	// text and run error. Async spawns only.
+	onDone func(resp string, runErr error)
+}
+
+func (a *Agent) spawnSubagent(ctx context.Context, req meta.SpawnRequest, hooks spawnHooks) (string, error) {
 	if a.IsSubagent() {
 		return "", meta.ErrSubagentForbidden
 	}
@@ -101,12 +122,23 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 	)
 	// Record the isolation worktree so worktree_list can attribute a live
 	// worktree to its owning daemon. Set before Register (no concurrent
-	// reader yet).
+	// reader yet). quiet likewise precedes Register — immutable after.
 	if isolationSession != nil {
 		ad.worktreePath = isolationSession.Path
 		ad.worktreeBranch = isolationSession.Branch
 	}
+	ad.quiet = hooks.quiet
 	state.Register(ad)
+
+	if hooks.preRun != nil {
+		if err := hooks.preRun(ad.ID()); err != nil {
+			state.Evict(ad.ID())
+			if isolationSession != nil {
+				mode.CleanupSubagentWorktree(ctx, *isolationSession, true)
+			}
+			return "", fmt.Errorf("spawn: pre-run: %w", err)
+		}
+	}
 
 	if child.IsAsync() {
 		// Detach: run the child in a goroutine, emit the terminal
@@ -123,10 +155,13 @@ func (a *Agent) Spawn(ctx context.Context, req meta.SpawnRequest) (string, error
 					ad.Crush("[subagent crushed]", runErr, daemon.StatusFailed)
 				}
 				a.logger.Error("subagent crashed", "name", child.Name, "err", runErr)
-				return
+			} else {
+				a.logger.Debug("subagent done", "name", child.Name, "resp", truncateSummary(resp, 100))
+				ad.Report(resp)
 			}
-			a.logger.Debug("subagent done", "name", child.Name, "resp", truncateSummary(resp, 100))
-			ad.Report(resp)
+			if hooks.onDone != nil {
+				hooks.onDone(resp, runErr)
+			}
 		}()
 		return fmt.Sprintf("subagent %s(%s) spawned in background; its done will be delivered on a later turn (do not assume any result here).", child.Name, child.ID), nil
 	}
