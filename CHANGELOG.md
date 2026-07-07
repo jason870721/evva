@@ -12,6 +12,8 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.11.0-beta.1] — 2026-07-07
+
 ### Added
 
 - **Solo dynamic workflow (SDW-1..8, claims v1.11).** The swarm DWF
@@ -2051,7 +2053,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.10.0-beta.1...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.1...HEAD
+[v1.11.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.10.0-beta.1...v1.11.0-beta.1
 [v1.10.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.8.5-beta.1...v1.10.0-beta.1
 [v1.8.5-beta.1]: https://github.com/johnny1110/evva/compare/v1.8.4...v1.8.5-beta.1
 [v1.8.4]: https://github.com/johnny1110/evva/compare/v1.8.3...v1.8.4
