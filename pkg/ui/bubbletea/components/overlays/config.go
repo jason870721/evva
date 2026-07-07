@@ -488,6 +488,28 @@ func buildConfigFields(cfg *config.Config, ctrl ui.Controller) []ConfigField {
 			},
 		},
 		{
+			Label: "enable_dynamic_workflow", Kind: cfgKindBool,
+			Get:   func() string { return strconv.FormatBool(cfg.GetEnableDynamicWorkflow()) },
+			Apply: func(s string) error {
+				b, err := strconv.ParseBool(strings.TrimSpace(s))
+				if err != nil {
+					return fmt.Errorf("not a bool: %s", s)
+				}
+				return cfg.SetEnableDynamicWorkflow(b)
+			},
+		},
+		{
+			Label: "workflow_max_workers", Kind: cfgKindInt,
+			Get:   func() string { return strconv.Itoa(cfg.GetWorkflowMaxWorkers()) },
+			Apply: func(s string) error {
+				n, err := strconv.Atoi(strings.TrimSpace(s))
+				if err != nil {
+					return fmt.Errorf("not an integer: %s", s)
+				}
+				return cfg.SetWorkflowMaxWorkers(n)
+			},
+		},
+		{
 			Label: "fetch_max_bytes", Kind: cfgKindInt,
 			Get: func() string { return strconv.Itoa(cfg.FetchMaxBytes) },
 			Apply: func(s string) error {

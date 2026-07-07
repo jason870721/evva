@@ -95,6 +95,17 @@ type FileConfig struct {
 	// is configured. Pointer so a missing key preserves the default.
 	LSPDiagnosticsOnEdit *bool `yaml:"lsp_diagnostics_on_edit,omitempty"`
 
+	// EnableDynamicWorkflow gates the solo dynamic-workflow board: the main
+	// agent swaps todo_write for the wf_task_* graph tools and an in-process
+	// engine auto-dispatches ephemeral subagent workers as dependencies
+	// complete. Default false — opt-in, since an enabled session can spawn
+	// real (token-costing) subagents without a per-dispatch prompt. Pointer so
+	// a missing key preserves the default. WorkflowMaxWorkers caps concurrent
+	// engine-dispatched workers (default 4; ≤0 normalizes to the default at
+	// load).
+	EnableDynamicWorkflow *bool `yaml:"enable_dynamic_workflow,omitempty"`
+	WorkflowMaxWorkers    int   `yaml:"workflow_max_workers,omitempty"`
+
 	Providers map[string]FileProviderConfig `yaml:"providers"`
 
 	// Custom is the downstream-app extension slot. Values round-trip through

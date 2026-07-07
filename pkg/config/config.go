@@ -195,6 +195,16 @@ type Config struct {
 	// See docs/roadmap/PRD/edit-diagnostics-sync.md.
 	LSPDiagnosticsOnEdit bool
 
+	// Solo dynamic workflow. When EnableDynamicWorkflow is true (opt-in; off
+	// by default), the main agent mounts the wf_task_* graph-board tools
+	// (replacing todo_write) and an in-process engine auto-dispatches
+	// ephemeral subagent workers as task dependencies complete.
+	// WorkflowMaxWorkers bounds concurrent engine-dispatched workers
+	// (default 4; floor 1). Solo main agent only — swarm-resident personas
+	// never mount the board. See docs/roadmap/PRD/solo-dynamic-workflow.md.
+	EnableDynamicWorkflow bool
+	WorkflowMaxWorkers    int
+
 	// Web tools
 	TavilyAPIKey  string // empty → web_search reports "not configured"
 	FetchMaxBytes int    // cap on extracted text returned by web_fetch
@@ -283,6 +293,8 @@ func (c *Config) Clone() *Config {
 		EnableRepoMap:           c.EnableRepoMap,
 		RepoMapTokenBudget:      c.RepoMapTokenBudget,
 		LSPDiagnosticsOnEdit:    c.LSPDiagnosticsOnEdit,
+		EnableDynamicWorkflow:   c.EnableDynamicWorkflow,
+		WorkflowMaxWorkers:      c.WorkflowMaxWorkers,
 		TavilyAPIKey:            c.TavilyAPIKey,
 		FetchMaxBytes:           c.FetchMaxBytes,
 		LLMParamsTemperature:    c.LLMParamsTemperature,
@@ -462,6 +474,42 @@ func (c *Config) GetLSPDiagnosticsOnEdit() bool {
 func (c *Config) SetLSPDiagnosticsOnEdit(v bool) error {
 	c.mu.Lock()
 	c.LSPDiagnosticsOnEdit = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetEnableDynamicWorkflow returns the solo dynamic-workflow flag under the
+// read lock. Read at profile build to decide whether the main agent mounts
+// the wf_task_* board (and drops todo_write).
+func (c *Config) GetEnableDynamicWorkflow() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EnableDynamicWorkflow
+}
+
+// SetEnableDynamicWorkflow toggles the solo dynamic workflow and persists.
+// Takes effect on the next agent boot / profile switch (the board tools and
+// the engine wire at agent construction).
+func (c *Config) SetEnableDynamicWorkflow(v bool) error {
+	c.mu.Lock()
+	c.EnableDynamicWorkflow = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetWorkflowMaxWorkers returns the engine's concurrent-worker cap under the
+// read lock (≥1; load normalizes ≤0 to the default 4).
+func (c *Config) GetWorkflowMaxWorkers() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.WorkflowMaxWorkers
+}
+
+// SetWorkflowMaxWorkers sets the engine's concurrent-worker cap and persists.
+// Values ≤0 are normalized to the default at load.
+func (c *Config) SetWorkflowMaxWorkers(v int) error {
+	c.mu.Lock()
+	c.WorkflowMaxWorkers = v
 	c.mu.Unlock()
 	return c.SaveFile()
 }
@@ -882,6 +930,7 @@ func (c *Config) SaveFile() error {
 	enableCheckpoints := c.EnableCheckpoints
 	enableRepoMap := c.EnableRepoMap
 	enableLSPDiagnosticsOnEdit := c.LSPDiagnosticsOnEdit
+	enableDynamicWorkflow := c.EnableDynamicWorkflow
 	var customCopy map[string]any
 	if len(c.CustomConfig) > 0 {
 		customCopy = make(map[string]any, len(c.CustomConfig))
@@ -913,6 +962,8 @@ func (c *Config) SaveFile() error {
 		EnableRepoMap:           &enableRepoMap,
 		RepoMapTokenBudget:      c.RepoMapTokenBudget,
 		LSPDiagnosticsOnEdit:    &enableLSPDiagnosticsOnEdit,
+		EnableDynamicWorkflow:   &enableDynamicWorkflow,
+		WorkflowMaxWorkers:      c.WorkflowMaxWorkers,
 		Providers:               providers,
 		Custom:                  customCopy,
 	}

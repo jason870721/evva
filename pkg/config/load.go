@@ -256,6 +256,17 @@ func Load(opts LoadOptions) (*Config, error) {
 		lspDiagnosticsOnEdit = *fileCfg.LSPDiagnosticsOnEdit
 	}
 
+	// Solo dynamic workflow is opt-in (default off); the worker cap normalizes
+	// a missing or non-positive value to 4 so the engine always has a bound.
+	enableDynamicWorkflow := false
+	if fileCfg.EnableDynamicWorkflow != nil {
+		enableDynamicWorkflow = *fileCfg.EnableDynamicWorkflow
+	}
+	workflowMaxWorkers := 4
+	if fileCfg.WorkflowMaxWorkers > 0 {
+		workflowMaxWorkers = fileCfg.WorkflowMaxWorkers
+	}
+
 	cfg := &Config{
 		AppName:    appName,
 		AppVersion: appVersion,
@@ -290,6 +301,8 @@ func Load(opts LoadOptions) (*Config, error) {
 		EnableRepoMap:           enableRepoMap,
 		RepoMapTokenBudget:      repoMapBudget,
 		LSPDiagnosticsOnEdit:    lspDiagnosticsOnEdit,
+		EnableDynamicWorkflow:   enableDynamicWorkflow,
+		WorkflowMaxWorkers:      workflowMaxWorkers,
 		TavilyAPIKey:            fileCfg.TavilyAPIKey,
 		FetchMaxBytes:           fileCfg.FetchMaxBytes,
 		DefaultProvider:         defProvider,
