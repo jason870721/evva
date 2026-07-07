@@ -14,6 +14,27 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Solo dynamic workflow (SDW-1..8, claims v1.11).** The swarm DWF
+  execution model ported to the solo TUI, behind the new opt-in
+  `enable_dynamic_workflow` setting (default false, toggleable in
+  `/config`; effect on next boot / profile switch). When on, the main
+  agent swaps `todo_write` for a dependency-graph **workflow board**
+  (`pkg/tools/workflow`: `wf_task_create/update/verify/list/get`,
+  `wf_`-prefixed because the swarm owns `task_*` process-wide) and an
+  in-process engine auto-dispatches ephemeral async subagent workers as
+  dependencies complete — plan once, machine dispatches, judgment stays
+  with the root. Per-task `verify: leader|auto` (auto chains cascade with
+  zero root wakes and settle into one summary; failures always force
+  leader judgment), dependency results flow into worker briefings,
+  `workflow_max_workers` caps concurrency (default 4). Board persists as
+  an append-only session jsonl under `~/.evva/workflows/` and replays on
+  resume (lost workers re-queue); `/clear` rotates it. New TUI board
+  panel; workers stay visible to the agents strip / `daemon_*` tools via
+  a quiet-spawn seam; the reserved `local_workflow` daemon kind is now
+  implemented as the engine's catalog presence (kill = pause dispatch).
+  Flag off = byte-identical baseline; swarm personas never mount it.
+  PRD: `docs/roadmap/PRD/solo-dynamic-workflow.md`.
+
 - **Self-healing edits — edit→LSP diagnostics sync.** The `edit`/`write`
   tools now notify the LSP layer after a successful mutation (`didOpen` on
   first touch, full-sync `didChange` with a bumped version thereafter,

@@ -21,6 +21,7 @@
   - [Approval Prompts](#approval-prompts)
   - [Permission Rules](#permission-rules)
 - [7. Sub-agents and Personas](#7-sub-agents-and-personas)
+  - [Dynamic workflow (opt-in)](#dynamic-workflow-opt-in--a-task-graph-the-engine-executes)
 - [8. Hooks](#8-hooks)
   - [Where Hooks Live](#where-hooks-live)
   - [File Shape](#file-shape)
@@ -646,6 +647,18 @@ Active sub-agents appear as chips in a horizontal strip above the input. Async s
 
 You don't drive sub-agents yourself; the model decides when to spawn one.
 
+### Dynamic workflow (opt-in) — a task graph the engine executes
+
+Turn it on with `/config` → `enable_dynamic_workflow: true` (takes effect on the next start). It brings the swarm's dynamic-workflow execution model (v1.10) to the solo TUI: instead of the todo list, the main agent gets a **workflow board** — a dependency graph of tasks — and an in-process engine that dispatches sub-agent workers off it. Plan once; the machine dispatches; judgment stays with the model.
+
+- **Task graph.** The model decomposes a goal with `wf_task_create`: *worker tasks* carry a spawn spec (agent type, optional `worktree` isolation for parallel file-writers, model level) and launch automatically the moment their dependencies complete; *self-tasks* are steps the model does itself, tracked on the same graph. Dependencies are AND-joins over existing tasks and immutable — the graph grows by adding tasks.
+- **Verify policy.** The default `verify: "leader"` routes every worker result back to the model for judgment before the task completes and its dependents unblock. `verify: "auto"` lets declared-mechanical steps complete and cascade with **zero interruptions** — one "workflow settled" summary arrives at the end, and the board carries the record. A crashed worker never auto-completes, whatever its policy.
+- **Board panel.** A `WORKFLOW` panel appears above the input: a spinner marks a task whose worker is live, `⛓ #…` marks blocked tasks with their dependencies, `auto` chips auto-verify tasks, `ᵂ` marks worker tasks. Workers also appear in the sub-agent chip strip and `daemon_list`; stop one with `daemon_stop`, or kill the `local_workflow` daemon to pause all dispatching (the board tools keep working; running workers finish and record).
+- **Restart-safe.** The board persists per session under `~/.evva/workflows/<session>.jsonl` and replays on resume; tasks whose workers died with the process re-queue and re-dispatch automatically. `/clear` starts a fresh board.
+- **Knobs.** `workflow_max_workers` (default 4) caps concurrent engine-dispatched workers; excess ready tasks queue until a slot frees.
+
+With the flag off (the default) nothing changes — todo list, prompt, and tools are byte-identical to before. Swarm members never mount the solo board: the swarm has its own ledger (see the swarm guide's dynamic-workflows chapter).
+
 ---
 
 ## 8. Hooks
@@ -891,6 +904,10 @@ auto_dream_model: ""         # empty = the same cheap per-provider default as re
 # Repo map (LSP-backed codebase overview injected at session start; main agent only)
 enable_repo_map: false       # opt-in; off = prompt byte-identical to today, zero LSP calls
 repo_map_token_budget: 2000  # bounds the map; lower-ranked symbols dropped first to fit
+
+# Dynamic workflow (solo task-graph board + engine-dispatched sub-agent workers; main agent only)
+enable_dynamic_workflow: false  # opt-in; swaps todo_write for the wf_task_* board + auto-dispatch engine
+workflow_max_workers: 4         # cap on concurrent engine-dispatched workers; ≤0 resets to 4
 
 # Self-healing edits — see "Self-healing edits" below. Core sync (didChange
 # so the next turn's diagnostics are real) runs whenever LSP is configured,

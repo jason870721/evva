@@ -21,6 +21,7 @@
   - [核准提示](#核准提示)
   - [權限規則](#權限規則)
 - [7. 子代理與人格](#7-子代理與人格)
+  - [動態工作流（選用）](#動態工作流選用-由引擎執行的任務圖)
 - [8. Hooks 鉤子](#8-hooks-鉤子)
   - [Hook 設定檔位置](#hook-設定檔位置)
   - [檔案格式](#檔案格式)
@@ -649,6 +650,18 @@ permission_mode: default     # default | accept_edits | plan | bypass
 
 你不需要手動驅動子代理；模型會自行決定何時生成。
 
+### 動態工作流（選用）— 由引擎執行的任務圖
+
+在 `/config` 將 `enable_dynamic_workflow` 切為 `true`（下次啟動生效）。這把 swarm 的動態工作流執行模型（v1.10）帶進單機 TUI：主代理不再使用 todo 清單，改用一塊**工作流看板**——由任務組成的依賴圖——加上一個行程內引擎，自動為看板派工子代理 worker。規劃一次，機器派工，判斷權留在模型手上。
+
+- **任務圖。** 模型用 `wf_task_create` 拆解目標：*worker 任務*帶著生成規格（代理類型、平行寫檔用的 `worktree` 隔離、模型等級），依賴一完成就自動派工；*self 任務*是模型自己做的步驟，記在同一張圖上。依賴是對既有任務的 AND-join 且不可變——擴充圖的方式是新增任務。
+- **驗收政策。** 預設 `verify: "leader"`：每個 worker 的結果都會送回模型判斷，通過後任務才完成、後續任務才解鎖。`verify: "auto"` 讓宣告為機械性的步驟**零打擾**地完成並串聯——最後只收到一則「workflow settled」摘要，紀錄都在看板上。worker 崩潰的任務無論政策為何都不會自動完成。
+- **看板面板。** 輸入框上方會出現 `WORKFLOW` 面板：轉圈符號代表 worker 執行中，`⛓ #…` 標示被依賴擋住的任務，`auto` 是自動驗收，`ᵂ` 是 worker 任務。worker 同時出現在子代理晶片列與 `daemon_list`；可用 `daemon_stop` 停掉單一 worker，或 kill 掉 `local_workflow` daemon 暫停所有派工（看板工具照常可用；執行中的 worker 會做完並記錄結果）。
+- **重啟安全。** 看板以工作階段為單位存在 `~/.evva/workflows/<session>.jsonl`，resume 時重放；隨行程一起死掉的 worker 任務會自動重新排隊、重新派工。`/clear` 開一塊全新看板。
+- **旋鈕。** `workflow_max_workers`（預設 4）限制引擎同時派工的 worker 數；超出的就緒任務排隊等空位。
+
+旗標關閉（預設）時一切不變——todo 清單、提示詞、工具與現況逐位元組相同。swarm 成員永遠不會掛載單機看板：swarm 有自己的 ledger（見 swarm 手冊的動態工作流章節）。
+
 ---
 
 ## 8. Hooks 鉤子
@@ -894,6 +907,10 @@ auto_dream_model: ""         # 留空 = 與召回相同的便宜 per-provider �
 # 倉庫地圖（在工作階段開始時注入的 LSP 程式碼庫概覽；僅主代理）
 enable_repo_map: false       # 選用；關閉時提示詞與現況逐位元組相同，零 LSP 呼叫
 repo_map_token_budget: 2000  # 限制地圖大小；超出時優先丟棄排名較低的符號
+
+# 動態工作流（單機任務圖看板 + 引擎派工的子代理 worker；僅主代理）
+enable_dynamic_workflow: false  # 選用；以 wf_task_* 看板 + 自動派工引擎取代 todo_write
+workflow_max_workers: 4         # 引擎同時派工的 worker 上限；≤0 重設為 4
 
 # 自我修復編輯——見下方「自我修復編輯」。核心同步（didChange，讓下一輪的
 # 診斷是真的）只要有設定 LSP 就會運作，與此旗標無關；此旗標只控制「同步」層。
