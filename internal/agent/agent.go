@@ -33,6 +33,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/todo"
+	"github.com/johnny1110/evva/pkg/tools/workflow"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 	"github.com/johnny1110/evva/pkg/ui"
 )
@@ -1258,6 +1259,16 @@ func (a *Agent) LastTurnInputTokens() int { return a.session.LastTurnInputTokens
 
 // TodoStore exposes the todo backing store for the TUI's todo panel.
 func (a *Agent) TodoStore() *todo.TodoStore { return a.toolState.TodoStore() }
+
+// WorkflowTasks exposes the dynamic-workflow board to the UI. nil when
+// the feature is off for this agent (the ui.Controller contract) so the
+// board panel collapses without allocating an unused store.
+func (a *Agent) WorkflowTasks() *workflow.Store {
+	if a.workflowEngine == nil {
+		return nil
+	}
+	return a.toolState.WorkflowStore()
+}
 
 // DaemonState exposes the unified daemon store (subagents, background bash,
 // monitors). Returns nil until the first daemon registers — mirrors the

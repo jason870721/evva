@@ -28,6 +28,7 @@ import (
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/components/status"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/components/todos"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/components/transcript"
+	workflowpanel "github.com/johnny1110/evva/pkg/ui/bubbletea/components/workflow"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/events"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/mouse"
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/theme"
@@ -506,6 +507,9 @@ func (a *App) relayout() {
 	used := 5 + 2 // input + hint+status
 	if a.controller != nil {
 		if panel := todos.Render(a.controller.TodoStore(), a.transcriptWidth(), a.theme); panel != "" {
+			used += strings.Count(panel, "\n") + 1
+		}
+		if panel := workflowpanel.Render(a.controller.WorkflowTasks(), a.controller.DaemonState(), a.transcriptWidth(), a.theme, a.state.Frame()); panel != "" {
 			used += strings.Count(panel, "\n") + 1
 		}
 		if strip := agents.Render(a.controller.DaemonState(), a.transcriptWidth(), a.theme, a.state.Frame()); strip != "" {
@@ -987,6 +991,10 @@ func (a *App) View() string {
 	width := a.transcriptWidth()
 	if a.controller != nil {
 		if panel := todos.Render(a.controller.TodoStore(), width, a.theme); panel != "" {
+			b.WriteByte('\n')
+			b.WriteString(panel)
+		}
+		if panel := workflowpanel.Render(a.controller.WorkflowTasks(), a.controller.DaemonState(), width, a.theme, a.state.Frame()); panel != "" {
 			b.WriteByte('\n')
 			b.WriteString(panel)
 		}

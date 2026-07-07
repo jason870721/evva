@@ -25,6 +25,7 @@ import (
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/todo"
+	"github.com/johnny1110/evva/pkg/tools/workflow"
 )
 
 // UI is the contract a TUI / GUI / web frontend implementation satisfies.
@@ -112,6 +113,11 @@ type Controller interface {
 	// SnapshotByKind. Returns nil until the first daemon is registered —
 	// callers must nil-check.
 	DaemonState() *daemon.DaemonState
+
+	// WorkflowTasks exposes the dynamic-workflow board so the UI can
+	// render the board panel. Returns nil when the feature is off
+	// (enable_dynamic_workflow) — callers must nil-check.
+	WorkflowTasks() *workflow.Store
 
 	// EnqueueUserPrompt hands the agent a prompt the user typed mid-run.
 	// The agent drains the queue at the next iteration boundary instead of

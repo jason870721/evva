@@ -9,6 +9,7 @@ import (
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/todo"
+	"github.com/johnny1110/evva/pkg/tools/workflow"
 	"github.com/johnny1110/evva/pkg/ui"
 )
 
@@ -27,6 +28,7 @@ func (publicOnlyController) Usage() llm.Usage                                   
 func (publicOnlyController) LastTurnInputTokens() int                              { return 0 }
 func (publicOnlyController) TodoStore() *todo.TodoStore                            { return nil }
 func (publicOnlyController) DaemonState() *daemon.DaemonState                      { return nil }
+func (publicOnlyController) WorkflowTasks() *workflow.Store                        { return nil }
 func (publicOnlyController) EnqueueUserPrompt(string)                              {}
 func (publicOnlyController) Logger() *slog.Logger                                  { return nil }
 func (publicOnlyController) Model() string                                         { return "" }
