@@ -41,6 +41,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/lsp"
 	"github.com/johnny1110/evva/pkg/tools/structured"
 	"github.com/johnny1110/evva/pkg/tools/todo"
+	"github.com/johnny1110/evva/pkg/tools/workflow"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 )
 
@@ -53,7 +54,14 @@ import (
 // agent (via agent.ToolState()) and read state through the typed accessors
 // rather than peeking into tool internals.
 type ToolState struct {
-	todoStore          *todo.TodoStore
+	todoStore *todo.TodoStore
+	// workflowStore backs the wf_task_* board (solo dynamic workflow);
+	// workflowDispatcher is the engine seam the board tools poke after
+	// readiness-changing mutations. The agent installs the engine via
+	// SetWorkflowDispatcher during New — nil when the feature is off, and
+	// the tools then run board-only (no auto-dispatch).
+	workflowStore      *workflow.Store
+	workflowDispatcher workflow.Dispatcher
 	subagentSpawner    meta.SubagentSpawner
 	deferredLookup     meta.DeferredLookup
 	planController     mode.PlanModeController
@@ -187,6 +195,37 @@ func (s *ToolState) TodoStore() *todo.TodoStore {
 		s.RegisterStore(s.todoStore)
 	}
 	return s.todoStore
+}
+
+// WorkflowStore returns the dynamic-workflow board, allocating one on
+// first use. The wf_task_* tools constructed against the same ToolState
+// share it. First-use also registers the store on the change stream so
+// the agent's event bridge picks up every board mutation without
+// per-store wiring.
+func (s *ToolState) WorkflowStore() *workflow.Store {
+	if s.workflowStore == nil {
+		s.workflowStore = workflow.NewStore()
+		s.RegisterStore(s.workflowStore)
+	}
+	return s.workflowStore
+}
+
+// SetWorkflowDispatcher installs the dispatch engine. Called by agent.New
+// when the dynamic workflow is enabled, before the first tool executes.
+func (s *ToolState) SetWorkflowDispatcher(d workflow.Dispatcher) { s.workflowDispatcher = d }
+
+// WorkflowDispatcher returns the installed engine, or nil. Passed as the
+// late-bound lookup into the wf_task_* tool factories.
+func (s *ToolState) WorkflowDispatcher() workflow.Dispatcher { return s.workflowDispatcher }
+
+// WorkflowAgentTypes resolves the live subagent-type list for worker-spec
+// validation at wf_task_create time; nil (no spawner installed) defers
+// validation to dispatch.
+func (s *ToolState) WorkflowAgentTypes() []string {
+	if s.subagentSpawner == nil {
+		return nil
+	}
+	return s.subagentSpawner.SubagentTypes()
 }
 
 // SubagentSpawner returns the currently-installed spawner, or nil if none.

@@ -286,6 +286,16 @@ var ReadOnlyOrSelfTools = map[string]bool{
 	// Pure data return, no filesystem/shell side effects; headless-only by
 	// registration (agent.WithStructuredOutput), so it must never prompt.
 	"structured_output": true,
+	// Solo dynamic-workflow board (SDW) — same posture as the swarm's task
+	// ledger (internal/swarm/tools): board coordination, not a file/shell
+	// side effect. The store's writer matrix enforces the real guard, and
+	// the actual permission boundary stays each dispatched worker's own
+	// file/shell tools, which gate as usual inside the subagent.
+	"wf_task_create": true,
+	"wf_task_update": true,
+	"wf_task_verify": true,
+	"wf_task_list":   true,
+	"wf_task_get":    true,
 }
 
 // AcceptEditsAutoAllow is the set of tools auto-allowed in addition to

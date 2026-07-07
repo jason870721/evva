@@ -44,6 +44,18 @@ const (
 	// flip statuses and add/remove entries. One in_progress entry at a time.
 	TODO_WRITE ToolName = "todo_write"
 
+	// Solo dynamic workflow (SDW, docs/roadmap/PRD/solo-dynamic-workflow.md).
+	// Mounted on the main agent instead of TODO_WRITE when
+	// enable_dynamic_workflow is on: a dependency-graph task board whose
+	// engine-managed tasks are auto-dispatched to ephemeral subagent workers.
+	// wf_-prefixed because the swarm owns the bare task_* namespace
+	// process-wide (internal/swarm/tools/set.go).
+	WF_TASK_CREATE ToolName = "wf_task_create"
+	WF_TASK_UPDATE ToolName = "wf_task_update"
+	WF_TASK_VERIFY ToolName = "wf_task_verify"
+	WF_TASK_LIST   ToolName = "wf_task_list"
+	WF_TASK_GET    ToolName = "wf_task_get"
+
 	// Auto-memory has no dedicated tool: the model writes typed memory files
 	// directly with write/edit, auto-allowed inside <APP_HOME>/memory/ by the
 	// permission carve-out (pkg/permission.IsAutoMemPath). See internal/memdir.
@@ -64,9 +76,10 @@ const (
 //   - DAEMON_LIST / DAEMON_OUTPUT / DAEMON_STOP introspect and control
 //     any daemon uniformly.
 //
-// The previous TASK_LIST / TASK_OUTPUT / TASK_STOP names have been removed
-// — the task_* namespace is reserved for the future todo-v2 implementation
-// (see docs/roadmap/design/task-design.md).
+// The previous TASK_LIST / TASK_OUTPUT / TASK_STOP names have been removed.
+// The bare task_* namespace belongs to the swarm's ledger tools; the solo
+// todo-v2 successor shipped as the wf_task_* board (SDW wave — see
+// docs/roadmap/design/task-design.md and PRD/solo-dynamic-workflow.md).
 const (
 	MONITOR ToolName = "monitor"
 

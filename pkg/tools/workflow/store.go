@@ -383,6 +383,12 @@ func (s *Store) Transition(id string, to Status, actor Actor, note string) (Task
 		t.Comments = append(t.Comments, Comment{By: actor, Note: note, At: time.Now()})
 	}
 	s.putLocked(t)
+	// Completion cascades inside the same mutation — a dependent can never
+	// be left blocked behind a completed dependency, no matter which caller
+	// (tool or engine) drove the edge.
+	if to == StatusCompleted {
+		s.unblockDependentsLocked(id)
+	}
 	out := cloneTask(t)
 	snapshot := s.snapshotLocked()
 	s.mu.Unlock()
@@ -446,8 +452,24 @@ func (s *Store) CompleteWork(id, result string, failed bool) (Task, error) {
 // UnblockDependents flips every blocked dependent of completedID whose
 // dependencies are now all complete to pending (the system edge). Returns
 // the flipped tasks. Idempotent — a second call finds nothing blocked.
+// Transition runs this automatically on every edge into completed; the
+// exported form exists for defensive resweeps.
 func (s *Store) UnblockDependents(completedID string) []Task {
 	s.mu.Lock()
+	flipped := s.unblockDependentsLocked(completedID)
+	var snapshot []Task
+	if len(flipped) > 0 {
+		snapshot = s.snapshotLocked()
+	}
+	s.mu.Unlock()
+
+	if len(flipped) > 0 {
+		s.notifyReplaced(snapshot)
+	}
+	return flipped
+}
+
+func (s *Store) unblockDependentsLocked(completedID string) []Task {
 	var flipped []Task
 	for _, id := range s.order {
 		t := s.tasks[id]
@@ -462,15 +484,6 @@ func (s *Store) UnblockDependents(completedID string) []Task {
 		t.WorkerFailed = false
 		s.putLocked(t)
 		flipped = append(flipped, cloneTask(t))
-	}
-	var snapshot []Task
-	if len(flipped) > 0 {
-		snapshot = s.snapshotLocked()
-	}
-	s.mu.Unlock()
-
-	if len(flipped) > 0 {
-		s.notifyReplaced(snapshot)
 	}
 	return flipped
 }
@@ -593,6 +606,14 @@ func (s *Store) Delete(id string) error {
 
 	s.notifyReplaced(snapshot)
 	return nil
+}
+
+// Dependents lists ids of tasks that name id in their DependsOn — the
+// cascade a completion may unblock, in creation order.
+func (s *Store) Dependents(id string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dependentsLocked(id)
 }
 
 // dependentsLocked lists ids of tasks that name id in their DependsOn.

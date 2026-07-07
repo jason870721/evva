@@ -174,17 +174,18 @@ func TestUnblockCascadeAndDispatchable(t *testing.T) {
 	if _, err := s.CompleteWork(a.ID, "built", false); err != nil {
 		t.Fatal(err)
 	}
+	// Transition into completed cascades the unblock inside the same
+	// mutation — b and c-self flip without any explicit sweep.
 	mustTransition(t, s, a.ID, StatusCompleted, ActorRoot)
-	flipped := s.UnblockDependents(a.ID)
-	if len(flipped) != 2 {
-		t.Fatalf("unblocked %v, want [b c-self]", ids(flipped))
+	if got, _ := s.Get(b.ID); got.Status != StatusPending {
+		t.Errorf("b should auto-unblock on a's completion, got %s", got.Status)
 	}
 	if got, _ := s.Get(d.ID); got.Status != StatusBlocked {
 		t.Errorf("d should stay blocked, got %s", got.Status)
 	}
-	// Idempotent: a second sweep flips nothing.
+	// Idempotent: an explicit resweep flips nothing further.
 	if again := s.UnblockDependents(a.ID); len(again) != 0 {
-		t.Errorf("second unblock flipped %v, want none", ids(again))
+		t.Errorf("resweep flipped %v, want none", ids(again))
 	}
 	// Only the engine-managed b is dispatchable; c-self is the root's.
 	if got := s.Dispatchable(); len(got) != 1 || got[0].ID != b.ID {

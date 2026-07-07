@@ -23,6 +23,7 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/structured"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/tools/util"
+	"github.com/johnny1110/evva/pkg/tools/workflow"
 	"github.com/johnny1110/evva/pkg/tools/web"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 )
@@ -118,6 +119,29 @@ func init() {
 	r.MustRegister(tools.TODO_WRITE, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
 		return todo.NewWrite(ts.TodoStore()), nil
+	})
+
+	// --- workflow (solo dynamic workflow — the wf_task_* board) ---
+	// Registration is unconditional; MOUNTING is flag-gated in the Main
+	// profile (enable_dynamic_workflow). The dispatcher and agent-type
+	// lookups late-bind to the engine / spawner the agent installs in New.
+	r.MustRegister(tools.WF_TASK_CREATE, func(s tools.State) (tools.Tool, error) {
+		ts := s.(*ToolState)
+		return workflow.NewCreate(ts.WorkflowStore(), ts.WorkflowDispatcher, ts.WorkflowAgentTypes), nil
+	})
+	r.MustRegister(tools.WF_TASK_UPDATE, func(s tools.State) (tools.Tool, error) {
+		ts := s.(*ToolState)
+		return workflow.NewUpdate(ts.WorkflowStore(), ts.WorkflowDispatcher), nil
+	})
+	r.MustRegister(tools.WF_TASK_VERIFY, func(s tools.State) (tools.Tool, error) {
+		ts := s.(*ToolState)
+		return workflow.NewVerify(ts.WorkflowStore(), ts.WorkflowDispatcher), nil
+	})
+	r.MustRegister(tools.WF_TASK_LIST, func(s tools.State) (tools.Tool, error) {
+		return workflow.NewList(s.(*ToolState).WorkflowStore()), nil
+	})
+	r.MustRegister(tools.WF_TASK_GET, func(s tools.State) (tools.Tool, error) {
+		return workflow.NewGet(s.(*ToolState).WorkflowStore()), nil
 	})
 
 	// --- monitor / mode / notebook ---
