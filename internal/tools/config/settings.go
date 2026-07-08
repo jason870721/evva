@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/johnny1110/evva/internal/outputstyle"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -196,6 +197,29 @@ var SUPPORTED_SETTINGS = map[string]SettingConfig{
 		Description: "Persona that boots on launch; must match a registered agent name. Empty = evva",
 		Get:         func(c *config.Config) any { return c.GetDefaultProfile() },
 		Set:         func(c *config.Config, v any) error { return c.SetDefaultProfile(toString(v)) },
+	},
+	"output_style": {
+		Type:        TypeString,
+		Description: "Output style overlaid on the main persona's voice: default (no overlay), Explanatory, Learning, or a custom output-styles/*.md name. Takes effect at the next profile rebuild (/output-style switches live)",
+		Get:         func(c *config.Config) any { return c.GetOutputStyle() },
+		Set: func(c *config.Config, v any) error {
+			name := strings.TrimSpace(toString(v))
+			// Validate against the resolved catalog (built-ins + disk) so the
+			// model can't persist a typo; the profile build would fall back to
+			// default anyway, but a clear rejection beats a silent no-op. The
+			// catalog is disk-dependent, so validation runs here rather than a
+			// static Options list.
+			styles, _ := outputstyle.LoadAll(c.AppHome, c.WorkDir)
+			if _, warn := outputstyle.Resolve(styles, name); warn != "" {
+				names := make([]string, 0, len(styles))
+				for n := range styles {
+					names = append(names, n)
+				}
+				sort.Strings(names)
+				return fmt.Errorf("unknown output style %q; available: %s", name, strings.Join(names, ", "))
+			}
+			return c.SetOutputStyle(name)
+		},
 	},
 	// Provider settings (<provider>.api_key + <provider>.api_url) are added
 	// by registerProviderSettings in init so the 8 near-identical entries

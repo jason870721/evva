@@ -50,6 +50,11 @@ type AgentDefinition struct {
 	// means "inherit from parent" (existing built-in behavior).
 	Model string
 
+	// OutputStyle is the optional output style declared in meta.yml. When
+	// set it wins over the user's configured output_style while this
+	// persona is active (PRD output-styles §5.5). Empty for built-ins.
+	OutputStyle string
+
 	// PromptBody is the raw persona prompt body before composition, set when
 	// the definition came from disk (system_prompt.md) or a public AgentSpec.
 	// Empty for built-ins whose prompt is assembled from internal fragments —

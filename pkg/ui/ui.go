@@ -164,6 +164,22 @@ type Controller interface {
 	// in the agent registry.
 	ListMainProfiles() []ProfileChoice
 
+	// ListOutputStyles enumerates the styles the /output-style picker
+	// should surface: built-ins plus disk styles (user + project tiers),
+	// default first.
+	ListOutputStyles() []OutputStyleChoice
+
+	// OutputStyleName returns the style the active profile resolves —
+	// the persona-declared pin when the persona carries one, else the
+	// configured output_style ("default" when unset).
+	OutputStyleName() string
+
+	// SwitchOutputStyle persists the style choice and rebuilds the
+	// active persona's profile so the new voice applies immediately.
+	// Same contract as SwitchProfile: caller ensures no Run is in
+	// flight, and the conversation resets (the system prompt changed).
+	SwitchOutputStyle(name string) error
+
 	// Effort returns the current effort level name ("low"|"medium"|"high"|"ultra").
 	Effort() string
 
@@ -349,4 +365,13 @@ type PermissionRuleSeed struct {
 type ProfileChoice struct {
 	Name      string
 	WhenToUse string
+}
+
+// OutputStyleChoice is one row in the /output-style picker: the style
+// name, its description blurb, and where it came from ("built-in",
+// "user", or "project").
+type OutputStyleChoice struct {
+	Name        string
+	Description string
+	Source      string
 }

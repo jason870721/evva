@@ -510,6 +510,14 @@ func buildConfigFields(cfg *config.Config, ctrl ui.Controller) []ConfigField {
 			},
 		},
 		{
+			// The /output-style picker is the live path (it rebuilds the
+			// profile); an edit here persists and lands at the next profile
+			// build, like enable_dynamic_workflow.
+			Label: "output_style", Kind: cfgKindString,
+			Get:   func() string { return cfg.GetOutputStyle() },
+			Apply: func(s string) error { return cfg.SetOutputStyle(s) },
+		},
+		{
 			Label: "fetch_max_bytes", Kind: cfgKindInt,
 			Get: func() string { return strconv.Itoa(cfg.FetchMaxBytes) },
 			Apply: func(s string) error {

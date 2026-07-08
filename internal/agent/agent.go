@@ -19,6 +19,7 @@ import (
 	"github.com/johnny1110/evva/internal/checkpoint"
 	"github.com/johnny1110/evva/internal/logger"
 	"github.com/johnny1110/evva/internal/memdir"
+	"github.com/johnny1110/evva/internal/outputstyle"
 	"github.com/johnny1110/evva/internal/question"
 	"github.com/johnny1110/evva/internal/session"
 	"github.com/johnny1110/evva/internal/tools/mode"
@@ -1201,6 +1202,61 @@ func (a *Agent) ListMainProfiles() []ui.ProfileChoice {
 		out = append(out, ui.ProfileChoice{Name: d.Name, WhenToUse: d.WhenToUse})
 	}
 	return out
+}
+
+// ListOutputStyles enumerates the styles the /output-style picker can
+// switch to: built-ins plus disk styles from the user (AppHome) and
+// project (WorkDir) tiers, default first. Subagents return nil (they
+// never carry a style and don't drive the picker).
+func (a *Agent) ListOutputStyles() []ui.OutputStyleChoice {
+	if a.IsSubagent() {
+		return nil
+	}
+	styles, _ := outputstyle.LoadAll(a.cfg.AppHome, a.cfg.WorkDir)
+	sorted := outputstyle.Sorted(styles)
+	out := make([]ui.OutputStyleChoice, 0, len(sorted))
+	for _, s := range sorted {
+		out = append(out, ui.OutputStyleChoice{Name: s.Name, Description: s.Description, Source: s.Source})
+	}
+	return out
+}
+
+// OutputStyleName returns the style the active profile resolves — the same
+// precedence applyOutputStyle uses at build time: a persona-declared
+// meta.yml pin wins, else the configured output_style.
+func (a *Agent) OutputStyleName() string {
+	if a.agentRegistry != nil {
+		if def, ok := a.agentRegistry.Get(a.ProfileName()); ok && def.OutputStyle != "" {
+			return def.OutputStyle
+		}
+	}
+	return a.cfg.GetOutputStyle()
+}
+
+// SwitchOutputStyle persists the output-style choice and rebuilds the
+// active persona's profile so the new voice takes effect on the next Run.
+// It rides SwitchProfile's machinery — running guard, prompt re-render,
+// fresh session — because a style change is a system-prompt change, and
+// evva ties those to fresh sessions everywhere (/model, /profile).
+func (a *Agent) SwitchOutputStyle(name string) error {
+	if a.IsSubagent() {
+		return fmt.Errorf("agent: only the root agent can switch output style")
+	}
+	if a.running.Load() {
+		return ErrRunInProgress
+	}
+	styles, _ := outputstyle.LoadAll(a.cfg.AppHome, a.cfg.WorkDir)
+	if _, warn := outputstyle.Resolve(styles, name); warn != "" {
+		return fmt.Errorf("agent: unknown output style %q", name)
+	}
+	if err := a.cfg.SetOutputStyle(name); err != nil {
+		return err
+	}
+	persona := a.ProfileName()
+	if persona == "" {
+		persona = "evva"
+	}
+	return a.SwitchProfile(persona)
 }
 
 // SubagentTypes returns the agent names that the AGENT tool's

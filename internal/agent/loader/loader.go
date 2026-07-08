@@ -130,6 +130,7 @@ func loadOne(root, name string) (*sysprompt.AgentDefinition, []Warning) {
 		ActiveTools:   toolsCfg.Active,
 		DeferredTools: toolsCfg.Deferred,
 		Model:         metaCfg.Model,
+		OutputStyle:   metaCfg.OutputStyle,
 		PromptBody:    promptBody,
 	}
 	return def, warns

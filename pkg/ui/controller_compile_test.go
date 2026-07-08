@@ -39,6 +39,9 @@ func (publicOnlyController) SwitchLLM(constant.LLMProvider, constant.Model) erro
 func (publicOnlyController) SwitchProfile(string) error                            { return nil }
 func (publicOnlyController) ProfileName() string                                   { return "" }
 func (publicOnlyController) ListMainProfiles() []ui.ProfileChoice                  { return nil }
+func (publicOnlyController) ListOutputStyles() []ui.OutputStyleChoice              { return nil }
+func (publicOnlyController) OutputStyleName() string                               { return "" }
+func (publicOnlyController) SwitchOutputStyle(string) error                        { return nil }
 func (publicOnlyController) Effort() string                                        { return "" }
 func (publicOnlyController) SetEffort(string) error                                { return nil }
 func (publicOnlyController) LLMTemperature() *float64                              { return nil }

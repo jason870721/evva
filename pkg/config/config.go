@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -205,6 +206,14 @@ type Config struct {
 	EnableDynamicWorkflow bool
 	WorkflowMaxWorkers    int
 
+	// OutputStyle names the active output style — a prompt overlay that
+	// changes how the main persona talks (built-in "Explanatory"/"Learning"
+	// or a custom output-styles/*.md). Empty means the default style (no
+	// overlay). Resolution + fallback live in internal/outputstyle; this is
+	// just the persisted name. /output-style updates it and rebuilds the
+	// profile; /config edits take effect at the next profile build.
+	OutputStyle string
+
 	// Web tools
 	TavilyAPIKey  string // empty → web_search reports "not configured"
 	FetchMaxBytes int    // cap on extracted text returned by web_fetch
@@ -295,6 +304,7 @@ func (c *Config) Clone() *Config {
 		LSPDiagnosticsOnEdit:    c.LSPDiagnosticsOnEdit,
 		EnableDynamicWorkflow:   c.EnableDynamicWorkflow,
 		WorkflowMaxWorkers:      c.WorkflowMaxWorkers,
+		OutputStyle:             c.OutputStyle,
 		TavilyAPIKey:            c.TavilyAPIKey,
 		FetchMaxBytes:           c.FetchMaxBytes,
 		LLMParamsTemperature:    c.LLMParamsTemperature,
@@ -510,6 +520,36 @@ func (c *Config) GetWorkflowMaxWorkers() int {
 func (c *Config) SetWorkflowMaxWorkers(v int) error {
 	c.mu.Lock()
 	c.WorkflowMaxWorkers = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetOutputStyle returns the active output-style name under the read lock,
+// normalizing the empty value to "default" so callers compare against one
+// spelling. Read at profile build (internal/agent.applyOutputStyle).
+func (c *Config) GetOutputStyle() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.OutputStyle == "" {
+		return "default"
+	}
+	return c.OutputStyle
+}
+
+// SetOutputStyle records the output-style name and persists. "default" (any
+// case) stores as "" so an untouched config file stays free of the key.
+// Existence validation deliberately lives with the callers that hold the
+// resolved catalog (the /output-style picker offers only real styles; the
+// config tool validates before calling) — the profile build falls back to
+// default on an unknown name regardless, so a deleted style file can never
+// wedge boot.
+func (c *Config) SetOutputStyle(name string) error {
+	name = strings.TrimSpace(name)
+	if strings.EqualFold(name, "default") {
+		name = ""
+	}
+	c.mu.Lock()
+	c.OutputStyle = name
 	c.mu.Unlock()
 	return c.SaveFile()
 }
@@ -931,6 +971,7 @@ func (c *Config) SaveFile() error {
 	enableRepoMap := c.EnableRepoMap
 	enableLSPDiagnosticsOnEdit := c.LSPDiagnosticsOnEdit
 	enableDynamicWorkflow := c.EnableDynamicWorkflow
+	outputStyle := c.OutputStyle
 	var customCopy map[string]any
 	if len(c.CustomConfig) > 0 {
 		customCopy = make(map[string]any, len(c.CustomConfig))
@@ -964,6 +1005,7 @@ func (c *Config) SaveFile() error {
 		LSPDiagnosticsOnEdit:    &enableLSPDiagnosticsOnEdit,
 		EnableDynamicWorkflow:   &enableDynamicWorkflow,
 		WorkflowMaxWorkers:      c.WorkflowMaxWorkers,
+		OutputStyle:             outputStyle,
 		Providers:               providers,
 		Custom:                  customCopy,
 	}

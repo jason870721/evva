@@ -30,6 +30,12 @@ type metaYml struct {
 	// to this agent. Default false. Built-in evva flips this to true via
 	// its Go-defined AgentDefinition; disk personas opt in here.
 	AdvertiseSkills bool `yaml:"advertise_skills"`
+
+	// OutputStyle optionally pins this persona's output style (a teaching
+	// persona defaulting to "Learning", say). When set it wins over the
+	// user's configured output_style while this persona is active. Empty =
+	// follow the user's config.
+	OutputStyle string `yaml:"output_style"`
 }
 
 func readToolsYml(path string) (toolsYml, error) {

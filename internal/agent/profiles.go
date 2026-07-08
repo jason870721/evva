@@ -17,6 +17,7 @@ import (
 
 	"github.com/johnny1110/evva/internal/agent/sysprompt"
 	"github.com/johnny1110/evva/internal/memdir"
+	"github.com/johnny1110/evva/internal/outputstyle"
 	"github.com/johnny1110/evva/internal/repomap"
 	"github.com/johnny1110/evva/internal/tools/dev"
 	"github.com/johnny1110/evva/internal/tools/meta"
@@ -234,6 +235,7 @@ func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provid
 	ctx.RepoMap = repoMap
 	ctx.DeferredTools = deferredToolSpecs(deferredTools)
 	ctx.Model = string(model)
+	applyOutputStyle(&ctx, cfg, def)
 	sp := sysprompt.MainAgent.BuildSystemPrompt(ctx)
 	if def.PromptSuffix != "" {
 		sp += "\n\n" + def.PromptSuffix
@@ -377,6 +379,7 @@ func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config,
 	}
 	ctx.DeferredTools = deferredToolSpecs(deferred)
 	ctx.Model = string(model)
+	applyOutputStyle(&ctx, cfg, def)
 	body := def.BuildSystemPrompt(ctx)
 	sp := sysprompt.ComposeDiskMainPrompt(body, ctx, def)
 	if def.PromptSuffix != "" {
@@ -392,6 +395,33 @@ func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config,
 		LLMModel:      model,
 		LLMOptions:    options,
 	}
+}
+
+// applyOutputStyle resolves the active output style onto ctx at profile
+// build — the single seam both main-tier paths (built-in and disk persona)
+// share, so /output-style, /profile, and boot all re-resolve through the
+// same rules:
+//
+//   - Swarm-resident (LongRunning) personas never get a style: their prompt
+//     is operator-defined and must stay bit-stable across rebuilds (RP-5);
+//     a style is a solo-session voice preference, not a swarm knob.
+//   - A persona-declared meta.yml output_style wins over the user's config
+//     while that persona is active (PRD output-styles §5.5 / A9).
+//   - An unknown or deleted style name falls back to default via
+//     outputstyle.Resolve, so a stale config value can never fail boot.
+func applyOutputStyle(ctx *sysprompt.PromptContext, cfg *config.Config, def sysprompt.AgentDefinition) {
+	if def.LongRunning {
+		return
+	}
+	name := cfg.GetOutputStyle()
+	if def.OutputStyle != "" {
+		name = def.OutputStyle
+	}
+	styles, _ := outputstyle.LoadAll(cfg.AppHome, cfg.WorkDir)
+	st, _ := outputstyle.Resolve(styles, name)
+	ctx.OutputStyleName = st.Name
+	ctx.OutputStylePrompt = st.Prompt
+	ctx.OutputStyleKeepCoding = st.KeepCodingInstructions
 }
 
 // modeDeferredNames returns the mode-package tools that stay deferred on

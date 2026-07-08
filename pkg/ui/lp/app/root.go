@@ -176,6 +176,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.relayout()
 		return a, nil
 
+	case overlays.OutputStyleSwitchedMsg:
+		a.transcript.Reset()
+		a.status.SetUsage(llm.Usage{})
+		a.status.SetContext(0, status.ContextLimitFor(a.controller.Model()))
+		a.state.SetHint("output style set to " + m.Name + " · history cleared")
+		a.view.MarkDirty()
+		a.relayout()
+		return a, nil
+
 	case overlays.EffortSwitchedMsg:
 		a.status.SetEffort(m.Level)
 		a.state.SetHint("effort set to " + m.Level)
@@ -513,6 +522,8 @@ func (a *App) handleSubmit(m SubmitMsg) (tea.Model, tea.Cmd) {
 		return a.openOverlay(overlays.NewModel(a.controller))
 	case "/profile":
 		return a.openOverlay(overlays.NewProfile(a.controller))
+	case "/output-style":
+		return a.openOverlay(overlays.NewOutputStyle(a.controller))
 	case "/compact":
 		return a.openOverlay(overlays.NewCompact(a.controller))
 	case "/effort":

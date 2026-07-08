@@ -106,6 +106,11 @@ type FileConfig struct {
 	EnableDynamicWorkflow *bool `yaml:"enable_dynamic_workflow,omitempty"`
 	WorkflowMaxWorkers    int   `yaml:"workflow_max_workers,omitempty"`
 
+	// OutputStyle names the active output style overlaid on the main
+	// persona's system prompt: "Explanatory", "Learning", or a custom
+	// output-styles/*.md name. Empty (or "default") means no overlay.
+	OutputStyle string `yaml:"output_style,omitempty"`
+
 	Providers map[string]FileProviderConfig `yaml:"providers"`
 
 	// Custom is the downstream-app extension slot. Values round-trip through

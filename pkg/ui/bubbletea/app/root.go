@@ -301,6 +301,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.relayout()
 		return a, nil
 
+	case overlays.OutputStyleSwitchedMsg:
+		// Style swap: the controller rebuilt the profile (fresh system
+		// prompt + session) under the same persona and model. Mirror the
+		// reset the profile switch does, minus the agent-label change.
+		a.transcript.Reset()
+		a.refreshBanner()
+		a.status.SetUsage(llm.Usage{})
+		a.status.SetContext(0, status.ContextLimitFor(a.controller.Model()))
+		a.state.SetHint("output style set to " + m.Name + " · history cleared")
+		a.view.MarkDirty()
+		a.relayout()
+		return a, nil
+
 	case overlays.EffortSwitchedMsg:
 		a.refreshBanner()
 		a.status.SetEffort(m.Level)
@@ -818,6 +831,16 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 		a.input.Reset()
 		a.slash.Reset()
 		if o := overlays.NewProfile(a.controller); o != nil {
+			a.focus.Push(o)
+			a.relayout()
+		} else {
+			a.state.SetHint("no controller attached")
+		}
+		return a, nil
+	case "/output-style":
+		a.input.Reset()
+		a.slash.Reset()
+		if o := overlays.NewOutputStyle(a.controller); o != nil {
 			a.focus.Push(o)
 			a.relayout()
 		} else {

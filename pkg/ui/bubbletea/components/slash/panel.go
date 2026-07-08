@@ -47,6 +47,7 @@ var builtins = []Command{
 	{Name: "/cost", Desc: "session token spend · priced cost breakdown"},
 	{Name: "/model", Desc: "switch llm provider / model · clears history"},
 	{Name: "/profile", Desc: "switch agent persona · clears history"},
+	{Name: "/output-style", Desc: "switch communication style · Explanatory, Learning, custom"},
 	{Name: "/mcp", Desc: "list configured MCP servers and their status"},
 	{Name: "/resume", Desc: "resume a previous session from this workdir"},
 	{Name: "/rewind", Desc: "undo a prior turn · restore code, conversation, or both"},

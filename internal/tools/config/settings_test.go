@@ -30,6 +30,7 @@ func TestSupportedSettingsKeys(t *testing.T) {
 		"memory_recall_model",
 		"ollama.api_url",
 		"openai.api_key", "openai.api_url",
+		"output_style",
 		"qwen.api_key", "qwen.api_url",
 		"tavily_api_key",
 	}

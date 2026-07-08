@@ -303,6 +303,7 @@ func Load(opts LoadOptions) (*Config, error) {
 		LSPDiagnosticsOnEdit:    lspDiagnosticsOnEdit,
 		EnableDynamicWorkflow:   enableDynamicWorkflow,
 		WorkflowMaxWorkers:      workflowMaxWorkers,
+		OutputStyle:             fileCfg.OutputStyle,
 		TavilyAPIKey:            fileCfg.TavilyAPIKey,
 		FetchMaxBytes:           fileCfg.FetchMaxBytes,
 		DefaultProvider:         defProvider,

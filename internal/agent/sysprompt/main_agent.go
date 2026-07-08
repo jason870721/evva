@@ -48,12 +48,24 @@ import (
 // the only way the model can reliably know it is currently in plan mode
 // versus knowing only that plan mode exists as a concept.
 func buildMainPrompt(ctx PromptContext) string {
+	// Output style (docs/roadmap/PRD/output-styles.md): the default style is
+	// a literal no-op — outputStyleSection returns "" and doingTasks stays —
+	// so a style-less prompt is byte-identical to the pre-feature build.
+	// With a style active, the "Doing tasks" doctrine survives ONLY when the
+	// style keeps coding instructions (ref prompts.ts: outputStyleConfig ===
+	// null || keepCodingInstructions === true); everything else — actions,
+	// tools protocol, tone — always stays, because those are harness
+	// mechanics, not voice.
+	doingTasks := doingTasksSection()
+	if ctx.OutputStylePrompt != "" && !ctx.OutputStyleKeepCoding {
+		doingTasks = ""
+	}
 	return joinSections(
 		identitySection(ctx),
 		prioritySection(),
 		coreRulesSection(),
 		systemSection(),
-		doingTasksSection(),
+		doingTasks,
 		actionsSection(),
 		mainToolsGuideSection(),
 		toneAndStyleSection(),
@@ -63,6 +75,7 @@ func buildMainPrompt(ctx PromptContext) string {
 		autoMemoryGuidanceSection(ctx),
 		memoryIndexSection(ctx),
 		repoMapSection(ctx),
+		outputStyleSection(ctx),
 		sessionSpecificGuidanceSection(),
 		contextPreservationSection(),
 		skillsSection(ctx.Skills, ctx.OmitSkillAuthoring),

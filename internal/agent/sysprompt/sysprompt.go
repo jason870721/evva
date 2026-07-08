@@ -97,6 +97,20 @@ type PromptContext struct {
 	// package keeps its stdlib-only, no-IO discipline — the same one-way arrow
 	// as memory. Main agent only; subagents never set it.
 	RepoMap string
+
+	// Output style (resolved by the caller via internal/outputstyle — same
+	// one-way arrow as memory and skills). Empty OutputStylePrompt = the
+	// default style: no overlay section, prompt byte-identical to a build
+	// that never knew the feature. When set, the identity line defers to the
+	// style ("according to your Output Style below…", ref's
+	// getSimpleIntroSection) and an "# Output Style: <name>" section renders.
+	// OutputStyleKeepCoding false additionally drops the "Doing tasks"
+	// coding-doctrine section (ref's keepCodingInstructions === true check).
+	// Main-tier agents only; subagents and swarm-resident (LongRunning)
+	// personas never set these.
+	OutputStyleName       string
+	OutputStylePrompt     string
+	OutputStyleKeepCoding bool
 }
 
 // DetectContext returns a PromptContext with the runtime-detectable fields

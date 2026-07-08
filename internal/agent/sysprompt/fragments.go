@@ -23,16 +23,42 @@ import (
 // getSimpleIntroSection — adds the cyber-risk reminder and URL guard so
 // the model sees prompts close to what it was trained on. AgentName
 // falls back to "evva" when blank.
+//
+// When an output style is active the opening sentence defers to it
+// (ref's outputStyleConfig !== null branch): the style section below
+// describes how to respond, so the intro must not pre-commit the voice
+// to "coding agent" phrasing the style may be replacing.
 func identitySection(ctx PromptContext) string {
 	name := strings.TrimSpace(ctx.AgentName)
 	if name == "" {
 		name = "evva"
 	}
-	return fmt.Sprintf(
-		"You are %s, an interactive coding agent for the terminal. Use the instructions below and the tools available to you to assist the user with software engineering tasks.\n\n"+
-			"IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.\n"+
-			"IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.",
+	opening := fmt.Sprintf(
+		"You are %s, an interactive coding agent for the terminal. Use the instructions below and the tools available to you to assist the user with software engineering tasks.",
 		name)
+	if ctx.OutputStylePrompt != "" {
+		opening = fmt.Sprintf(
+			"You are %s, an interactive agent for the terminal that helps users according to your \"Output Style\" below, which describes how you should respond to user queries. Use the instructions below and the tools available to you to assist the user.",
+			name)
+	}
+	return opening + "\n\n" +
+		"IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.\n" +
+		"IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files."
+}
+
+// outputStyleSection renders the active output style under the header ref
+// uses ("# Output Style: <name>", prompts.ts getOutputStyleSection). Empty
+// prompt → "" so the default path stays a literal no-op and joinSections
+// drops the section, exactly like empty memory / repo-map bodies.
+func outputStyleSection(ctx PromptContext) string {
+	if strings.TrimSpace(ctx.OutputStylePrompt) == "" {
+		return ""
+	}
+	name := strings.TrimSpace(ctx.OutputStyleName)
+	if name == "" {
+		name = "custom"
+	}
+	return "# Output Style: " + name + "\n" + strings.TrimSpace(ctx.OutputStylePrompt)
 }
 
 // coreRulesSection is evva-specific identity reinforcement that the ref
@@ -341,6 +367,12 @@ func ComposeDiskMainPrompt(body string, ctx PromptContext, def AgentDefinition) 
 	for _, s := range ctx.DeferredTools {
 		deferredNames = append(deferredNames, tools.ToolName(s.Name))
 	}
+	// The output style lands right after the persona body: harness facts
+	// first, personality second, then the user's voice overlay — later
+	// sections win when guidance overlaps, so the style the USER picked
+	// outranks the persona author's conduct prose. Disk personas have no
+	// ref-ported coding doctrine to drop, so keep-coding-instructions has
+	// nothing to remove here — the style is purely additive.
 	return joinSections(
 		identitySection(ctx),
 		environmentSection(ctx),
@@ -349,6 +381,7 @@ func ComposeDiskMainPrompt(body string, ctx PromptContext, def AgentDefinition) 
 		memIndex,
 		diskToolsGuideSection(def.ActiveTools, deferredNames),
 		body,
+		outputStyleSection(ctx),
 		skillsList,
 		mainDeferredToolsSection(ctx.DeferredTools),
 		devSectionIfEnabled(ctx),
