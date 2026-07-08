@@ -7,6 +7,7 @@
   - [/config — 即時設定](#config--即時設定)
   - [/model — 切換提供者/模型](#model--切換提供者模型)
   - [/profile — 切換人格](#profile--切換人格)
+  - [/output-style — 溝通風格](#output-style--溝通風格)
   - [/effort — 思考強度](#effort--思考強度)
   - [/resume — 還原先前的工作階段](#resume--還原先前的工作階段)
   - [/rewind — 時光倒帶](#rewind--時光倒帶)
@@ -97,6 +98,7 @@
 | `/config` | 開啟設定表單 |
 | `/model` | 切換 LLM 提供者/模型 — **會清除對話歷史** |
 | `/profile` | 切換代理人格（evva、nono…）— **會清除對話歷史** |
+| `/output-style` | 切換說話風格（default / Explanatory / Learning / 自訂）— **會清除對話歷史** |
 | `/effort` | 設定思考強度（low / medium / high / ultra） |
 | `/compact` | 壓縮對話紀錄 — 可選 micro 或 full |
 | `/resume` | 還原此工作目錄下先前的工作階段 |
@@ -227,6 +229,7 @@ display_thinking 設定是什麼？」「把 auto-memory 關掉」「將 max_ite
 | `when_to_use` | 在選單中顯示於名稱旁邊的一句簡述 |
 | `inject_memory` | 為 `true` 時，人格的系統提示詞會收到 `EVVA.md` + `~/.evva/memory/` 索引（以及型別化記憶指引與召回）。預設 `false` |
 | `advertise_skills` | 為 `true` 時，人格的提示詞會列出已安裝的技能目錄。預設 `false` |
+| `output_style` | 為這個人格釘選一個輸出風格（教學型人格可以釘 `Learning`）。人格啟用期間優先於使用者設定的風格。留空 = 跟隨使用者的 `/output-style` 選擇 |
 
 選單會列出所有 `as:` 包含 `main` 的人格：
 
@@ -247,6 +250,56 @@ display_thinking 設定是什麼？」「把 auto-memory 關掉」「將 max_ite
 宣告為 `as: [main, subagent]` 的人格**同時**可從執行中的根代理透過 Agent 工具呼叫——這就是跨人格委派（例如 `evva` 在不離開階段的情況下，將財務問題委派給 `nono`）。
 
 若有執行中的任務則無法切換；請先按 Esc 取消任務，再輸入 `/profile`。
+
+### /output-style — 溝通風格
+
+輸出風格是疊加在**目前人格說話方式**上的薄層，不需要重新定義人格——不用複製工具、模型或人格提示詞。任何風格都能疊在任何 main 層人格上：`nono` 財務人格一樣可以用 `Explanatory`。
+
+```
+┌─ /OUTPUT-STYLE ──────────────────────────────────────────────────┐
+│ A style overlays how the active persona talks. Switching rebuilds│
+│ the system prompt, so the conversation clears.                   │
+│                                                                  │
+│ ▶ default  (current)  — evva's standard voice — no overlay       │
+│   Explanatory         — explains its implementation choices…     │
+│   Learning            — pauses and asks you to write small…      │
+│   pirate [project]    — everything in pirate speak               │
+│                                                                  │
+│ [↑↓] navigate · [Enter] switch · [Esc] cancel                    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+內建風格（移植自 Claude Code）：
+
+| 風格 | 改變什麼 |
+| --- | --- |
+| `default` | 無疊加——標準聲音 |
+| `Explanatory` | 工作過程中加入 `★ Insight` 教學區塊，說明實作決策與 codebase 的模式 |
+| `Learning` | 動手練習模式：代理在有意義的設計決策處暫停、加上 `TODO(human)` 標記，請**你**親手寫 2–10 行的小段程式 |
+
+**自訂風格**是單一 Markdown 檔——`~/.evva/output-styles/<name>.md`（使用者層）或 `<workdir>/.evva/output-styles/<name>.md`（專案層；同名時專案層優先）：
+
+```markdown
+---
+name: pirate
+description: everything in pirate speak
+keep-coding-instructions: true
+---
+Respond like a 17th-century pirate captain. Refer to the codebase as "the ship".
+```
+
+內文就是風格提示詞。Frontmatter 欄位：`name`（預設取檔名）、`description`（顯示在選單中）、`keep-coding-instructions`：
+
+- `true` — 風格**疊加**在 evva 的撰碼準則之上（`Explanatory`/`Learning` 的形態）。適合仍要寫程式、只調整語氣或教學行為的情境。
+- 省略或 `false` — 風格**取代**「Doing tasks」撰碼準則，把這個階段變成不同用途的助手。框架機制（工具協定、權限、環境、記憶）永遠保留。
+
+注意事項：
+
+- 切換會重建系統提示詞，因此對話會清空——與 `/model`、`/profile` 相同。
+- 選擇會以 `output_style` 儲存在 `evva-config.yml`；也可以在 `/config` 修改，或請模型改（`config` 工具會驗證名稱）。這兩條路徑在下次 profile 重建時生效；`/output-style` 選單則立即生效。
+- 人格可以在 `meta.yml` 用 `output_style:` 釘選自己的風格（見上表）——人格啟用期間以釘選為準。
+- Swarm 成員永遠不套用輸出風格——成員的提示詞由操作者定義且必須保持位元穩定。
+- 把檔案命名為 `default.md` 會刻意覆蓋內建 default：等於把自訂聲音釘為整台機器（使用者層）或整個 repo（專案層）的常駐風格。
 
 ### /effort — 思考強度
 
@@ -915,6 +968,11 @@ workflow_max_workers: 4         # 引擎同時派工的 worker 上限；≤0 重
 # 自我修復編輯——見下方「自我修復編輯」。核心同步（didChange，讓下一輪的
 # 診斷是真的）只要有設定 LSP 就會運作，與此旗標無關；此旗標只控制「同步」層。
 lsp_diagnostics_on_edit: false  # 選用；在 edit/write 後加入一段有上限的等待（約 750ms）
+
+# 疊加在主人格聲音上的輸出風格 — default | Explanatory | Learning |
+# 自訂 output-styles/*.md 名稱。/output-style 會覆寫此值（立即生效）；
+# 直接改這裡則在下次 profile 重建時生效。
+output_style: default
 
 # Per-provider credentials. Empty api_url falls back to the constant's default.
 # glm（Zhipu/z.ai）走 Anthropic 相容端點;讀取圖片會以 image block 餵給 GLM,

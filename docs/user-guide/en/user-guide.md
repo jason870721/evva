@@ -7,6 +7,7 @@
   - [/config — Runtime Settings](#config--runtime-settings)
   - [/model — Switch Provider/Model](#model--switch-providermodel)
   - [/profile — Switch Persona](#profile--switch-persona)
+  - [/output-style — Communication Style](#output-style--communication-style)
   - [/effort — Thinking Effort](#effort--thinking-effort)
   - [/resume — Resume a Previous Session](#resume--resume-a-previous-session)
   - [/rewind — Time-Travel Undo](#rewind--time-travel-undo)
@@ -90,6 +91,7 @@ Available commands:
 | `/config` | open the settings form |
 | `/model` | switch LLM provider / model — **clears conversation history** |
 | `/profile` | switch agent persona (evva, nono, …) — **clears conversation history** |
+| `/output-style` | switch how the agent talks (default / Explanatory / Learning / custom) — **clears conversation history** |
 | `/effort` | set thinking effort (low / medium / high / ultra) |
 | `/compact` | compact the transcript — pick micro or full |
 | `/resume` | resume a previous session from this workdir |
@@ -223,6 +225,7 @@ Switches the agent's persona — different identity, system prompt, and tool sur
 | `when_to_use` | one-sentence blurb the picker shows next to the name |
 | `inject_memory` | when `true`, the persona receives the `EVVA.md` + the `~/.evva/memory/` index in its system prompt (and the typed-memory guidance + recall). Default `false` |
 | `advertise_skills` | when `true`, the persona's prompt advertises the installed skill catalog. Default `false` |
+| `output_style` | pins an output style for this persona (a tutor persona might pin `Learning`). Wins over the user's configured style while the persona is active. Empty = follow the user's `/output-style` choice |
 
 The picker lists every persona with `as:` containing `main`:
 
@@ -243,6 +246,56 @@ On switch the transcript clears, the status-bar label updates to the new persona
 A persona declared `as: [main, subagent]` is **also** callable from the running root agent via the Agent tool — that's the cross-persona delegation path (e.g. `evva` asking `nono` a finance question without leaving the session).
 
 Switching is refused if a run is in flight; press Esc first to cancel, then `/profile` again.
+
+### /output-style — Communication Style
+
+An output style overlays **how the active persona talks** without redefining who it is — no duplicated tools, model, or persona prompt. Any style stacks on any main-tier persona: the `nono` finance persona can run `Explanatory` just like built-in `evva`.
+
+```
+┌─ /OUTPUT-STYLE ──────────────────────────────────────────────────┐
+│ A style overlays how the active persona talks. Switching rebuilds│
+│ the system prompt, so the conversation clears.                   │
+│                                                                  │
+│ ▶ default  (current)  — evva's standard voice — no overlay       │
+│   Explanatory         — explains its implementation choices…     │
+│   Learning            — pauses and asks you to write small…      │
+│   pirate [project]    — everything in pirate speak               │
+│                                                                  │
+│ [↑↓] navigate · [Enter] switch · [Esc] cancel                    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Built-ins (ported from Claude Code):
+
+| style | what changes |
+| --- | --- |
+| `default` | no overlay — the standard voice |
+| `Explanatory` | adds educational `★ Insight` blocks about implementation choices and codebase patterns as it works |
+| `Learning` | hands-on practice mode: the agent pauses at meaningful design decisions, adds a `TODO(human)` marker, and asks *you* to write small (2–10 line) pieces |
+
+**Custom styles** are single Markdown files — `~/.evva/output-styles/<name>.md` (user tier) or `<workdir>/.evva/output-styles/<name>.md` (project tier; project wins on a name clash):
+
+```markdown
+---
+name: pirate
+description: everything in pirate speak
+keep-coding-instructions: true
+---
+Respond like a 17th-century pirate captain. Refer to the codebase as "the ship".
+```
+
+The body is the style prompt. Frontmatter keys: `name` (defaults to the filename), `description` (shown in the picker), and `keep-coding-instructions`:
+
+- `true` — the style layers **on top of** evva's coding doctrine (the `Explanatory`/`Learning` shape). Use this for voice/teaching tweaks on a still-coding agent.
+- omitted or `false` — the style **replaces** the "Doing tasks" coding doctrine, for turning the session into a differently-purposed assistant. Harness mechanics (tool protocol, permissions, environment, memory) always stay.
+
+Notes:
+
+- Switching rebuilds the system prompt, so the conversation clears — same as `/model` and `/profile`.
+- The choice persists as `output_style` in `evva-config.yml`; you can also set it in `/config` or ask the model to change it (the `config` tool validates the name). Those paths apply at the next profile rebuild; the `/output-style` picker applies immediately.
+- A persona can pin its own style via `output_style:` in `meta.yml` (see the table above) — the pin wins while that persona is active.
+- Swarm members never get output styles — their prompts are operator-defined and stay bit-stable.
+- Naming a file `default.md` deliberately overrides the built-in default: that pins a custom voice as the standing style for the machine (user tier) or the repo (project tier).
 
 ### /effort — Thinking Effort
 
@@ -913,6 +966,11 @@ workflow_max_workers: 4         # cap on concurrent engine-dispatched workers; �
 # so the next turn's diagnostics are real) runs whenever LSP is configured,
 # regardless of this flag. This only gates the *synchronous* same-turn tier.
 lsp_diagnostics_on_edit: false  # opt-in; adds a short bounded wait (~750ms) after edit/write
+
+# Output style overlaid on the main persona's voice — default | Explanatory |
+# Learning | a custom output-styles/*.md name. Overwritten by /output-style
+# (which applies immediately); edits here apply at the next profile rebuild.
+output_style: default
 
 # Per-provider credentials. Empty api_url falls back to the constant's default.
 # glm (Zhipu/z.ai) speaks the Anthropic-compatible endpoint; reading an image

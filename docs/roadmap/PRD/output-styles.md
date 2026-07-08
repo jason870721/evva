@@ -1,14 +1,79 @@
 # PRD — Output Styles — Implementation Plan
 
 > **Audience:** senior engineers implementing this phase.
-> **Status:** proposed; ready to build after roadmap slotting.
-> **Target release:** TBD (proposed `v1.6+` candidate; small, self-contained).
+> **Status:** ✅ IMPLEMENTED on `feature/output-styles` (2026-07-08); see §0
+> for the as-built deltas.
+> **Target release:** rides the next cut from `dev` — no wave→minor claim
+> (small, self-contained; the last of the three old un-slotted proposals,
+> after structured-output and edit-diagnostics-sync shipped in v1.11.0-beta.1).
 > **Roadmap source:** `CLAUDE.md` → Vision (*"one runtime, many personas,
 > swappable UI"*) — output styles are the lightweight, stackable
 > complement to personas.
 > **Reference source:** `ref/src/constants/outputStyles.ts`,
 > `ref/src/outputStyles/loadOutputStylesDir.ts`,
 > `ref/src/components/OutputStylePicker.tsx`.
+
+---
+
+## 0. As-built (2026-07-08)
+
+Implemented as specified, with the replace-mode semantics corrected to what
+ref actually does and a few placement deltas worth recording:
+
+1. **Replace mode is ref-exact — it drops ONLY "Doing tasks".** §2.1's
+   infra/doctrine split proposed dropping six sections in replace mode. The
+   live ref source is narrower: `prompts.ts` keeps `getSimpleDoingTasksSection`
+   only when `outputStyleConfig === null || keepCodingInstructions === true` —
+   actions, the tools guide, tone, and output-efficiency always stay. Ported
+   that exactly: those sections are harness mechanics (the deferred-tool
+   protocol lives in the tools guide!), not voice, and CLAUDE.md makes ref
+   the source of truth for harness structure. Two ref behaviors the plan
+   missed also shipped: the identity line defers to the style whenever one
+   is active ("…according to your \"Output Style\" below…"), and an absent
+   `keep-coding-instructions` key means **replace**, not append (ref's
+   `=== true` check; Task 1 had proposed defaulting to true). Built-ins set
+   `true` explicitly, so `Explanatory`/`Learning` behave as designed.
+2. **One frontmatter parser (§5.6), resolved in memory's favor.** Typed
+   memory shipped first, so the loader reuses `memdir.ParseFrontmatter`
+   verbatim — no new parser, no YAML dep.
+3. **Validation lives with the catalog holders, not `pkg/config` (A5
+   narrowed).** `SetOutputStyle` validating existence would need the leaf
+   `pkg/config` to import `internal/outputstyle`. Instead the setter only
+   normalizes ("default" stores as "" so a pristine YAML stays clean), and
+   the three entry points validate: the picker lists only real styles,
+   `Agent.SwitchOutputStyle` resolves before persisting, and the `config`
+   tool's Set rejects unknown names listing the available set. Profile
+   build falls back to default on an unknown/deleted name (A10), so a stale
+   value can never wedge boot.
+4. **Switching clears the conversation.** `SwitchOutputStyle` rides
+   `SwitchProfile` verbatim (running guard, prompt re-render, fresh
+   session) — evva ties every prompt-prefix change to a fresh session
+   (`/model`, `/profile`), so the style switch does too. Deliberate
+   divergence from ref (which hot-swaps); the picker says so up front.
+5. **Swarm-resident exemption (new since the PRD was written).**
+   `LongRunning` personas (RP-29 swarm members) never resolve a style —
+   their prompts are operator-defined and bit-stable (RP-5). Same gate in
+   both main-tier build paths; pinned by test.
+6. **§5.5 persona pin shipped** as A9's simple rule: a `meta.yml`
+   `output_style:` wins over the user's config while that persona is
+   active (no per-session override tracking).
+7. **Dropped nicety:** the persistent status-bar indicator (Task 5's
+   "minor; not load-bearing") — the picker's `(current)` marker and
+   `/config` cover visibility. Fast-follow if missed. The `/output-style`
+   command + switched-message handling landed in BOTH TUIs (bubbletea and
+   lp).
+8. Everything else as written: `internal/outputstyle` (Experimental,
+   internal — not `pkg/`), built-ins ported verbatim (glyphs → literal
+   `★`/`●`; ref's accidental doubled `## Insights` heading in Learning was
+   deduped), workdir > appHome > built-in precedence with `default.md`
+   shadowing allowed (ref behavior), `PromptContext` style fields +
+   ref-placed section (after repo-map, before session guidance; after the
+   persona body for disk personas), `output_style` config knob + `/config`
+   row + validated `config`-tool entry (`TestSupportedSettingsKeys`
+   updated), `ui.Controller` + compile-mock growth, disk-persona loader
+   `output_style` key. Tests: 7 outputstyle + 6 sysprompt + 4 profile-seam
+   + 2 agent-switch + config/tool coverage; full suite green, `-race`
+   clean on touched packages, `GOOS=windows` build/vet clean.
 
 ---
 

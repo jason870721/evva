@@ -12,6 +12,29 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Output styles (`/output-style`).** Thin prompt overlays that change how
+  the active persona *talks* without authoring a whole persona — any style
+  stacks on any main-tier persona. Built-ins ported from Claude Code:
+  `default` (no overlay), `Explanatory` (educational `★ Insight` blocks),
+  `Learning` (hands-on `TODO(human)` practice). Custom styles are Markdown
+  files with `name`/`description`/`keep-coding-instructions` frontmatter
+  under `~/.evva/output-styles/` (user tier) or `<workdir>/.evva/output-styles/`
+  (project tier; project > user > built-in on a name clash, and shadowing
+  `default.md` pins a standing voice). `keep-coding-instructions: true`
+  layers the style onto evva's coding doctrine; omitted/false replaces the
+  "Doing tasks" section while all harness mechanics stay (ref-exact
+  semantics). Switching rides the profile-rebuild machinery (fresh prompt,
+  fresh session, immediate); the choice persists as `output_style` in
+  `evva-config.yml`, is editable in `/config`, model-settable via the
+  validated `config` tool, and a persona may pin its own via a new
+  `output_style:` key in `meta.yml`. Default = byte-identical prompt;
+  subagents and swarm-resident personas never carry a style. New
+  `internal/outputstyle` package; `ui.Controller` grows
+  `ListOutputStyles` / `OutputStyleName` / `SwitchOutputStyle` (+
+  `ui.OutputStyleChoice`). PRD: `docs/roadmap/PRD/output-styles.md`.
+
 ## [v1.11.0-beta.1] — 2026-07-07
 
 ### Added
