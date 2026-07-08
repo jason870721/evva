@@ -35,7 +35,7 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   `ListOutputStyles` / `OutputStyleName` / `SwitchOutputStyle` (+
   `ui.OutputStyleChoice`). PRD: `docs/roadmap/PRD/output-styles.md`.
 
-## [v1.11.0-beta.1] — 2026-07-07
+## [v1.11.0-beta.2] — 2026-07-07
 
 ### Added
 
@@ -94,6 +94,16 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
     TUI path ignores the flag with a warning, and an interactive session can
     never grow the tool. New `pkg/tools/structured` package (Experimental
     tier); capture rides the same controller idiom as plan mode.
+
+### Fixed
+
+- **Startup deadlock with `enable_dynamic_workflow: true`** (beta.2). The
+  workflow board's boot-time `SetSession` notify reached
+  `bubbletea.UI.Emit` while the agent was still being constructed — before
+  `Run()` starts the tea program's receive loop — so `Program.Send`
+  blocked forever: evva hung with no TUI and an empty agent log. `UI.Emit`
+  now buffers events emitted before `Run()` and flushes them once the
+  program starts.
 
 ## [v1.10.0-beta.1] — 2026-07-05
 
@@ -2076,8 +2086,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.1...HEAD
-[v1.11.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.10.0-beta.1...v1.11.0-beta.1
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.2...HEAD
+[v1.11.0-beta.2]: https://github.com/johnny1110/evva/compare/v1.10.0-beta.1...v1.11.0-beta.2
 [v1.10.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.8.5-beta.1...v1.10.0-beta.1
 [v1.8.5-beta.1]: https://github.com/johnny1110/evva/compare/v1.8.4...v1.8.5-beta.1
 [v1.8.4]: https://github.com/johnny1110/evva/compare/v1.8.3...v1.8.4

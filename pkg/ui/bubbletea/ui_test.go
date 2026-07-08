@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -45,12 +46,31 @@ func TestRegisteredAsBubbletea(t *testing.T) {
 	}
 }
 
-// NOTE: there's no Emit-before-Run test. tea.Program.Send blocks on an
-// unbuffered channel until Run() starts the read loop, so the
-// "pathological" case of emitting before Run can't be exercised from a
-// unit test without spinning a goroutine. In real usage Emit is only
-// called from the agent goroutine after the host has wired
-// New → Attach → Run, so the window doesn't exist.
+// Emit before Run must buffer, not forward: tea.Program.Send blocks until
+// Run() starts the read loop, and the documented wiring constructs the
+// agent (whose New can emit — the workflow board's SetSession notify does)
+// before Run. Forwarding here deadlocked startup whenever
+// enable_dynamic_workflow was on: evva hung before drawing the TUI with an
+// empty agent log.
+func TestEmitBeforeRunBuffers(t *testing.T) {
+	u := New(t.TempDir())
+	done := make(chan struct{})
+	go func() {
+		u.Emit(event.Event{Kind: event.KindStoreUpdate})
+		u.Emit(event.Event{Kind: event.KindStoreUpdate})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Emit blocked before Run — startup deadlock regression")
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if len(u.pending) != 2 {
+		t.Fatalf("pending = %d events, want 2 buffered", len(u.pending))
+	}
+}
 
 // isCleanExit must treat a normal interrupt/kill as a clean quit — otherwise
 // cmd/evva takes its os.Exit path on quit and skips agent Shutdown, orphaning
