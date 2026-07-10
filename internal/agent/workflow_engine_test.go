@@ -5,7 +5,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/johnny1110/evva/pkg/tools/daemon"
 	"github.com/johnny1110/evva/pkg/tools/workflow"
 )
 
@@ -204,6 +206,50 @@ func TestEnginePauseStopsDispatch(t *testing.T) {
 	if got := fw.launchedIDs(); len(got) != 1 {
 		t.Fatalf("unpause should sweep, launched %v", got)
 	}
+}
+
+// The dispatch fn runs with e.mu held and, in production, blocks on UI
+// event delivery (spawn → daemon Register → sink). The TUI meanwhile reads
+// engine state through workflowDaemon.Snapshot on every rendered frame. A
+// snapshot that waits on e.mu closes the loop — agent waits on the TUI,
+// the TUI waits on the agent — which froze the whole TUI on the first
+// wf_task_create with a worker spec (session edefa044). Snapshot and
+// Paused must return while a sweep is wedged inside dispatch.
+func TestWorkflowDaemonSnapshotNeverWaitsOnSweep(t *testing.T) {
+	store := workflow.NewStore()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	e := newWorkflowEngine(store, 1, func(task workflow.Task, _ string, claim func(string) error) error {
+		close(entered)
+		<-release
+		return claim("d-" + task.ID)
+	}, nil)
+	wd := newWorkflowDaemon(daemon.NewState(nil), store, e, "root")
+	mkAutoTask(t, store, "w")
+
+	sweepDone := make(chan struct{})
+	go func() {
+		e.Sweep()
+		close(sweepDone)
+	}()
+	<-entered // the sweep is now wedged inside dispatch, holding e.mu
+
+	snapDone := make(chan struct{})
+	go func() {
+		snap := wd.Snapshot()
+		if snap.Kind != daemon.KindLocalWorkflow {
+			t.Errorf("snapshot kind = %s, want %s", snap.Kind, daemon.KindLocalWorkflow)
+		}
+		_ = e.Paused()
+		close(snapDone)
+	}()
+	select {
+	case <-snapDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("workflowDaemon.Snapshot blocked behind a running sweep — TUI deadlock regression")
+	}
+	close(release)
+	<-sweepDone
 }
 
 func TestEngineDispatchFailureQuarantines(t *testing.T) {

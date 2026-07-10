@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/pkg/tools"
@@ -127,8 +128,14 @@ type workflowEngine struct {
 	// the feature; the board carries the record).
 	signal func(line string)
 
+	// paused is the dispatch brake. Atomic, NOT guarded by mu: the TUI
+	// reads it through workflowDaemon.Snapshot → Paused on every rendered
+	// frame, while sweeps hold mu across worker dispatch — and dispatch
+	// blocks on UI event delivery. A mu-guarded read from the render path
+	// closes that loop into the wf_task_create whole-TUI freeze.
+	paused atomic.Bool
+
 	mu         sync.Mutex
-	paused     bool
 	silentDone int // auto-completions since the root last got a signal
 }
 
@@ -167,11 +174,14 @@ func (e *workflowEngine) Sweep() {
 }
 
 func (e *workflowEngine) sweepLocked() {
-	if e.paused {
-		return
-	}
 	slots := e.max - e.runningWorkers()
 	for _, t := range e.store.Dispatchable() {
+		// Checked per launch, not once per sweep: SetPaused no longer
+		// serializes behind an in-flight sweep, and the brake should stop
+		// the next launch, not just the next sweep.
+		if e.paused.Load() {
+			return
+		}
 		if slots <= 0 {
 			return
 		}
@@ -283,23 +293,19 @@ func (e *workflowEngine) settledSignalLocked() {
 }
 
 // SetPaused stops (or resumes) auto-dispatch. Running workers finish and
-// their results still record — only new launches halt. The board tools
-// keep working throughout.
+// their results still record — only new launches halt, including the
+// remaining launches of a sweep already in flight. The board tools keep
+// working throughout.
 func (e *workflowEngine) SetPaused(v bool) {
-	e.mu.Lock()
-	e.paused = v
-	e.mu.Unlock()
+	e.paused.Store(v)
 	if !v {
 		e.Sweep()
 	}
 }
 
-// Paused reports the dispatch brake, for the daemon snapshot.
-func (e *workflowEngine) Paused() bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.paused
-}
+// Paused reports the dispatch brake, for the daemon snapshot. Lock-free —
+// see the paused field comment.
+func (e *workflowEngine) Paused() bool { return e.paused.Load() }
 
 // MaxWorkers is the configured concurrency cap, for the daemon snapshot.
 func (e *workflowEngine) MaxWorkers() int { return e.max }

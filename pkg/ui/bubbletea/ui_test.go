@@ -65,11 +65,36 @@ func TestEmitBeforeRunBuffers(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Emit blocked before Run — startup deadlock regression")
 	}
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	if len(u.pending) != 2 {
-		t.Fatalf("pending = %d events, want 2 buffered", len(u.pending))
+	if got := u.emits.Len(); got != 2 {
+		t.Fatalf("queued = %d events, want 2 buffered", got)
 	}
+}
+
+// Emit must never block even with the pump live and the program loop dead
+// — the shape of the dynamic-workflow dispatch deadlock: the sweep emitted
+// daemon/board changes through an inline Program.Send while holding the
+// engine mutex that the TUI's per-frame workflowDaemon.Snapshot pull
+// needs, so the agent and the Update loop waited on each other forever
+// (session edefa044: first wf_task_create with a worker froze the TUI).
+// Run() is never called here, so the pump's Send wedges exactly like a
+// busy Update loop; every Emit must still return.
+func TestEmitNeverBlocksWhileLoopStalled(t *testing.T) {
+	u := New(t.TempDir())
+	u.emits.Start()
+	done := make(chan struct{})
+	go func() {
+		for range 64 {
+			u.Emit(event.Event{Kind: event.KindStoreUpdate})
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Emit blocked while the program loop was stalled — TUI deadlock regression")
+	}
+	// The pump goroutine stays wedged in Send until the process exits;
+	// that IS the simulated condition, not a fixture leak.
 }
 
 // isCleanExit must treat a normal interrupt/kill as a clean quit — otherwise

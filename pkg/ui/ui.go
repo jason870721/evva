@@ -32,8 +32,11 @@ import (
 //
 // Emit is called from the agent loop's goroutine (per Sink's contract,
 // the agent serializes per-agent emits internally). The UI must hand the
-// event off to its own render loop without blocking — bubbletea
-// implementations typically forward via tea.Program.Send().
+// event off to its own render loop WITHOUT BLOCKING — route it through an
+// EmitQueue rather than calling tea.Program.Send inline: Send blocks
+// while the loop is busy, and emitters may hold locks the render path
+// reads back (see EmitQueue's doc for the TUI-freezing deadlock that
+// inline Sends caused).
 //
 // Run blocks the calling goroutine until the UI exits (user quit, ctx
 // cancelled, fatal error). It is the host's main blocking call.

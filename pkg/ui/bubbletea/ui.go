@@ -31,11 +31,10 @@ import (
 type UI struct {
 	program *tea.Program
 	model   *app.App
+	emits   *ui.EmitQueue
 
 	mu         sync.Mutex
 	controller ui.Controller
-	running    bool
-	pending    []event.Event
 }
 
 // New builds a UI ready to be Attached and Run. evvaHome is the user's
@@ -55,29 +54,27 @@ func New(evvaHome string) *UI {
 		tea.WithMouseCellMotion(),
 	)
 	u.model.SetProgram(u.program)
+	u.emits = ui.NewEmitQueue(func(e event.Event) {
+		u.program.Send(events.AgentEventMsg{Event: e})
+	})
 	return u
 }
 
-// Emit satisfies event.Sink. Called from the agent goroutine; forwards
-// to the bubbletea main loop via Send so all state mutation stays on
-// one goroutine.
+// Emit satisfies event.Sink — by queueing, never by calling Send inline.
 //
-// The documented wiring constructs the agent BEFORE Run, and Program.Send
-// blocks until the program's receive loop is live — so an event emitted
-// during agent construction (e.g. the workflow board's SetSession notify)
-// would deadlock startup. Buffer until Run, then flush.
+// Program.Send blocks whenever the receive loop is busy or not yet
+// running (p.msgs is unbuffered), and emitters may hold locks the
+// Update/View path reads back: the workflow engine's dispatch sweep
+// emits daemon/board changes while holding the engine mutex that the
+// daemon strips' per-frame Snapshot pull acquires. An inline Send turned
+// that into a mutual wait that froze the whole TUI — the runtime sibling
+// of the pre-Run startup deadlock this method used to buffer around.
+// The EmitQueue's pump goroutine owns the only blocking Send.
 func (u *UI) Emit(e event.Event) {
-	if u.program == nil {
+	if u.emits == nil {
 		return
 	}
-	u.mu.Lock()
-	if !u.running {
-		u.pending = append(u.pending, e)
-		u.mu.Unlock()
-		return
-	}
-	u.mu.Unlock()
-	u.program.Send(events.AgentEventMsg{Event: e})
+	u.emits.Push(e)
 }
 
 // Attach hands the UI its agent controller. Must be called before Run.
@@ -90,22 +87,16 @@ func (u *UI) Attach(c ui.Controller) {
 
 // Run starts the bubbletea program and blocks until exit. ctx
 // cancellation triggers a clean shutdown via a QuitMsg.
+//
+// The emit pump starts here: events queued since construction flush
+// first (the documented wiring constructs the agent before Run, and
+// agent construction emits — the workflow board's SetSession notify
+// does). The pump's first Send simply blocks until the receive loop is
+// live, and program teardown cancels the program context, so a Send in
+// flight at exit returns instead of wedging the pump.
 func (u *UI) Run(ctx context.Context) error {
-	u.mu.Lock()
-	u.running = true
-	pending := u.pending
-	u.pending = nil
-	u.mu.Unlock()
-	if len(pending) > 0 {
-		// Send blocks until the program's loop is up; flush from the side so
-		// Run can start it. Pre-run events are store snapshots, so an
-		// interleaved fresh emit can't be contradicted by a stale one.
-		go func() {
-			for _, e := range pending {
-				u.program.Send(events.AgentEventMsg{Event: e})
-			}
-		}()
-	}
+	u.emits.Start()
+	defer u.emits.Close()
 	done := make(chan struct{})
 	go func() {
 		select {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -40,6 +41,33 @@ func TestRegisteredAsLp(t *testing.T) {
 	}
 	if got := factory("/tmp/evva-lp-test-home"); got == nil {
 		t.Fatal("lp factory returned a nil ui.UI")
+	}
+}
+
+// Emit must buffer before Run and never block after — lp used to forward
+// straight into tea.Program.Send, which carried both the pre-Run startup
+// deadlock (#55 patched only the NEON TUI) and the dynamic-workflow
+// dispatch deadlock (emitters hold locks the render path reads back; see
+// ui.EmitQueue). Run() is never called here, so the pump's Send wedges
+// exactly like a busy Update loop; every Emit must still return.
+func TestEmitNeverBlocks(t *testing.T) {
+	u := New(t.TempDir())
+	u.Emit(event.Event{Kind: event.KindStoreUpdate})
+	if got := u.emits.Len(); got != 1 {
+		t.Fatalf("queued = %d events before Run, want 1 buffered", got)
+	}
+	u.emits.Start()
+	done := make(chan struct{})
+	go func() {
+		for range 64 {
+			u.Emit(event.Event{Kind: event.KindStoreUpdate})
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Emit blocked while the program loop was stalled — TUI deadlock regression")
 	}
 }
 

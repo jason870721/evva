@@ -35,6 +35,7 @@ import (
 type UI struct {
 	program *tea.Program
 	model   *app.App
+	emits   *ui.EmitQueue
 
 	mu         sync.Mutex
 	controller ui.Controller
@@ -53,17 +54,23 @@ func New(evvaHome string) *UI {
 		tea.WithMouseCellMotion(),
 	)
 	u.model.SetProgram(u.program)
+	u.emits = ui.NewEmitQueue(func(e event.Event) {
+		u.program.Send(events.AgentEventMsg{Event: e})
+	})
 	return u
 }
 
-// Emit satisfies event.Sink. Called from the agent goroutine; forwards to
-// the bubbletea main loop via Send so all state mutation stays on one
-// goroutine.
+// Emit satisfies event.Sink — by queueing, never by calling Send inline.
+// Program.Send blocks while the receive loop is busy or not yet running,
+// and emitters may hold locks the render path reads back (see
+// ui.EmitQueue). The inline Send lp used to do here carried both the
+// dynamic-workflow dispatch deadlock and the pre-Run startup deadlock the
+// NEON TUI had already patched; the queue closes both.
 func (u *UI) Emit(e event.Event) {
-	if u.program == nil {
+	if u.emits == nil {
 		return
 	}
-	u.program.Send(events.AgentEventMsg{Event: e})
+	u.emits.Push(e)
 }
 
 // Attach hands the UI its agent controller. Must be called before Run.
@@ -75,8 +82,11 @@ func (u *UI) Attach(c ui.Controller) {
 }
 
 // Run starts the bubbletea program and blocks until exit. ctx cancellation
-// triggers a clean shutdown via a QuitMsg.
+// triggers a clean shutdown via a QuitMsg. The emit pump starts here;
+// events queued since construction flush first.
 func (u *UI) Run(ctx context.Context) error {
+	u.emits.Start()
+	defer u.emits.Close()
 	done := make(chan struct{})
 	go func() {
 		select {
