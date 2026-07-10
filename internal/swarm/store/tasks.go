@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -39,12 +40,49 @@ const (
 // Verify policies: who settles `verifying`. VerifyLeader is the unchanged
 // human-judgment flow; VerifyAuto lets the system actor complete the task on
 // the worker's task_done, so declared-mechanical chains flow with zero leader
-// wakes. Free-form TEXT in the schema so a future machine-evidence wave can
-// add "checks" without a migration.
+// wakes. VerifyChecks (the machine-evidence wave 0006 reserved the TEXT slot
+// for) gates that same system settlement on evidence: the space's configured
+// check command must have PASSED — a green check completes the task with zero
+// leader wakes, a red one escalates to the leader.
 const (
 	VerifyLeader = "leader"
 	VerifyAuto   = "auto"
+	VerifyChecks = "checks"
 )
+
+// CheckEvidence is one check run's machine evidence, stored as JSON in the
+// task row's `checks` column — latest run only (overwrite, not append; the
+// event log keeps history). Pass is precomputed (exit 0 and not timed out)
+// so every reader — the writer matrix, tool output, the web DTO — judges the
+// run identically. Workdir names the directory the command ran in: pre-
+// worktree-isolation that is the shared space workdir, and evidence must say
+// so (a teammate mid-edit can fail a check that isn't the assignee's fault).
+type CheckEvidence struct {
+	Command    string `json:"command"`
+	Exit       int    `json:"exit"`
+	TimedOut   bool   `json:"timedOut,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+	StartedAt  int64  `json:"startedAt"`
+	Workdir    string `json:"workdir,omitempty"`
+	Tail       string `json:"tail,omitempty"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	Pass       bool   `json:"pass"`
+}
+
+// Outcome renders the run's verdict — "PASS in 38s", "FAIL (exit 1) in
+// 2m3s", "TIMEOUT after 10m0s" — one wording shared by tool output, evidence
+// mail, and event lines.
+func (ev CheckEvidence) Outcome() string {
+	d := (time.Duration(ev.DurationMs) * time.Millisecond).Round(time.Second)
+	switch {
+	case ev.TimedOut:
+		return fmt.Sprintf("TIMEOUT after %s", d)
+	case ev.Pass:
+		return fmt.Sprintf("PASS in %s", d)
+	default:
+		return fmt.Sprintf("FAIL (exit %d) in %s", ev.Exit, d)
+	}
+}
 
 // Actor is who is performing a write — a name plus a role. Which (from, to)
 // edges each role may write is the allowedWriter matrix below.
@@ -67,10 +105,15 @@ type Task struct {
 	Result       string
 	VerifyNote   string
 	ParentID     *int64
-	VerifyPolicy string // VerifyLeader (default) | VerifyAuto
+	VerifyPolicy string // VerifyLeader (default) | VerifyAuto | VerifyChecks
 	DependsOn    []int64
-	CreatedAt    int64
-	UpdatedAt    int64
+	// Checks is the latest check run's evidence (nil = never ran); CheckOff
+	// marks a task opted out of checks at creation (check:"off" — the one
+	// agent-held lever, CHK §4).
+	Checks    *CheckEvidence
+	CheckOff  bool
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 // EngineManaged reports whether the engine (system actor) owns this task's
@@ -101,7 +144,7 @@ var (
 	ErrIllegalTransition = errors.New("store: illegal task status transition")
 	ErrTaskNotFound      = errors.New("store: task not found")
 	ErrDepNotFound       = errors.New("store: dependency task not found")
-	ErrBadVerifyPolicy   = errors.New("store: verify policy must be \"leader\" or \"auto\"")
+	ErrBadVerifyPolicy   = errors.New("store: verify policy must be \"leader\", \"auto\" or \"checks\"")
 )
 
 // legalTransitions is the authoritative state machine (design §7.1,
@@ -121,8 +164,11 @@ var legalTransitions = map[Status]map[Status]bool{
 // (from, to) edge on task t. The leader holds every edge; the two mechanical
 // writers hold only executions of leader-declared structure — the worker its
 // own done-report, the system dispatch (dep-tasks only) and auto-verify
-// settlement (verify_policy 'auto' only). Zero judgment leaves the leader.
-func allowedWriter(from, to Status, by Actor, assignee, verifyPolicy string, hasDeps bool) bool {
+// settlement ('auto' unconditionally; 'checks' only when the row's latest
+// evidence says pass — the data-layer half of "the system actor's completion
+// is refused when evidence says fail", CHK §5.4). Zero judgment leaves the
+// leader: it may still overrule a red check by completing the task itself.
+func allowedWriter(from, to Status, by Actor, assignee, verifyPolicy string, hasDeps, checksPass bool) bool {
 	switch by.Role {
 	case RoleLeader:
 		return true
@@ -135,13 +181,13 @@ func allowedWriter(from, to Status, by Actor, assignee, verifyPolicy string, has
 		case from == StatusPending && to == StatusRunning:
 			return hasDeps
 		case from == StatusVerifying && to == StatusCompleted:
-			return verifyPolicy == VerifyAuto
+			return verifyPolicy == VerifyAuto || (verifyPolicy == VerifyChecks && checksPass)
 		}
 	}
 	return false
 }
 
-const taskCols = `id, title, spec, status, assignee, created_by, result, verify_note, parent_id, verify_policy, created_at, updated_at`
+const taskCols = `id, title, spec, status, assignee, created_by, result, verify_note, parent_id, verify_policy, checks, check_off, created_at, updated_at`
 
 // CreateTask inserts a new task. Push model: a non-empty Assignee is required.
 // The caller-supplied Status is ignored — the birth state is computed: blocked
@@ -157,7 +203,7 @@ func (s *Store) CreateTask(t Task) (int64, error) {
 	if policy == "" {
 		policy = VerifyLeader
 	}
-	if policy != VerifyLeader && policy != VerifyAuto {
+	if policy != VerifyLeader && policy != VerifyAuto && policy != VerifyChecks {
 		return 0, fmt.Errorf("%w (got %q)", ErrBadVerifyPolicy, t.VerifyPolicy)
 	}
 	deps := dedupeIDs(t.DependsOn)
@@ -188,10 +234,10 @@ func (s *Store) CreateTask(t Task) (int64, error) {
 	}
 
 	res, err := tx.Exec(
-		`INSERT INTO tasks (title, spec, status, assignee, created_by, result, verify_note, parent_id, verify_policy, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tasks (title, spec, status, assignee, created_by, result, verify_note, parent_id, verify_policy, check_off, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.Title, t.Spec, string(status), t.Assignee, t.CreatedBy,
-		nullableStr(t.Result), nullableStr(t.VerifyNote), nullableInt(t.ParentID), policy, now, now,
+		nullableStr(t.Result), nullableStr(t.VerifyNote), nullableInt(t.ParentID), policy, t.CheckOff, now, now,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("store: create task: %w", err)
@@ -243,12 +289,13 @@ func (s *Store) TransitionTask(id int64, to Status, by Actor, note string) error
 
 	var (
 		fromStr, assignee, policy string
+		checks                    sql.NullString
 		depCount                  int
 	)
 	err := s.db.QueryRow(
-		`SELECT status, assignee, verify_policy,
+		`SELECT status, assignee, verify_policy, checks,
 		        (SELECT COUNT(*) FROM task_deps d WHERE d.task_id = tasks.id)
-		 FROM tasks WHERE id = ?`, id).Scan(&fromStr, &assignee, &policy, &depCount)
+		 FROM tasks WHERE id = ?`, id).Scan(&fromStr, &assignee, &policy, &checks, &depCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrTaskNotFound
 	}
@@ -260,7 +307,8 @@ func (s *Store) TransitionTask(id int64, to Status, by Actor, note string) error
 	if !legalTransitions[from][to] {
 		return fmt.Errorf("%w: %s -> %s", ErrIllegalTransition, from, to)
 	}
-	if !allowedWriter(from, to, by, assignee, policy, depCount > 0) {
+	ev := parseChecks(id, checks)
+	if !allowedWriter(from, to, by, assignee, policy, depCount > 0, ev != nil && ev.Pass) {
 		return fmt.Errorf("%w: %s -> %s by %s(%s)", ErrNotLeader, from, to, by.Name, by.Role)
 	}
 
@@ -300,7 +348,7 @@ func (s *Store) CompleteWork(id int64, by Actor, result string) error {
 	if !legalTransitions[from][StatusVerifying] {
 		return fmt.Errorf("%w: %s -> %s", ErrIllegalTransition, from, StatusVerifying)
 	}
-	if !allowedWriter(from, StatusVerifying, by, assignee, policy, false) {
+	if !allowedWriter(from, StatusVerifying, by, assignee, policy, false, false) {
 		return fmt.Errorf("%w: task_done on #%d by %s(%s)", ErrNotLeader, id, by.Name, by.Role)
 	}
 
@@ -515,9 +563,10 @@ func scanTask(sc rowScanner) (Task, error) {
 		result     sql.NullString
 		verifyNote sql.NullString
 		parentID   sql.NullInt64
+		checks     sql.NullString
 	)
 	if err := sc.Scan(&t.ID, &t.Title, &t.Spec, &statusStr, &t.Assignee, &t.CreatedBy,
-		&result, &verifyNote, &parentID, &t.VerifyPolicy, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		&result, &verifyNote, &parentID, &t.VerifyPolicy, &checks, &t.CheckOff, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return Task{}, err
 	}
 	t.Status = Status(statusStr)
@@ -527,7 +576,49 @@ func scanTask(sc rowScanner) (Task, error) {
 		v := parentID.Int64
 		t.ParentID = &v
 	}
+	t.Checks = parseChecks(t.ID, checks)
 	return t, nil
+}
+
+// parseChecks decodes a row's evidence JSON. Unparseable evidence degrades to
+// nil (never-ran) with a warning rather than failing the whole read: the
+// column is our own runner's write, and one corrupt row must not take down
+// every ListTasks.
+func parseChecks(id int64, raw sql.NullString) *CheckEvidence {
+	if !raw.Valid || raw.String == "" {
+		return nil
+	}
+	var ev CheckEvidence
+	if err := json.Unmarshal([]byte(raw.String), &ev); err != nil {
+		slog.Warn("swarm store: unreadable check evidence, treating as never-ran", "task", id, "err", err)
+		return nil
+	}
+	return &ev
+}
+
+// SetTaskChecks overwrites a task's check evidence (latest run only — the
+// event log carries history). Deliberately does NOT touch updated_at:
+// evidence is metadata about the current verifying stay, not a state move,
+// and bumping the stamp would reset the RP-22 stale clock (and its
+// one-reminder-per-stay key) every time a check lands.
+func (s *Store) SetTaskChecks(id int64, ev CheckEvidence) error {
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return fmt.Errorf("store: marshal check evidence for task %d: %w", id, err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	res, err := s.db.Exec(`UPDATE tasks SET checks = ? WHERE id = ?`, string(b), id)
+	if err != nil {
+		return fmt.Errorf("store: set checks on task %d: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrTaskNotFound
+	}
+	slog.Info("swarm task check evidence", "id", id, "pass", ev.Pass, "exit", ev.Exit, "ms", ev.DurationMs)
+	return nil
 }
 
 // fillDeps loads DependsOn for every task in ts — one IN query, joined in

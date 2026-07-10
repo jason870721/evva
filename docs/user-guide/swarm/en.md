@@ -177,6 +177,9 @@ settings:
   # webhook_secret: "hunter2"     # require X-Evva-Webhook-Secret on event POSTs (see §10)
   # retention_days: 30            # archive+delete consumed history after N days; "0" = keep forever
   # event_log: true               # mirror events to .vero/events/ (daily jsonl); false = off
+  # verify_checks:                # machine-checked verification (see §8): run this command
+  #   command: "go test ./..."    #   whenever a task enters verifying; evidence lands on the task
+  #   timeout: 5m                 #   per-run cap (omit = 2m, max 10m)
 ```
 
 - **Member names are unique** within a space (no replicas — give each a distinct
@@ -420,6 +423,13 @@ pick up their tasks, report back, and the board march to **completed**.
   `task_done` — a chain of `auto` tasks flows end-to-end leaderlessly. All
   judgment stays with the leader: the engine only executes structure the
   leader declared at create time.
+- **Machine-checked verification (evidence, not trust).** With
+  `settings.verify_checks` configured (§8), every task entering `verifying`
+  triggers the operator's check command (build / test / lint); its exit code
+  and output tail land on the task as durable evidence and reach the leader
+  as mail before it rules. Per-task `verify: "checks"` composes it with the
+  graph: a green run completes the task by itself, a red run escalates to
+  the leader with the evidence attached — CI-gated leaderless chains.
 - **Ephemeral clones (fan-out width on demand).** The leader's
   `member_spawn {from, count, retire?}` clones an existing worker (same
   prompt/tools/model/budget) under derived names (`backend-2`, `backend-3`, …)
@@ -620,6 +630,51 @@ settings:
   the UTC twin, so a timezone mix-up is visible at a glance.
 - Cron (the manifest's `schedule` and the leader's `schedule_set`) matches the
   system's local wall clock.
+
+### Machine-checked verification (`verify_checks`)
+
+For a coding swarm, the verify step that matters is mechanical: does it
+build, do the tests pass. Configure ONE check command and the service runs
+it every time a task enters `verifying`:
+
+```yaml
+settings:
+  verify_checks:
+    command: "go build ./... && go test ./..."
+    timeout: 5m        # omit = 2m; max 10m
+```
+
+- **What happens.** On every verifying-entry (a worker's `task_done`, or the
+  leader's `task_update_status`), the service runs the command in the space
+  workdir (`<shell> -c`, the bash tool's shell resolution; the whole process
+  tree is killed at the timeout). Exit code + output tail (~16 KB, head+tail
+  kept when longer) land on the task row as durable **evidence** — visible
+  in `task_get`/`task_list`, on the web board card (✓ pass / ✗ fail / a
+  pulsing "checks…" while running), and mailed to the leader and to you.
+- **Trust model.** The command text is **operator-authored only** — the same
+  trust class as `permission_mode: bypass`. No agent, the leader included,
+  can choose or edit it, so a prompt-injected member can never turn a task
+  field into shell. Agents hold exactly one lever: `task_create
+  {check: "off"}` opts a docs-only / discussion task out.
+- **CI-gated leaderless chains.** Per-task `verify: "checks"` makes the
+  check the gate: a green run **completes the task by itself** (dependents
+  auto-dispatch; the leader is not woken), a red run leaves it in
+  `verifying` and mails the leader the evidence — the tail is the rejection
+  note's first draft. A red check never auto-rejects; the leader may
+  overrule a flaky test with `task_verify {approve: true}`. `verify: "auto"`
+  ignores checks entirely (it declares "mechanical, don't gate").
+- **Semantics to know.** One check runs at a time per space. Re-entering
+  `verifying` (reject → rework → `task_done` again) re-runs the check, and a
+  re-entry mid-run kills the stale run ("latest entry wins"). A service
+  restart mid-check simply loses that run — the task sits in `verifying`
+  with no evidence, and the `task_stale_threshold` fuse is the backstop.
+  Checks run against the shared workdir today, so a teammate mid-edit can
+  fail a check that isn't the assignee's fault — the evidence names the
+  directory it ran in.
+- **Watch it.** `/metrics` carries `checksRun` / `checksFailed` /
+  `checksTimeout`, and each run lands a `task_check_done` line in the live
+  feed and the durable chatlog. Keep the command fast — a targeted subset
+  beats the full suite; the 10-minute cap is a ceiling, not a target.
 
 ### Ledger retention (`retention_days` / `evva swarm vacuum`)
 

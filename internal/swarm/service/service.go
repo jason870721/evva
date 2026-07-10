@@ -1088,20 +1088,32 @@ func activeStatuses() []store.Status {
 	return []store.Status{store.StatusPending, store.StatusBlocked, store.StatusRunning, store.StatusSuspended, store.StatusVerifying}
 }
 
-func toTaskInfo(t store.Task) webapi.TaskInfo {
-	return webapi.TaskInfo{
+func toTaskInfo(t store.Task, sp *swarm.SwarmSpace) webapi.TaskInfo {
+	info := webapi.TaskInfo{
 		ID: t.ID, Title: t.Title, Spec: t.Spec, Status: string(t.Status),
 		Assignee: t.Assignee, CreatedBy: t.CreatedBy, Result: t.Result,
 		VerifyNote: t.VerifyNote, ParentID: t.ParentID,
 		DependsOn: t.DependsOn, VerifyPolicy: t.VerifyPolicy,
+		CheckOff:  t.CheckOff,
 		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
+	if ev := t.Checks; ev != nil {
+		info.Checks = &webapi.CheckInfo{
+			Command: ev.Command, Exit: ev.Exit, TimedOut: ev.TimedOut,
+			DurationMs: ev.DurationMs, StartedAt: ev.StartedAt, Workdir: ev.Workdir,
+			Tail: ev.Tail, Truncated: ev.Truncated, Pass: ev.Pass,
+		}
+	}
+	// The RUNNING chip state lives in the runner, not the row — evidence only
+	// lands when a run finishes (CHK).
+	info.CheckRunning = sp != nil && sp.CheckPending(t.ID)
+	return info
 }
 
-func toTaskInfos(tasks []store.Task) []webapi.TaskInfo {
+func toTaskInfos(tasks []store.Task, sp *swarm.SwarmSpace) []webapi.TaskInfo {
 	out := make([]webapi.TaskInfo, 0, len(tasks))
 	for _, t := range tasks {
-		out = append(out, toTaskInfo(t))
+		out = append(out, toTaskInfo(t, sp))
 	}
 	return out
 }
@@ -1128,7 +1140,7 @@ func (s *Service) Tasks(id string) (webapi.TaskPage, bool) {
 	if err != nil {
 		s.log.Warn("swarm: count completed", "space", id, "err", err)
 	}
-	return webapi.TaskPage{Tasks: toTaskInfos(append(active, recent...)), Total: total}, true
+	return webapi.TaskPage{Tasks: toTaskInfos(append(active, recent...), ent.space), Total: total}, true
 }
 
 // TasksByStatus is the on-demand paged view of one status (the Completed tab):
@@ -1152,7 +1164,7 @@ func (s *Service) TasksByStatus(id, status string, limit, offset int) (webapi.Ta
 	if err != nil {
 		s.log.Warn("swarm: count tasks by status", "space", id, "status", status, "err", err)
 	}
-	return webapi.TaskPage{Tasks: toTaskInfos(tasks), Total: total}, true
+	return webapi.TaskPage{Tasks: toTaskInfos(tasks, ent.space), Total: total}, true
 }
 
 func (s *Service) Messages(id string) ([]webapi.MessageInfo, bool) {
@@ -1935,6 +1947,7 @@ func (s *Service) Metrics(ref string) (webapi.MetricsInfo, bool) {
 	}
 	mi.TasksStale, mi.MailboxStale = sp.WorkflowStaleCounts()
 	mi.AutoDispatches, mi.MembersSpawned, mi.MembersRetired = sp.EngineCounts()
+	mi.ChecksRun, mi.ChecksFailed, mi.ChecksTimeout = sp.CheckCounts()
 	if !started.IsZero() {
 		mi.UptimeSecs = int64(time.Since(started).Seconds())
 	}

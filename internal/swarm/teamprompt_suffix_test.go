@@ -9,13 +9,15 @@ import (
 func TestTeamProtocolSuffix_MatchesInject(t *testing.T) {
 	for _, role := range []agentdef.Role{agentdef.RoleLeader, agentdef.RoleWorker} {
 		for _, canWrite := range []bool{true, false} {
-			suffix := teamProtocolSuffix("alice", "team", role, canWrite)
-			full := injectTeamProtocol("PERSONA BODY", "alice", "team", role, canWrite)
-			if want := "PERSONA BODY\n\n" + suffix; full != want {
-				t.Fatalf("inject(role=%s,write=%v) must be body + suffix", role, canWrite)
-			}
-			if got := injectTeamProtocol("", "alice", "team", role, canWrite); got != suffix {
-				t.Fatalf("empty persona must yield the bare suffix")
+			for _, checks := range []*agentdef.CheckSpec{nil, {Command: "go test ./..."}} {
+				suffix := teamProtocolSuffix("alice", "team", role, canWrite, checks)
+				full := injectTeamProtocol("PERSONA BODY", "alice", "team", role, canWrite, checks)
+				if want := "PERSONA BODY\n\n" + suffix; full != want {
+					t.Fatalf("inject(role=%s,write=%v) must be body + suffix", role, canWrite)
+				}
+				if got := injectTeamProtocol("", "alice", "team", role, canWrite, checks); got != suffix {
+					t.Fatalf("empty persona must yield the bare suffix")
+				}
 			}
 		}
 	}

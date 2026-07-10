@@ -112,6 +112,21 @@ type Settings struct {
 	// forgotten or the wake chain regressed. 0 = disabled; omitted gets
 	// DefaultMailboxStaleThreshold.
 	MailboxStaleThreshold time.Duration
+	// VerifyChecks enables machine-checked verification (CHK): when set, the
+	// service runs Command whenever a task enters `verifying` and lands its
+	// exit/output tail on the task row as evidence. Absent = feature off,
+	// space byte-identical to before the wave.
+	VerifyChecks *CheckSpec
+}
+
+// CheckSpec is the operator-authored verify-time check (CHK): one shell
+// command plus its timeout. The command text is the manifest's trust surface
+// — the same class as permission_mode: bypass — and no agent, leader
+// included, can author or edit it; agents hold exactly one lever, the
+// per-task check:"off" opt-out (CHK §4).
+type CheckSpec struct {
+	Command string
+	Timeout time.Duration
 }
 
 // DefaultStallThreshold is the alert line a manifest gets when it does not set
@@ -140,6 +155,14 @@ const DefaultTaskStaleThreshold = 24 * time.Hour
 // chain normally drains in seconds, so anything older signals a frozen or
 // broken member, not load.
 const DefaultMailboxStaleThreshold = 30 * time.Minute
+
+// DefaultCheckTimeout / MaxCheckTimeout bound a verify check's runtime — the
+// bash tool's norms (pkg/tools/shell: default 2 min, max 10 min). A check
+// past its timeout is tree-killed and lands as failing evidence.
+const (
+	DefaultCheckTimeout = 2 * time.Minute
+	MaxCheckTimeout     = 10 * time.Minute
+)
 
 // scheduleYml is the on-disk schedule block shared by the manifest's leader and
 // workers (and mirrored by profile.yml). Exactly one of cron/every is set.
@@ -218,19 +241,53 @@ type manifestYml struct {
 	Leader   memberYml   `yaml:"leader"`
 	Workers  []memberYml `yaml:"workers,omitempty"`
 	Settings struct {
-		PermissionMode        string `yaml:"permission_mode,omitempty"`
-		MaxIterations         int    `yaml:"max_iterations,omitempty"`
-		DailyBudgetTokens     int    `yaml:"daily_budget_tokens,omitempty"`
-		BudgetStayFrozen      bool   `yaml:"budget_stay_frozen,omitempty"`
-		MaxMembers            int    `yaml:"max_members,omitempty"`
-		StallThreshold        string `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
-		StallHardTimeout      string `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
-		WebhookSecret         string `yaml:"webhook_secret,omitempty"`
-		RetentionDays         string `yaml:"retention_days,omitempty"`          // days; "" = default 30, "0" = off
-		EventLog              *bool  `yaml:"event_log,omitempty"`               // nil = default true
-		TaskStaleThreshold    string `yaml:"task_stale_threshold,omitempty"`    // duration; "" = default 24h, "0" = off
-		MailboxStaleThreshold string `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
+		PermissionMode        string    `yaml:"permission_mode,omitempty"`
+		MaxIterations         int       `yaml:"max_iterations,omitempty"`
+		DailyBudgetTokens     int       `yaml:"daily_budget_tokens,omitempty"`
+		BudgetStayFrozen      bool      `yaml:"budget_stay_frozen,omitempty"`
+		MaxMembers            int       `yaml:"max_members,omitempty"`
+		StallThreshold        string    `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
+		StallHardTimeout      string    `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
+		WebhookSecret         string    `yaml:"webhook_secret,omitempty"`
+		RetentionDays         string    `yaml:"retention_days,omitempty"`          // days; "" = default 30, "0" = off
+		EventLog              *bool     `yaml:"event_log,omitempty"`               // nil = default true
+		TaskStaleThreshold    string    `yaml:"task_stale_threshold,omitempty"`    // duration; "" = default 24h, "0" = off
+		MailboxStaleThreshold string    `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
+		VerifyChecks          *checkYml `yaml:"verify_checks,omitempty"`           // nil = checks off
 	} `yaml:"settings,omitempty"`
+}
+
+// checkYml is the on-disk settings.verify_checks block (CHK).
+type checkYml struct {
+	Command string `yaml:"command,omitempty"`
+	Timeout string `yaml:"timeout,omitempty"` // duration; "" = default 2m, max 10m
+}
+
+// parseCheckYml validates the optional verify_checks block: absent = feature
+// off; present demands a non-empty command and a timeout inside
+// (0, MaxCheckTimeout] — "" defaults to DefaultCheckTimeout. An explicit "0"
+// is rejected rather than read as "off": a check that can never run is a
+// misconfiguration; disabling checks means removing the block.
+func parseCheckYml(y *checkYml) (*CheckSpec, error) {
+	if y == nil {
+		return nil, nil
+	}
+	cmd := strings.TrimSpace(y.Command)
+	if cmd == "" {
+		return nil, fmt.Errorf("command is required (remove the verify_checks block to disable checks)")
+	}
+	timeout := DefaultCheckTimeout
+	if s := strings.TrimSpace(y.Timeout); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return nil, fmt.Errorf("timeout: %w", err)
+		}
+		timeout = d
+	}
+	if timeout <= 0 || timeout > MaxCheckTimeout {
+		return nil, fmt.Errorf("timeout must be within (0, %s], got %s", MaxCheckTimeout, timeout)
+	}
+	return &CheckSpec{Command: cmd, Timeout: timeout}, nil
 }
 
 // parseRetentionDays reads the optional retention knob: "" → DefaultRetentionDays,
@@ -340,6 +397,10 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest settings.mailbox_stale_threshold: %w", err)
 	}
+	checks, err := parseCheckYml(y.Settings.VerifyChecks)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.verify_checks: %w", err)
+	}
 	// Space-level budget: negatives normalize to 0 = unlimited (RP-24 §5).
 	// The member-level knob keeps its signed semantics (<0 = exempt); here
 	// there is no space default to be exempt from, so the sign is meaningless
@@ -362,6 +423,7 @@ func LoadManifest(path string) (Manifest, error) {
 			EventLog:              y.Settings.EventLog == nil || *y.Settings.EventLog,
 			TaskStaleThreshold:    taskStale,
 			MailboxStaleThreshold: mailboxStale,
+			VerifyChecks:          checks,
 		},
 	}
 	for _, w := range y.Workers {
@@ -444,6 +506,14 @@ func WriteManifest(path string, m Manifest) error {
 		y.Settings.MailboxStaleThreshold = "0"
 	default:
 		y.Settings.MailboxStaleThreshold = m.Settings.MailboxStaleThreshold.String()
+	}
+	// verify_checks round-trips whole: absent block = off; the default
+	// timeout emits nothing (reloads as the default).
+	if c := m.Settings.VerifyChecks; c != nil {
+		y.Settings.VerifyChecks = &checkYml{Command: c.Command}
+		if c.Timeout != DefaultCheckTimeout {
+			y.Settings.VerifyChecks.Timeout = c.Timeout.String()
+		}
 	}
 	b, err := yaml.Marshal(y)
 	if err != nil {

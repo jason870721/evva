@@ -169,6 +169,9 @@ settings:
   # webhook_secret: "hunter2"     # 要求事件 POST 攜帶 X-Evva-Webhook-Secret（見 §10）
   # retention_days: 30            # 已消費歷史 N 天後歸檔+刪除；"0" = 永不刪除
   # event_log: true               # 事件映象到 .vero/events/（按日 jsonl）；false = 關閉
+  # verify_checks:                # 機器驗證（見 §8）：任務進入 verifying 時
+  #   command: "go test ./..."    #   執行這條命令，證據落在任務行上
+  #   timeout: 5m                 #   單次上限（省略 = 2m，最大 10m）
 ```
 
 - 同一 space 內**成員名唯一**（不支援副本 —— 每個成員取不同名字）。
@@ -384,6 +387,11 @@ Web 介面（`:8888`）針對每個 space 提供：
   後續。逐任務的 `verify: "auto"`（預設 `"leader"`）讓宣告為機械性的步驟在
   worker 回報 `task_done` 的瞬間直接完成 —— 一條 `auto` 鏈可以無 leader 全程
   自流。判斷永遠留在 leader 手上：引擎只執行 leader 在建立時就宣告好的結構。
+- **機器驗證（靠證據，不靠信任）。** 配置了 `settings.verify_checks`（§8）
+  之後，每個進入 `verifying` 的任務都會觸發操作者設定的檢查命令（build／
+  test／lint）；exit code 和輸出尾段作為持久**證據**落在任務行上，並在
+  leader 裁決前寄達其信箱。逐任務的 `verify: "checks"` 讓檢查與任務圖組合：
+  綠燈自動完成任務、紅燈連同證據升級給 leader —— CI 把關的無 leader 鏈。
 - **臨時分身（隨需擴充扇出寬度）。** leader 的
   `member_spawn {from, count, retire?}` 會複製一個既有 worker（同 prompt／
   工具／模型／預算）成派生名字（`backend-2`、`backend-3`⋯）—— 不寫目錄、不動
@@ -528,6 +536,43 @@ settings:
 - `alarm_set` 等處的裸時間字串按**系統本地時區**解析；要表達 UTC 用 RFC3339
   （`2026-06-10T12:25:00Z`），確認回執會同時給出 UTC 對照，下錯時區一眼可見。
 - cron（manifest 的 `schedule` 與 leader 的 `schedule_set`）按系統本地牆鍾比對。
+
+### 機器驗證（`verify_checks`）
+
+對 coding swarm 來說,驗收裡真正要緊的是機械性的那部分:能不能 build、測試
+過不過。配置**一條**檢查命令,任務每次進入 `verifying` 時 service 就替你跑:
+
+```yaml
+settings:
+  verify_checks:
+    command: "go build ./... && go test ./..."
+    timeout: 5m        # 省略 = 2m;最大 10m
+```
+
+- **會發生什麼。** 每次 verifying-entry(worker 的 `task_done`,或 leader 的
+  `task_update_status`)都會在 space workdir 執行該命令(`<shell> -c`,
+  與 bash 工具同一套 shell 解析;超時會殺掉整棵行程樹)。exit code + 輸出
+  尾段(約 16 KB,超長時保留頭+尾)作為持久**證據**落在任務行上 ——
+  `task_get`/`task_list` 看得到、web 看板卡片上有標記(✓ pass / ✗ fail /
+  執行中閃爍的「checks…」),並同時寄給 leader 和你。
+- **信任模型。** 命令文字**只有操作者能寫** —— 與 `permission_mode: bypass`
+  同一信任等級。任何 agent(包括 leader)都不能選擇或修改它,被 prompt
+  injection 的成員永遠無法把任務欄位變成 shell。agent 手上只有一根槓桿:
+  `task_create {check: "off"}` 讓純文件／討論型任務跳過檢查。
+- **CI 把關的無 leader 鏈。** 逐任務的 `verify: "checks"` 讓檢查成為關卡:
+  綠燈**自動完成任務**(後續自動派工,leader 不被喚醒),紅燈讓任務留在
+  `verifying` 並把證據寄給 leader —— 尾段就是駁回意見的初稿。紅燈永不自動
+  駁回;leader 可以用 `task_verify {approve: true}` 推翻一個 flaky test。
+  `verify: "auto"` 則完全忽略檢查(它宣告的就是「機械步驟,不設關卡」)。
+- **要知道的語意。** 每個 space 同時只跑一個檢查。重新進入 `verifying`
+  (駁回 → 返工 → 再次 `task_done`)會重跑,而執行中重入會殺掉舊的那次
+  (「最新一次為準」)。service 在檢查中途重啟只會丟掉那一次 —— 任務留在
+  `verifying`、沒有證據,`task_stale_threshold` 保險絲是後盾。目前檢查跑在
+  共用 workdir 上,隊友改到一半可能讓不屬於 assignee 的失敗出現 —— 證據會
+  註明它跑在哪個目錄。
+- **觀測。** `/metrics` 帶 `checksRun` / `checksFailed` / `checksTimeout`;
+  每次執行都在即時流與持久 chatlog 落一行 `task_check_done`。命令保持快 ——
+  精準子集勝過全套;10 分鐘上限是天花板,不是目標。
 
 ### Ledger 瘦身（`retention_days` / `evva swarm vacuum`）
 

@@ -1,10 +1,14 @@
 # PRD — Swarm Verify Checks — Implementation Plan
 
 > **Audience:** senior engineers implementing this wave.
-> **Status:** proposed.
-> **Target release:** TBD — wave-sized minor (`v1.11+` candidate). Per the
-> checkpoint-rewind precedent, the CLAUDE.md wave → minor row is added only
-> when the operator confirms the wave.
+> **Status:** implemented — CHK-1..6 built 2026-07-10 on
+> `feature/swarm-verify-checks` (all six work items, tests green on the
+> post-DWF codebase; CHK-5 shipped in full since dynamic workflow had
+> landed). Worktree-isolation workdir resolution is a seam
+> (`checkWorkdirFor`) returning the space workdir until that wave exists.
+> **Target release:** TBD — wave-sized minor. Per the checkpoint-rewind
+> precedent, the CLAUDE.md wave → minor row is added only when the operator
+> confirms the wave.
 > **Roadmap source:** swarm design review 2026-07-04. Both sibling swarm PRDs
 > name this as their deferred half: worktree isolation excludes "automated
 > test/build gate at verify time (that is its own future wave)"

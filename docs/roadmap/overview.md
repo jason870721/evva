@@ -59,7 +59,7 @@ table stays trustworthy.
 | 18 | [swarm-doctor.md](PRD/swarm-doctor.md) | 📝 Proposed | — | v1.11+ candidate, same review |
 | 19 | [swarm-outbound-notifications.md](PRD/swarm-outbound-notifications.md) | 📝 Proposed | — | v1.11+ candidate, same review |
 | 20 | [swarm-tui-attach.md](PRD/swarm-tui-attach.md) | 📝 Proposed | — | v1.11+ candidate, same review |
-| 21 | [swarm-verify-checks.md](PRD/swarm-verify-checks.md) | 📝 Proposed | — | v1.11+ candidate, same review |
+| 21 | [swarm-verify-checks.md](PRD/swarm-verify-checks.md) | 🟡 **Built — on dev, unreleased** | — | CHK-1..6 implemented 2026-07-10 (`feature/swarm-verify-checks`); minor unclaimed — operator assigns at wave confirmation |
 | 22 | [sandbox-isolation.md](PRD/sandbox-isolation.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — OS-level sandboxing for bash/fan-out/swarm clones |
 | 23 | [mcp-server-mode.md](PRD/mcp-server-mode.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — expose evva as an MCP server |
 | 24 | [agent-eval-harness.md](PRD/agent-eval-harness.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — transcript replay + regression scoring |

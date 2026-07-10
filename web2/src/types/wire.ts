@@ -92,11 +92,31 @@ export interface TaskInfo {
   verifyNote?: string
   parentId?: number
   // DWF task graph: the dependency edges holding a blocked task (dep badges),
-  // and who settles verifying ('leader' | 'auto').
+  // and who settles verifying ('leader' | 'auto' | 'checks').
   dependsOn?: number[]
   verifyPolicy?: string
+  // CHK machine evidence: the latest verify-time check run (absent = never
+  // ran), whether one is queued/executing right now (the RUNNING chip), and
+  // the creation-time opt-out.
+  checks?: CheckInfo
+  checkRunning?: boolean
+  checkOff?: boolean
   createdAt: number
   updatedAt: number
+}
+
+// CheckInfo — one verify-time check run's evidence (CHK), mirrored from
+// webapi.CheckInfo.
+export interface CheckInfo {
+  command: string
+  exit: number
+  timedOut?: boolean
+  durationMs: number
+  startedAt: number
+  workdir?: string
+  tail?: string
+  truncated?: boolean
+  pass: boolean
 }
 export interface TaskPage {
   tasks: TaskInfo[]

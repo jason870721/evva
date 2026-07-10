@@ -308,11 +308,31 @@ type TaskInfo struct {
 	ParentID   *int64 `json:"parentId,omitempty"`
 	// DependsOn / VerifyPolicy are the DWF task-graph fields: the dependency
 	// edges holding a blocked task (the board's dep badges) and who settles
-	// verifying ("leader" | "auto").
+	// verifying ("leader" | "auto" | "checks").
 	DependsOn    []int64 `json:"dependsOn,omitempty"`
 	VerifyPolicy string  `json:"verifyPolicy,omitempty"`
-	CreatedAt    int64   `json:"createdAt"`
-	UpdatedAt    int64   `json:"updatedAt"`
+	// Checks is the latest check run's evidence (CHK; absent = never ran);
+	// CheckRunning marks a queued/executing check — the board chip's third
+	// state; CheckOff marks a task opted out at creation.
+	Checks       *CheckInfo `json:"checks,omitempty"`
+	CheckRunning bool       `json:"checkRunning,omitempty"`
+	CheckOff     bool       `json:"checkOff,omitempty"`
+	CreatedAt    int64      `json:"createdAt"`
+	UpdatedAt    int64      `json:"updatedAt"`
+}
+
+// CheckInfo mirrors store.CheckEvidence on the wire — one verify-time check
+// run's machine evidence (CHK).
+type CheckInfo struct {
+	Command    string `json:"command"`
+	Exit       int    `json:"exit"`
+	TimedOut   bool   `json:"timedOut,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+	StartedAt  int64  `json:"startedAt"`
+	Workdir    string `json:"workdir,omitempty"`
+	Tail       string `json:"tail,omitempty"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	Pass       bool   `json:"pass"`
 }
 
 // TaskPage is a bounded slice of tasks plus the full match total, so a paged
@@ -389,10 +409,16 @@ type MetricsInfo struct {
 	MailboxStale int64 `json:"mailboxStale"`
 	// DWF engine tallies: tasks the engine dispatched (no leader relay), and
 	// the ephemeral-member lifecycle.
-	AutoDispatches int64                        `json:"autoDispatches"`
-	MembersSpawned int64                        `json:"membersSpawned"`
-	MembersRetired int64                        `json:"membersRetired"`
-	Members        map[string]MemberMetricsInfo `json:"members"`
+	AutoDispatches int64 `json:"autoDispatches"`
+	MembersSpawned int64 `json:"membersSpawned"`
+	MembersRetired int64 `json:"membersRetired"`
+	// CHK check-runner tallies: delivered runs, failing runs (timeouts
+	// included), and timeouts — the signal the configured command outgrew
+	// its budget.
+	ChecksRun     int64                        `json:"checksRun"`
+	ChecksFailed  int64                        `json:"checksFailed"`
+	ChecksTimeout int64                        `json:"checksTimeout"`
+	Members       map[string]MemberMetricsInfo `json:"members"`
 }
 
 // MemberMetricsInfo is one member's scheduler counters. RunSeconds buckets

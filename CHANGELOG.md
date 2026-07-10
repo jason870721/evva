@@ -12,6 +12,35 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Swarm verify checks (CHK-1..6) — machine evidence for task verification.**
+  One operator-authored check command per space (`settings.verify_checks:
+  {command, timeout}`; timeout default 2m, max 10m — the bash tool's norms):
+  whenever a task enters `verifying` (a worker's `task_done` or the leader's
+  `task_update_status`), the service runs it in the space workdir with the
+  bash tool's exact process discipline (`proc.Shell`/`Group`/`KillTree`,
+  bounded Wait) and lands `{command, exit, timedOut, duration, workdir,
+  16 KiB head+tail, pass}` on the task row as durable evidence (migration
+  0007), mails it to the leader and the operator, and emits a
+  `task_check_done` engine event. Per-task `verify: "checks"` (the enum slot
+  DWF reserved) gates settlement on the evidence: a green run auto-completes
+  the task and cascades its dependents with zero leader wakes — CI-gated
+  leaderless chains — while a red run stays in `verifying` and escalates
+  with the tail attached (never auto-rejects; the leader may overrule). The
+  store's writer matrix refuses a system completion whose evidence says
+  fail, `task_create` gains `check: "on"|"off"` (the one agent-held lever —
+  command text is operator trust, per the PRD §4 model), re-entry mid-run
+  kills the stale check ("latest verifying-entry wins"), and teardown drains
+  the runner before the store closes. Surfaces: `TaskInfo.checks` +
+  `checkRunning`/`checkOff` DTO fields, a PASS/FAIL/RUNNING chip + tail
+  panel on the web board card, `task_get`/`task_list` evidence summaries,
+  `checksRun`/`checksFailed`/`checksTimeout` in `/metrics`, and the team
+  protocol teaches every member the command (leaders: the policy levers).
+  Spaces without the knob are byte-identical to before. User guide (en,
+  zh-tw) §8 "Machine-checked verification"; PRD:
+  `docs/roadmap/PRD/swarm-verify-checks.md`.
+
 ## [v1.11.0-beta.4] — 2026-07-10
 
 ### Added
