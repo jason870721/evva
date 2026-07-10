@@ -12,30 +12,7 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Dynamic-workflow dispatch froze the whole TUI.** The first
-  engine-dispatched worker task (`wf_task_create` with a `worker` spec)
-  deadlocked evva: the dispatch sweep emitted daemon/board changes into an
-  inline `tea.Program.Send` — a blocking handoff — while holding the engine
-  mutex that the TUI's per-frame `workflowDaemon.Snapshot()` pull needs, so
-  the agent and the render loop waited on each other forever (input dead,
-  Ctrl+C dead, status stuck "executing"). Both edges are severed: the
-  bundled UIs now route `Emit` through the new non-blocking `ui.EmitQueue`
-  (one pump goroutine owns the only blocking Send; this also gives the lp
-  UI the pre-Run buffering it was missing — #55 fixed only the NEON TUI),
-  and the engine's pause flag is atomic so render-path snapshots never wait
-  on a sweep. Pausing now also halts the remaining launches of a sweep
-  already in flight, not just the next sweep.
-
-### Added
-
-- `pkg/ui`: `EmitQueue` — wait-free event queue + pump for `ui.UI`
-  implementations whose render-loop sink can block (`tea.Program.Send`).
-  Downstream UIs should route `event.Sink.Emit` through it instead of
-  calling their loop's send primitive inline.
-
-## [v1.11.0-beta.3] — 2026-07-08
+## [v1.11.0-beta.4] — 2026-07-10
 
 ### Added
 
@@ -59,6 +36,26 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   `internal/outputstyle` package; `ui.Controller` grows
   `ListOutputStyles` / `OutputStyleName` / `SwitchOutputStyle` (+
   `ui.OutputStyleChoice`). PRD: `docs/roadmap/PRD/output-styles.md`.
+- `pkg/ui`: `EmitQueue` — wait-free event queue + pump for `ui.UI`
+  implementations whose render-loop sink can block (`tea.Program.Send`).
+  Downstream UIs should route `event.Sink.Emit` through it instead of
+  calling their loop's send primitive inline.
+
+### Fixed
+
+- **Dynamic-workflow dispatch froze the whole TUI.** The first
+  engine-dispatched worker task (`wf_task_create` with a `worker` spec)
+  deadlocked evva: the dispatch sweep emitted daemon/board changes into an
+  inline `tea.Program.Send` — a blocking handoff — while holding the engine
+  mutex that the TUI's per-frame `workflowDaemon.Snapshot()` pull needs, so
+  the agent and the render loop waited on each other forever (input dead,
+  Ctrl+C dead, status stuck "executing"). Both edges are severed: the
+  bundled UIs now route `Emit` through the new non-blocking `ui.EmitQueue`
+  (one pump goroutine owns the only blocking Send; this also gives the lp
+  UI the pre-Run buffering it was missing — #55 fixed only the NEON TUI),
+  and the engine's pause flag is atomic so render-path snapshots never wait
+  on a sweep. Pausing now also halts the remaining launches of a sweep
+  already in flight, not just the next sweep.
 
 ## [v1.11.0-beta.2] — 2026-07-07
 
@@ -2111,8 +2108,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.3...HEAD
-[v1.11.0-beta.3]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.2...v1.11.0-beta.3
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.4...HEAD
+[v1.11.0-beta.4]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.2...v1.11.0-beta.4
 [v1.11.0-beta.2]: https://github.com/johnny1110/evva/compare/v1.10.0-beta.1...v1.11.0-beta.2
 [v1.10.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.8.5-beta.1...v1.10.0-beta.1
 [v1.8.5-beta.1]: https://github.com/johnny1110/evva/compare/v1.8.4...v1.8.5-beta.1
