@@ -61,7 +61,7 @@ func (s *Session) ToSnapshot() SessionState {
 	return SessionState{
 		Messages:            msgs,
 		Usage:               s.Usage,
-		LastTurnInputTokens: s.lastTurnInputTokens,
+		LastTurnInputTokens: int(s.lastTurnInputTokens.Load()),
 		MicroCompacted:      s.microCompacted,
 		FullCompactCount:    s.fullCompactCount,
 	}

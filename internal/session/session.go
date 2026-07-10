@@ -1,6 +1,8 @@
 package session
 
 import (
+	"sync/atomic"
+
 	"github.com/johnny1110/evva/pkg/llm"
 )
 
@@ -22,7 +24,13 @@ type Session struct {
 	// across turns and stops being a reliable "how full is the prompt
 	// right now" signal, especially after a full-compact replaces
 	// Messages with a tiny brief.
-	lastTurnInputTokens int
+	//
+	// Atomic because it is the one session field read LIVE across
+	// goroutines: the agent loop writes it mid-run (RecordTurn) while the
+	// context meters — the swarm web roster (Service.Roster) and the TUI
+	// status bar — read it from their own goroutines. Everything else on
+	// the session stays owned by the agent loop.
+	lastTurnInputTokens atomic.Int64
 	// microCompacted: compress tool_use result block only (level-1 compact)
 	microCompacted bool
 	// fullCompact: compress all session message (level-2 compact)
@@ -64,7 +72,7 @@ func (s *Session) AddUsage(u llm.Usage) {
 // behavior.
 func (s *Session) RecordTurn(u llm.Usage) {
 	s.AddUsage(u)
-	s.lastTurnInputTokens = u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens
+	s.lastTurnInputTokens.Store(int64(u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens))
 }
 
 // LastTurnInputTokens returns the InputTokens from the most recent
@@ -72,7 +80,7 @@ func (s *Session) RecordTurn(u llm.Usage) {
 // full-compact reset). This is the canonical "how full is the prompt
 // right now" signal — preferred over Usage.Total for ratio checks.
 func (s *Session) LastTurnInputTokens() int {
-	return s.lastTurnInputTokens
+	return int(s.lastTurnInputTokens.Load())
 }
 
 // SetLastTurnInputTokens overrides the cached turn-input figure. Used by
@@ -80,7 +88,7 @@ func (s *Session) LastTurnInputTokens() int {
 // production code should prefer RecordTurn so the cumulative Usage is
 // kept in sync.
 func (s *Session) SetLastTurnInputTokens(n int) {
-	s.lastTurnInputTokens = n
+	s.lastTurnInputTokens.Store(int64(n))
 }
 
 // SetUsage overrides the cumulative usage total. Same caveat as
@@ -122,7 +130,7 @@ func (s *Session) FullCompact(messages []llm.Message, briefTokens int) {
 	s.microCompacted = false
 	s.fullCompactCount++
 	s.Messages = messages
-	s.lastTurnInputTokens = briefTokens
+	s.lastTurnInputTokens.Store(int64(briefTokens))
 	s.Usage = llm.Usage{InputTokens: briefTokens}
 }
 
