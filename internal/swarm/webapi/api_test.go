@@ -276,6 +276,13 @@ func (f *fakeBackend) MemberMemory(space, agent string) ([]MemoryFileInfo, bool)
 		{Name: "lead.md", Content: "---\nname: lead\n---\n\nThe lead."},
 	}, true
 }
+
+func (f *fakeBackend) Blackboard(space string) (BlackboardInfo, bool) {
+	if !f.HasSpace(space) {
+		return BlackboardInfo{}, false
+	}
+	return BlackboardInfo{Content: "Goal: ship v2", UpdatedAt: 1720000000000, By: "lead"}, true
+}
 func (f *fakeBackend) AddSkill(space, agent string, spec SkillSpec) error {
 	if !f.HasSpace(space) {
 		return errUnknownSpace
@@ -1178,6 +1185,35 @@ func TestRESTMemoryRoute(t *testing.T) {
 		t.Fatalf("unknown member = %d, want 404", s)
 	}
 	if s := codeOf(srv.URL + "/api/agents/leader/memory?space=sp-a"); s != http.StatusUnauthorized {
+		t.Fatalf("no token = %d, want 401", s)
+	}
+}
+
+// BB: the blackboard route serves the board read-only — content + freshness +
+// writer — 404s an unknown space, and stays behind the token gate.
+func TestRESTBlackboardRoute(t *testing.T) {
+	fake := newFake()
+	srv := httptest.NewServer(NewRouter(fake, NewHub(), nil))
+	defer srv.Close()
+
+	var board BlackboardInfo
+	getJSON(t, srv.URL+"/api/swarm/sp-a/blackboard?token=secret", &board)
+	if board.Content != "Goal: ship v2" || board.UpdatedAt != 1720000000000 || board.By != "lead" {
+		t.Fatalf("blackboard = %+v", board)
+	}
+
+	codeOf := func(url string) int {
+		resp, err := http.Get(url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if s := codeOf(srv.URL + "/api/swarm/ghost/blackboard?token=secret"); s != http.StatusNotFound {
+		t.Fatalf("unknown space = %d, want 404", s)
+	}
+	if s := codeOf(srv.URL + "/api/swarm/sp-a/blackboard"); s != http.StatusUnauthorized {
 		t.Fatalf("no token = %d, want 401", s)
 	}
 }

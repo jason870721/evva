@@ -175,6 +175,13 @@ type Backend interface {
 	// space or member is unknown. Curation (delete) is deferred with the FE tab.
 	MemberMemory(spaceID, agent string) ([]MemoryFileInfo, bool)
 
+	// Blackboard reads the team blackboard read-only (BB): the leader-curated
+	// standing picture every member's wake brief carries. bool false when the
+	// space is unknown; an empty board is Content "" (dormant), not an error.
+	// Web write access is deferred (BB open question #1) — the operator edits
+	// .vero/blackboard.md on disk.
+	Blackboard(spaceID string) (BlackboardInfo, bool)
+
 	// Vacuum runs one ledger retention pass now (RP-16): archive-then-delete
 	// messages read ≥ days ago and tasks completed ≥ days ago. days <= 0 uses
 	// the space's configured window (or the default); dryRun only counts.
@@ -291,6 +298,16 @@ type SkillInfo struct {
 type MemoryFileInfo struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
+}
+
+// BlackboardInfo is GET /api/swarm/{id}/blackboard (BB): the team blackboard
+// document. UpdatedAt is the file's mtime in unix millis (0 when the board is
+// empty/absent); By is the last tool writer when the file is still that
+// writer's version ("" after a restart or an operator disk edit).
+type BlackboardInfo struct {
+	Content   string `json:"content"`
+	UpdatedAt int64  `json:"updatedAt"`
+	By        string `json:"by,omitempty"`
 }
 
 // SkillSpec is the body of POST /api/agents/{name}/skills (RP-10): the operator
@@ -873,6 +890,16 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 	}))
 	mux.Handle("DELETE /api/swarm/{id}/skills/{skill}", guard(func(w http.ResponseWriter, r *http.Request) {
 		respondInputErr(w, b.DeleteSharedSkill(r.PathValue("id"), r.PathValue("skill")))
+	}))
+	// Team blackboard, read-only (BB): the leader-curated standing picture.
+	// Web write access is deferred — the operator edits .vero/blackboard.md.
+	mux.Handle("GET /api/swarm/{id}/blackboard", guard(func(w http.ResponseWriter, r *http.Request) {
+		board, ok := b.Blackboard(r.PathValue("id"))
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, board)
 	}))
 	// The tool catalog the add-agent form offers (collaboration tools excluded).
 	mux.Handle("GET /api/tools", guard(func(w http.ResponseWriter, r *http.Request) {

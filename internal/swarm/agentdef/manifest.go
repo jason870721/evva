@@ -130,6 +130,12 @@ type Settings struct {
 	// command, so an operator away from the console learns within seconds.
 	// Absent = feature off, zero behavior change.
 	Notify *NotifySpec
+	// BlackboardMaxBytes caps the team blackboard document (BB): the leader's
+	// blackboard_write rejects anything larger, which is what bounds the
+	// wake-brief token cost across N members × every wake. A manifest that
+	// omits the knob gets DefaultBlackboardMaxBytes; values above
+	// MaxBlackboardMaxBytes are rejected at load.
+	BlackboardMaxBytes int
 }
 
 // CheckSpec is the operator-authored verify-time check (CHK): one shell
@@ -209,6 +215,16 @@ const DefaultMailboxStaleThreshold = 30 * time.Minute
 const (
 	DefaultCheckTimeout = 2 * time.Minute
 	MaxCheckTimeout     = 10 * time.Minute
+)
+
+// DefaultBlackboardMaxBytes / MaxBlackboardMaxBytes bound the team blackboard
+// (BB §5.1): 4 KiB ≈ 1k tokens is a generous standing brief, and even the
+// 16 KiB hard ceiling keeps the per-wake injection cost of one board within a
+// few thousand tokens. The cap is enforced at write time — the ONE point that
+// makes the wake-brief cost bounded by construction.
+const (
+	DefaultBlackboardMaxBytes = 4096
+	MaxBlackboardMaxBytes     = 16384
 )
 
 // scheduleYml is the on-disk schedule block shared by the manifest's leader and
@@ -304,6 +320,7 @@ type manifestYml struct {
 		MailboxStaleThreshold  string     `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
 		VerifyChecks           *checkYml  `yaml:"verify_checks,omitempty"`           // nil = checks off
 		Notify                 *notifyYml `yaml:"notify,omitempty"`                  // nil = notifications off
+		BlackboardMaxBytes     int        `yaml:"blackboard_max_bytes,omitempty"`    // 0 = default 4096, max 16384
 	} `yaml:"settings,omitempty"`
 }
 
@@ -394,6 +411,24 @@ func parseNotifyYml(y *notifyYml) (*NotifySpec, error) {
 		}
 	}
 	return spec, nil
+}
+
+// parseBlackboardMaxBytes reads the optional blackboard cap: 0 (omitted) →
+// DefaultBlackboardMaxBytes, otherwise a positive byte count no larger than
+// MaxBlackboardMaxBytes. There is no "0 = off" reading — the feature's off
+// switch is an empty board, not an unwritable one; a cap nothing fits under
+// is a misconfiguration and fails the manifest at register time.
+func parseBlackboardMaxBytes(n int) (int, error) {
+	if n == 0 {
+		return DefaultBlackboardMaxBytes, nil
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("must be positive: %d", n)
+	}
+	if n > MaxBlackboardMaxBytes {
+		return 0, fmt.Errorf("must not exceed %d bytes, got %d", MaxBlackboardMaxBytes, n)
+	}
+	return n, nil
 }
 
 // parseRetentionDays reads the optional retention knob: "" → DefaultRetentionDays,
@@ -511,6 +546,10 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest settings.notify: %w", err)
 	}
+	boardCap, err := parseBlackboardMaxBytes(y.Settings.BlackboardMaxBytes)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.blackboard_max_bytes: %w", err)
+	}
 	// Space-level budget: negatives normalize to 0 = unlimited (RP-24 §5).
 	// The member-level knob keeps its signed semantics (<0 = exempt); here
 	// there is no space default to be exempt from, so the sign is meaningless
@@ -539,6 +578,7 @@ func LoadManifest(path string) (Manifest, error) {
 			MailboxStaleThreshold:  mailboxStale,
 			VerifyChecks:           checks,
 			Notify:                 notify,
+			BlackboardMaxBytes:     boardCap,
 		},
 	}
 	for _, w := range y.Workers {
@@ -643,6 +683,11 @@ func WriteManifest(path string, m Manifest) error {
 			ny.RateLimit = n.RateLimit
 		}
 		y.Settings.Notify = ny
+	}
+	// The blackboard cap round-trips like the other defaulted knobs: the
+	// default emits nothing (reloads as the default).
+	if m.Settings.BlackboardMaxBytes != DefaultBlackboardMaxBytes {
+		y.Settings.BlackboardMaxBytes = m.Settings.BlackboardMaxBytes
 	}
 	b, err := yaml.Marshal(y)
 	if err != nil {

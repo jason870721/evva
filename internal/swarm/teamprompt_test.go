@@ -66,6 +66,20 @@ func TestInjectTeamProtocol_RoleSpecific(t *testing.T) {
 		t.Error("skill_publish guidance is leader-only")
 	}
 
+	// BB: everyone learns to trust the wake brief's board and refresh it with
+	// blackboard_read; only the leader learns the curation discipline.
+	for _, p := range []string{leader, worker} {
+		if !strings.Contains(p, "Team blackboard") || !strings.Contains(p, "blackboard_read") {
+			t.Error("common protocol should teach the blackboard brief + mid-run refresh")
+		}
+	}
+	if !strings.Contains(leader, "Maintain the team blackboard") || !strings.Contains(leader, "blackboard_write") {
+		t.Error("leader protocol should teach blackboard curation")
+	}
+	if strings.Contains(worker, "blackboard_write") {
+		t.Error("blackboard_write guidance is leader-only")
+	}
+
 	// Worker gets the worker protocol + its read-only task tools.
 	if !strings.Contains(worker, "Your role: a worker") {
 		t.Error("worker protocol missing")

@@ -20,13 +20,13 @@ import (
 // read-only task views plus the common send_message/list_members.
 func TestToolNamesForRole(t *testing.T) {
 	leader := toolNamesForRole(agentdef.RoleLeader)
-	wantLeader := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList, toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline, toolSkillPublish, toolMemberSpawn, toolMemberRetire}
+	wantLeader := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolBlackboardRead, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList, toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline, toolSkillPublish, toolMemberSpawn, toolMemberRetire, toolBlackboardWrite}
 	if !reflect.DeepEqual(leader, wantLeader) {
 		t.Fatalf("leader tools = %v\nwant %v", leader, wantLeader)
 	}
 
 	worker := toolNamesForRole(agentdef.RoleWorker)
-	wantWorker := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolMyTasks, toolTaskGet, toolTaskDone, toolTaskPropose}
+	wantWorker := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolBlackboardRead, toolMyTasks, toolTaskGet, toolTaskDone, toolTaskPropose}
 	if !reflect.DeepEqual(worker, wantWorker) {
 		t.Fatalf("worker tools = %v\nwant %v", worker, wantWorker)
 	}
@@ -36,18 +36,18 @@ func TestToolNamesForRole(t *testing.T) {
 	for _, n := range worker {
 		switch n {
 		case toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify,
-			toolProposalAccept, toolProposalDecline, toolSkillPublish:
+			toolProposalAccept, toolProposalDecline, toolSkillPublish, toolBlackboardWrite:
 			t.Errorf("worker must not hold write tool %q", n)
 		}
 	}
 }
 
 func TestSetForReturnsOptionPerTool(t *testing.T) {
-	if got := len(Set{}.For("leader", agentdef.RoleLeader, nil)); got != 17 {
-		t.Errorf("leader options = %d, want 17", got)
+	if got := len(Set{}.For("leader", agentdef.RoleLeader, nil)); got != 19 {
+		t.Errorf("leader options = %d, want 19", got)
 	}
-	if got := len(Set{}.For("w", agentdef.RoleWorker, nil)); got != 8 {
-		t.Errorf("worker options = %d, want 8", got)
+	if got := len(Set{}.For("w", agentdef.RoleWorker, nil)); got != 9 {
+		t.Errorf("worker options = %d, want 9", got)
 	}
 }
 
@@ -67,6 +67,7 @@ func TestPermissionClassification(t *testing.T) {
 		toolAlarmSet, toolAlarmClear,
 		toolTaskPropose, toolProposalList, toolProposalAccept, toolProposalDecline,
 		toolSkillPublish, toolMemberSpawn, toolMemberRetire,
+		toolBlackboardWrite, toolBlackboardRead,
 	}
 	for _, n := range autoAllow {
 		if b := decide(n); b != permission.BehaviorAllow {

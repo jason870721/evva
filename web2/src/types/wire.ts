@@ -173,6 +173,15 @@ export interface MemoryFileInfo {
   content: string
 }
 
+// BlackboardInfo — GET /api/swarm/:id/blackboard (BB): the leader-curated team
+// blackboard. updatedAt is the file mtime in unix millis (0 = empty board); by
+// is the last tool writer ("" after a restart or an operator disk edit).
+export interface BlackboardInfo {
+  content: string
+  updatedAt: number
+  by?: string
+}
+
 // MetricsInfo / MemberMetricsInfo — GET /api/swarm/:id/metrics (RP-17).
 // RunSeconds buckets completed runs by wall-clock (lt10s/lt1m/lt10m/gte10m);
 // RunTokens by per-run token cost (lt1k/lt10k/lt50k/gte50k, RP-28). TasksStale /

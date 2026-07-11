@@ -36,6 +36,8 @@ const (
 	toolSkillPublish     = "skill_publish"
 	toolMemberSpawn      = "member_spawn"
 	toolMemberRetire     = "member_retire"
+	toolBlackboardWrite  = "blackboard_write"
+	toolBlackboardRead   = "blackboard_read"
 )
 
 // init classifies the swarm's coordination tools as auto-allow in
@@ -69,6 +71,12 @@ func init() {
 		// each clone's inherited budget cap; retiring touches only spawned
 		// members. The events self-audit and the web lists every clone.
 		toolMemberSpawn, toolMemberRetire,
+		// blackboard_write is governance-shaped like skill_publish: it writes
+		// exactly one size-capped file inside the space's own .vero/, the
+		// blackboard_updated event self-audits every change, and the web +
+		// disk keep the operator final arbiter. Gating the leader's standing
+		// brief on human approval would defeat its zero-wake economics.
+		toolBlackboardWrite, toolBlackboardRead,
 	} {
 		permission.ReadOnlyOrSelfTools[n] = true
 	}
@@ -98,15 +106,20 @@ func (Set) For(_ string, role agentdef.Role, _ *swarm.SwarmSpace) []agent.Option
 func toolNamesForRole(role agentdef.Role) []string {
 	// Every member gets one-shot alarms: a worker may wake itself, the leader
 	// may also target a teammate (gated inside alarm_set). schedule_set (below)
-	// stays leader-only because it is recurring cross-member duty.
-	common := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear}
+	// stays leader-only because it is recurring cross-member duty. Every
+	// member reads the team blackboard (a wake brief can go stale mid-run);
+	// writing it is the leader's curation monopoly (BB §4).
+	common := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolBlackboardRead}
 	if role == agentdef.RoleLeader {
 		// skill_publish is leader-only by the EX-6 governance shape: the one
 		// agent allowed to author is the one whose job is institutionalizing
-		// team procedure, and only into the shared dir.
+		// team procedure, and only into the shared dir. blackboard_write is
+		// leader-only by the same judgment monopoly the task ledger enforces:
+		// the board is the leader's synthesized picture; workers influence it
+		// through reports and task_propose.
 		return append(common, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList,
 			toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline,
-			toolSkillPublish, toolMemberSpawn, toolMemberRetire)
+			toolSkillPublish, toolMemberSpawn, toolMemberRetire, toolBlackboardWrite)
 	}
 	// task_propose is the worker's ONLY work-inlet (RP-23): file trackable
 	// work without piercing the ledger's single-writer invariant. The leader
@@ -140,6 +153,8 @@ var factories = map[string]func(pubtools.State) (pubtools.Tool, error){
 	toolSkillPublish:     bind(newSkillPublish),
 	toolMemberSpawn:      bind(newMemberSpawn),
 	toolMemberRetire:     bind(newMemberRetire),
+	toolBlackboardWrite:  bind(newBlackboardWrite),
+	toolBlackboardRead:   bind(newBlackboardRead),
 }
 
 // bind adapts a MemberContext tool constructor into a pkg/toolset factory: it

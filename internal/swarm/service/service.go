@@ -1603,6 +1603,21 @@ func (s *Service) MemberMemory(id, agent string) ([]webapi.MemoryFileInfo, bool)
 	return out, true
 }
 
+// Blackboard reads the team blackboard for the web's read-only panel (BB).
+// Disk is the truth — an operator hand edit shows here on the next fetch.
+func (s *Service) Blackboard(id string) (webapi.BlackboardInfo, bool) {
+	ent, ok := s.entry(id)
+	if !ok {
+		return webapi.BlackboardInfo{}, false
+	}
+	content, mtime, by := ent.space.Blackboard()
+	info := webapi.BlackboardInfo{Content: content, By: by}
+	if !mtime.IsZero() {
+		info.UpdatedAt = mtime.UnixMilli()
+	}
+	return info, true
+}
+
 func (s *Service) AddSkill(id, agent string, spec webapi.SkillSpec) error {
 	ent, ok := s.entry(id)
 	if !ok {
@@ -1764,6 +1779,7 @@ func (s *Service) SelectableTools() []string {
 		"task_verify": true, "task_list": true, "my_tasks": true, "task_get": true, "task_done": true,
 		"schedule_set": true, "schedule_clear": true,
 		"member_spawn": true, "member_retire": true,
+		"blackboard_write": true, "blackboard_read": true,
 	}
 	var out []string
 	for _, n := range toolset.DefaultRegistry().Names() {

@@ -185,6 +185,7 @@ settings:
   # notify:                       # push gates/errors/alerts to you (see §8)
   #   url: "https://hooks.slack.com/services/…"   # webhook, json or slack format
   #   command: "evva-notify"      #   and/or a local command (JSON on stdin)
+  # blackboard_max_bytes: 4096    # team-blackboard size cap (see §7); omit = 4096, max 16384
 ```
 
 - **Member names are unique** within a space (no replicas — give each a distinct
@@ -503,6 +504,24 @@ pick up their tasks, report back, and the board march to **completed**.
   open — the team's mind is transparent to teammates and the operator alike
   (read-only `GET /api/agents/<name>/memory?space=<id>`; the web Memory tab
   lands with the FE batch).
+- **Team blackboard (the standing picture).** Broadcast mail is a *wake-up
+  call* — it fans one row per member and wakes everyone, then scrolls away.
+  For standing context (the goal, decisions made, who-owns-what, current
+  phase) the leader instead maintains ONE markdown document —
+  `blackboard_write {content}`, whole-document replace, leader-only — stored
+  at `.vero/blackboard.md` beside the ledger. **Every member sees it in every
+  wake brief** (under `## Team blackboard`, with freshness: "updated 3m ago
+  by lead"), so a post-compaction member re-acquires the team picture
+  automatically, and updating it **wakes no one** — members read it whenever
+  they next wake for their own reasons. Any member can `blackboard_read`
+  mid-run for a fresh copy. Size-capped at write time
+  (`settings.blackboard_max_bytes`, default 4 KiB) so the per-wake token cost
+  is bounded by construction; every write self-audits as a
+  `blackboard_updated` event (live feed + event log). You read it on the web
+  (board view panel, `GET /api/swarm/{id}/blackboard`) and may edit the file
+  directly on disk — a hand edit is live at the next wake, produces no event,
+  and drops the "by <member>" attribution (the mtime freshness still
+  updates). Empty/absent file = feature off, zero bytes in any brief.
 - **Idle = cheap.** Nothing runs until there's a reason (a message, a task, a
   timer). An idle swarm costs nothing.
 
@@ -1080,8 +1099,9 @@ prefixes (the timezone is always system-local).
 
 These are added **automatically** based on the member's role — **never list them
 in `active.yml`**. Leader: `task_create`, `task_assign`, `task_update_status`,
-`task_verify`, `task_list`, `member_spawn`, `member_retire`. Worker: `my_tasks`,
-`task_get`, `task_done`. Both: `send_message`, `list_members`. In `active.yml`
+`task_verify`, `task_list`, `member_spawn`, `member_retire`,
+`blackboard_write`. Worker: `my_tasks`, `task_get`, `task_done`. Both:
+`send_message`, `list_members`, `blackboard_read`. In `active.yml`
 you list only the regular evva tools your member needs — `read`, `write`,
 `edit`, `bash`, `grep`, `glob`, `tree`, `web_fetch`, …
 

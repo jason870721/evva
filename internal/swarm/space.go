@@ -123,6 +123,17 @@ type SwarmSpace struct {
 	// to the pre-CHK behavior.
 	checks *checkRunner
 
+	// blackboardBy/-At remember the last blackboard_write's author, keyed to
+	// the file mtime that write produced (BB): Blackboard() attributes the
+	// board to that writer only while the file is still that version, so an
+	// operator disk edit drops the stale "by" instead of mislabeling. Guarded
+	// by mu; in-memory only (a restart forgets the author, never the board).
+	// blackboardWriteMu serializes same-process writes — Windows denies
+	// replace-renames racing on one destination (see WriteBlackboard).
+	blackboardBy      string
+	blackboardByAt    time.Time
+	blackboardWriteMu sync.Mutex
+
 	// super is the run engine driving this space, set once by NewSupervisor
 	// (before Start, before any tool can fire). It is the seam the leader's
 	// schedule tools reach the live run loops through — see SetMemberSchedule.

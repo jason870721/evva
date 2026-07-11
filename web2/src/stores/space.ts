@@ -2,7 +2,15 @@ import { defineStore } from 'pinia'
 import { attentionItems, type AttentionItem } from '../lib/events'
 import { api } from '../lib/apiClient'
 import { errMsg } from '../lib/util'
-import type { MemberInfo, MemberSpec, MemoryFileInfo, MetricsInfo, SkillInfo, SkillSpec } from '../types/wire'
+import type {
+  BlackboardInfo,
+  MemberInfo,
+  MemberSpec,
+  MemoryFileInfo,
+  MetricsInfo,
+  SkillInfo,
+  SkillSpec,
+} from '../types/wire'
 import { useConnectionStore } from './connection'
 import { useStreamStore } from './stream'
 import { useUiStore } from './ui'
@@ -20,6 +28,9 @@ export type BulkResult = { ok: string[]; failed: { name: string; error: string }
 export const useSpaceStore = defineStore('space', {
   state: () => ({
     roster: [] as MemberInfo[],
+    // Team blackboard (BB): rides the same reconciliation poll as the roster,
+    // so a leader write or an operator disk edit shows within one poll tick.
+    blackboard: null as BlackboardInfo | null,
     now: Date.now(),
     error: '',
     // Per-member compaction in-flight flags. A full compact is a multi-second
@@ -69,6 +80,13 @@ export const useSpaceStore = defineStore('space', {
         this.error = ''
       } catch (e) {
         this.error = errMsg(e)
+      }
+      // Best-effort: the board is auxiliary context — a fetch failure must not
+      // mark the whole space errored, and stale content beats a blank flash.
+      try {
+        this.blackboard = await api.blackboard(id)
+      } catch {
+        /* keep the last board */
       }
     },
     async memberCmd(verb: 'suspend' | 'resume' | 'freeze' | 'unfreeze', name: string) {
@@ -273,6 +291,7 @@ export const useSpaceStore = defineStore('space', {
     },
     reset() {
       this.roster = []
+      this.blackboard = null
       this.compacting = {}
       this.clearing = {}
       this.acting = {}

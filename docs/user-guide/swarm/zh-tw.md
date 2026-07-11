@@ -59,6 +59,7 @@ evva 是一個終端程式設計 agent。**Veronica** 是它的 *swarm（蜂群�
 | 溝通 | `send_message`、`list_members` | `send_message`、`list_members` |
 | 扇出 | `member_spawn`、`member_retire`（臨時分身） | — |
 | 制度沉澱 | `skill_publish`（釋出全隊共享 skill） | —（載入共享 skill，不著作） |
+| 團隊黑板 | `blackboard_write`（整篇替換常駐圖景）、`blackboard_read` | `blackboard_read`（喚醒簡報已自帶） |
 | 能寫賬本？ | **能**（唯一寫者） | 不能 |
 
 leader 把目標拆成任務，**推送**給合適的 worker，驗收結果後再向你彙報。worker 不能
@@ -177,6 +178,7 @@ settings:
   # notify:                       # 把 gate／錯誤／告警推播給你（見 §8）
   #   url: "https://hooks.slack.com/services/…"   # webhook,json 或 slack 格式
   #   command: "evva-notify"      #   和/或本機命令（JSON 走 stdin）
+  # blackboard_max_bytes: 4096    # 團隊黑板大小上限（見 §7）；省略 = 4096，最大 16384
 ```
 
 - 同一 space 內**成員名唯一**（不支援副本 —— 每個成員取不同名字）。
@@ -443,6 +445,19 @@ Web 介面（`:8888`）針對每個 space 提供：
   **寫己讀眾**：寫自己的 memory dir 免審批，寫隊友的一律被拒（bypass 檔位也攔），
   讀隊友的隨意 —— 團隊心智對彼此與 operator 都透明（Web 端 `GET
   /api/agents/<名字>/memory?space=<id>` 唯讀可看；Memory 分頁隨 FE 批次落地）。
+- **團隊黑板（常駐的「當前圖景」）。** 廣播信是*叫醒電話* —— 每人落一行、全員被
+  喚醒，然後捲走。常駐脈絡（目標、已定決策、誰負責什麼、當前階段）改由 leader
+  維護**一份** markdown 文件：`blackboard_write {content}`（整篇替換、僅 leader），
+  存於 ledger 旁的 `.vero/blackboard.md`。**每個成員在每次喚醒簡報裡都看得到**
+  （`## Team blackboard` 區塊，帶新鮮度「updated 3m ago by lead」）——
+  被 compaction 洗過的成員自動重拾團隊圖景，而且更新**不喚醒任何人**：成員在
+  自己下一次因故醒來時自然讀到。任何成員可在執行中 `blackboard_read` 取最新版。
+  寫入端有大小上限（`settings.blackboard_max_bytes`，預設 4 KiB），每次喚醒的
+  token 成本從結構上就有天花板；每次改寫自動記一條 `blackboard_updated` 事件
+  （即時串流 + event log 都有）。你在 Web 看板頁的面板可讀
+  （`GET /api/swarm/{id}/blackboard`），也可以直接在磁碟上改檔案 —— 手改下一次
+  喚醒即生效、不產生事件、且會摘掉「by <成員>」署名（mtime 新鮮度照常更新）。
+  檔案空缺 = 功能休眠，任何簡報零位元組。
 - **空閒即省錢。** 沒有理由（訊息、任務、定時器）就什麼都不跑。一個空閒的 swarm
   不產生任何花費。
 
@@ -935,8 +950,9 @@ swarm 的 cron 是自寫的、刻意精簡。五個欄位——`分 時 日 月 
 
 這些會**根據角色自動注入** —— **永遠不要在 `active.yml` 裡列它們**。
 Leader：`task_create`、`task_assign`、`task_update_status`、`task_verify`、
-`task_list`、`member_spawn`、`member_retire`。Worker：`my_tasks`、`task_get`、
-`task_done`。兩者都有：`send_message`、`list_members`。`active.yml` 裡只列成員
+`task_list`、`member_spawn`、`member_retire`、`blackboard_write`。Worker：
+`my_tasks`、`task_get`、`task_done`。兩者都有：`send_message`、`list_members`、
+`blackboard_read`。`active.yml` 裡只列成員
 需要的常規 evva 工具 —— `read`、`write`、`edit`、`bash`、`grep`、`glob`、
 `tree`、`web_fetch`……
 

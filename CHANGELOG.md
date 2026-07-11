@@ -109,6 +109,30 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   `store.LatestMigration()`; user guide (en, zh-tw) §8 "Preflight"; PRD:
   `docs/roadmap/PRD/swarm-doctor.md`.
 
+- **Swarm team blackboard (BB-1..4) — the standing "current picture."** One
+  leader-curated markdown document at `.vero/blackboard.md` (root-anchored
+  beside the ledger; temp-file + atomic rename, so readers never see a torn
+  board) injected into **every member's wake brief on every wake kind** —
+  message and timer alike — as `## Team blackboard (updated 3m ago by lead)`,
+  riding the same in-reminder channel as the RP-25 memory index. Updating
+  costs **zero wakes**: members read the new board whenever they next wake
+  for their own reasons, so standing context (goal, decisions, who-owns-what,
+  current phase) stops being broadcast storms or scrollback. Leader-only
+  `blackboard_write {content}` (whole-document replace — idempotent, and the
+  one point the size cap gates: `settings.blackboard_max_bytes`, default
+  4096, max 16384, oversize rejected naming the cap and overage);
+  every-member `blackboard_read` for mid-run freshness. Each write
+  self-audits as a `blackboard_updated` engine event (live WS, event log,
+  chatlog replay). The operator reads it on the web (board-view panel,
+  `GET /api/swarm/{id}/blackboard` with mtime freshness + writer attribution)
+  and may edit the file directly on disk — a hand edit is live at the next
+  wake and drops the stale "by <writer>" instead of mislabeling it. Empty or
+  absent board = feature dormant: wake reminders stay byte-identical to the
+  pre-BB form. Team protocol teaches all members to trust the brief's board
+  over older mail (direct task mail still wins for their own task) and the
+  leader the curation discipline (update at milestones, prune to fit, board
+  for standing context / broadcast for act-now). User guide (en, zh-tw) §7
+  "Team blackboard"; PRD: `docs/roadmap/PRD/swarm-blackboard.md`.
 
 ## [v1.11.0-beta.4] — 2026-07-10
 
