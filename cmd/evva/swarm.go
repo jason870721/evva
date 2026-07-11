@@ -10,7 +10,9 @@ import (
 	"text/tabwriter"
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
+	"github.com/johnny1110/evva/internal/swarm/doctor"
 	"github.com/johnny1110/evva/internal/swarm/webapi"
+	"github.com/johnny1110/evva/pkg/config"
 )
 
 // runSwarm dispatches the swarm control-plane CLI — thin authenticated HTTP
@@ -35,6 +37,8 @@ func runSwarm(args []string) {
 	name, args := extractNameFlag(args)
 	// vacuum's flags, likewise position-independent.
 	days, dryRun, args := extractVacuumFlags(args)
+	// doctor's flags, likewise.
+	strict, offline, jsonOut, args := extractDoctorFlags(args)
 
 	sub := ""
 	if len(args) > 0 {
@@ -91,6 +95,13 @@ func runSwarm(args []string) {
 			exitf(2, "usage: evva swarm send <ref> <member> <text> (use - to read the text from stdin)")
 		}
 		err = swarmSend(os.Stdout, args[1], args[2], args[3])
+	case "doctor":
+		dir := "."
+		if len(args) > 1 {
+			dir = args[1]
+		}
+		swarmDoctor(dir, strict, offline, jsonOut) // exits itself (0/1/2)
+		return
 	default:
 		exitf(2, "evva swarm: unknown subcommand %q — run `evva swarm help`", sub)
 	}
@@ -120,6 +131,10 @@ Commands:
                      message member <m> as the operator (sender "user" — same as
                      the web composer). <text> of - reads the body from stdin.
                      <m> may also be "leader" (the role resolves to the member)
+  doctor [dir]       read-only preflight: will register work here, and will the
+                     members actually run? Checks manifest → member definitions →
+                     models/efforts → provider keys → .vero state → the service.
+                     Never writes, never migrates, never registers.
   help               show this help
 
 Flags:
@@ -128,6 +143,10 @@ Flags:
   --days <n>         with 'vacuum', override the retention window (default: the
                      space's settings.retention_days, or 30)
   --dry-run          with 'vacuum', only report what would be cleared
+  --strict           with 'doctor', promote warnings (custom models, skews) to
+                     errors; exit 2 when only promoted warnings remain
+  --offline          with 'doctor', skip the service probes — never dials
+  --json             with 'doctor', emit findings as a JSON array (CI use)
 
 <ref> is a space id OR its name (the NAME column of 'evva swarm ls').
 Start the service first with 'evva service start'.
@@ -161,6 +180,49 @@ func extractVacuumFlags(args []string) (days int, dryRun bool, rest []string) {
 		}
 	}
 	return days, dryRun, rest
+}
+
+// extractDoctorFlags pulls doctor's flags out of args from any position.
+func extractDoctorFlags(args []string) (strict, offline, jsonOut bool, rest []string) {
+	rest = make([]string, 0, len(args))
+	for _, a := range args {
+		switch a {
+		case "--strict":
+			strict = true
+		case "--offline":
+			offline = true
+		case "--json":
+			jsonOut = true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return strict, offline, jsonOut, rest
+}
+
+// swarmDoctor runs the read-only preflight (DR) and exits with its
+// deterministic code: 0 clean, 1 any ✗, 2 when --strict promoted warnings
+// and nothing failed outright. Everything except the service section works
+// with no daemon; --offline skips that section entirely (doctor then never
+// dials at all).
+func swarmDoctor(dir string, strict, offline, jsonOut bool) {
+	opts := doctor.Options{Dir: dir, Strict: strict, Config: config.Get()}
+	if !offline {
+		version := config.Version // ldflags-injected tag on release builds
+		if version == "" {
+			version = config.DefaultAppVersion
+		}
+		opts.Service = &doctor.ServiceTarget{Addr: targetAddr(), Token: readToken(), Version: version}
+	}
+	rep := doctor.Run(opts)
+	if jsonOut {
+		if err := rep.JSON(os.Stdout); err != nil {
+			exitf(1, "evva swarm doctor: %v", err)
+		}
+	} else {
+		rep.Render(os.Stdout)
+	}
+	os.Exit(rep.Exit())
 }
 
 // extractNameFlag pulls a `--name <value>` (or `--name=value`) flag out of args

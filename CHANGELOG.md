@@ -89,6 +89,27 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   card's provenance. User guide (en, zh-tw) §8; PRD:
   `docs/roadmap/PRD/swarm-cost-accounting.md`.
 
+- **`evva swarm doctor` (DR-1..4) — read-only preflight.** One command
+  answers "will `evva swarm .` work here, and will the members actually
+  run?" before anything registers: manifest (the real `LoadManifest`
+  fail-fast) → member definitions (the real `Loader.Build` per dir member —
+  register's exact error text — and the persona registry's main-tier check)
+  → model pins (`ProviderOfModel`; an unknown id is a ⚠ "custom — resolves
+  at client build", honoring the SDK loose-pin contract, ✗ only under
+  `--strict`) + efforts → provider-key **presence** (never validity, never
+  echoed; Ollama = base-URL only) → `.vero` state (read-only sqlite open;
+  schema older = "will migrate" ✓, **newer-than-binary** = the ⚠ that
+  previously had no voice; corrupt `runtime.json` warns with its real
+  consequence) → the live service (`--offline` skips: healthz + version
+  skew, token readability, name collision — GET-only). The §4 contract is
+  tested with before/after tree hashes: doctor never creates, migrates,
+  writes, or registers. Deterministic exit codes for CI (`0` clean, `1` any
+  ✗, `2` = strict-promoted warnings only) and `--json` findings output
+  (experimental shape for one minor). New `internal/swarm/doctor` package +
+  `store.LatestMigration()`; user guide (en, zh-tw) §8 "Preflight"; PRD:
+  `docs/roadmap/PRD/swarm-doctor.md`.
+
+
 ## [v1.11.0-beta.4] — 2026-07-10
 
 ### Added

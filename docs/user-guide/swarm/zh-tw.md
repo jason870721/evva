@@ -475,6 +475,45 @@ evva service stop
 
 對整個 space，**右上角的 refresh 按鈕**身兼兩職。在 space 列表頁它只是重新抓一次列表；**進到某個 space 後它就變成「重新套用設定」**：重新讀取 `evva-swarm.yml` 與每個 agent 的 `system_prompt.md`＋`tools/*.yml`，就地把全部成員在同一個 space id 下重建 —— 於是你調整提示詞、工具清單、manifest 設定時，**不必再走以前 remove + 重啟那一套**（滑鼠移上去會顯示一行說明）。因為重建會中斷所有在飛的執行，按下後會先請你確認。對話、任務、訊息都會**保留**；但 manifest 以檔案為準，所以你在 web 上臨時改的權限模式／排程會回退到 yml 寫的值 —— 若你本來就想留著，重建後再套用一次即可。
 
+### 起飛前檢查（`evva swarm doctor`）
+
+昂貴的設置錯誤 —— model 打錯字、provider key 沒設、`.vero` 被更新版 binary
+寫過 —— 今天都要到註冊**之後**、成員第一次 run 的深處才爆炸。doctor 先把
+整條梯子跑一遍:
+
+```sh
+evva swarm doctor            # 診斷目前目錄
+evva swarm doctor ~/team     # 或任何 workdir
+evva swarm doctor --offline  # 跳過 service 探測(完全不撥號)
+evva swarm doctor --strict --json   # CI 模式:警告升級為錯誤、輸出 JSON
+```
+
+```
+  A manifest      ✓ evva-swarm.yml — space "demo-team", leader "lead", 1 worker(s)
+  B members       ✗ qa: agentdef: qa: read system_prompt.md: no such file or directory
+  C models        ⚠ w: model "claude-sonet-5" is not a built-in — custom model?
+  D provider keys ✗ deepseek — no API key configured
+  E state         ✓ .vero absent (fresh dir — created at register)
+  F service       ✓ 127.0.0.1:8888 healthy (v1.11.0)
+2 error(s), 0 warning(s) — register would fail.   exit 1
+```
+
+- **嚴格唯讀。** doctor 不建目錄、不遷移資料庫、不寫 config、不註冊 ——
+  跑兩次、或在不屬於你的機器上跑,什麼都不會變。ledger 探針以唯讀模式
+  打開 `vero.db`,拿 schema 版本與這顆 binary 內嵌的比(較舊 = 「註冊時
+  會遷移」✓;**較新 = 被更新版 evva 寫過** ⚠)。壞掉的 `runtime.json`
+  會連後果一起警告:註冊時它會被靜默當成空的。
+- **成員用真正的 loader 探測** —— dir 成員跑的就是註冊時那個 `Build`
+  (同樣的錯誤文字);persona 成員對同一個 registry 解析、同樣的
+  main-tier 檢查。
+- **自定義模型是 ⚠ 不是 ✗** —— 不認識的 model id 可能是 SDK 註冊的自定
+  義模型,會在 client build 時解析(這個契約被尊重);只用內建模型的
+  團隊可用 `--strict` 升級它。
+- **key 只查存在、不驗有效性**(doctor 不打計費呼叫),值永不回顯。
+  Ollama 無 key —— 只看 base URL。
+- **給腳本的 exit code:**`0` 乾淨 · `1` 有 ✗ · `2` 僅當 `--strict`
+  升級的警告存在且沒有真正的失敗。
+
 ### 成本與卡死保險絲（token 預算 / stall 看門狗）
 
 7×24 跑的團隊需要兩根保險絲。都在 `evva-swarm.yml` 的 `settings:` 裡、按 space 生效；

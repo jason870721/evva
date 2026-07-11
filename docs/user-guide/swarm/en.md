@@ -553,6 +553,48 @@ in-flight runs, it asks you to confirm first. Conversations, tasks, and messages
 changes you made from the web revert to what the yml says — re-apply those after if
 you meant to keep them.
 
+### Preflight (`evva swarm doctor`)
+
+The expensive setup mistakes — a typo'd model pin, a missing provider key, a
+`.vero` written by a newer binary — all surface *after* register today, deep
+inside a member's first run. Doctor runs the whole ladder first:
+
+```sh
+evva swarm doctor            # diagnose the current directory
+evva swarm doctor ~/team     # or any workdir
+evva swarm doctor --offline  # skip the service probes (never dials)
+evva swarm doctor --strict --json   # CI mode: warnings become errors, JSON out
+```
+
+```
+  A manifest      ✓ evva-swarm.yml — space "demo-team", leader "lead", 1 worker(s)
+  B members       ✗ qa: agentdef: qa: read system_prompt.md: no such file or directory
+  C models        ⚠ w: model "claude-sonet-5" is not a built-in — custom model?
+  D provider keys ✗ deepseek — no API key configured
+  E state         ✓ .vero absent (fresh dir — created at register)
+  F service       ✓ 127.0.0.1:8888 healthy (v1.11.0)
+2 error(s), 0 warning(s) — register would fail.   exit 1
+```
+
+- **Strictly read-only.** Doctor never creates directories, never migrates a
+  database, never writes config, never registers — running it twice, or on a
+  machine you don't own, changes nothing. The ledger probe opens `vero.db`
+  in read-only mode and compares its schema version against this binary's
+  (older = "will migrate at register" ✓; **newer = written by a newer evva**
+  ⚠). A corrupt `runtime.json` warns with the real consequence: register
+  silently treats it as empty.
+- **Members probe with the real loader** — a dir member runs the exact
+  `Build` register runs (same error text); a persona member resolves against
+  the same registry with the same main-tier check.
+- **Custom models are a ⚠, not an ✗** — an unknown model id may be an SDK-
+  registered custom model that resolves at client build (that contract is
+  honored); `--strict` promotes it for teams that only use built-ins.
+- **Keys are checked for presence, never validity** (no billable calls from
+  a doctor), and values are never echoed. Ollama is keyless — only its base
+  URL is looked at.
+- **Exit codes for scripts:** `0` clean · `1` any ✗ · `2` only when
+  `--strict` promoted warnings and nothing failed outright.
+
 ### Cost & stall fuses (token budget / run watchdog)
 
 A team running 24/7 needs two fuses. Both live under `settings:` in
