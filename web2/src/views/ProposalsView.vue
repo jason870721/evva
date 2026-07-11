@@ -91,6 +91,15 @@ function openTask(id: number) {
   display: flex;
   flex-direction: column;
 }
+/* EvPanel's .body is a plain padded div; flex it into the height chain so the
+   scroll region's flex:1 + overflow:auto actually engage (otherwise it grows to
+   content height and the panel's overflow:hidden clips it — no scrollbar). */
+.fill :deep(.body) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .disc {
   font-size: var(--fs-xs);
   color: var(--color-text-muted);
