@@ -172,6 +172,9 @@ settings:
   # verify_checks:                # 機器驗證（見 §8）：任務進入 verifying 時
   #   command: "go test ./..."    #   執行這條命令，證據落在任務行上
   #   timeout: 5m                 #   單次上限（省略 = 2m，最大 10m）
+  # notify:                       # 把 gate／錯誤／告警推播給你（見 §8）
+  #   url: "https://hooks.slack.com/services/…"   # webhook,json 或 slack 格式
+  #   command: "evva-notify"      #   和/或本機命令（JSON 走 stdin）
 ```
 
 - 同一 space 內**成員名唯一**（不支援副本 —— 每個成員取不同名字）。
@@ -573,6 +576,42 @@ settings:
 - **觀測。** `/metrics` 帶 `checksRun` / `checksFailed` / `checksTimeout`;
   每次執行都在即時流與持久 chatlog 落一行 `task_check_done`。命令保持快 ——
   精準子集勝過全套;10 分鐘上限是天花板,不是目標。
+### 讓 swarm 呼叫你（`notify`）
+
+gate、stall、預算凍結在 console 上都看得到 —— 但前提是有人在看。蓋上筆電,
+一個等待批准的成員就會永遠等下去。配置 `notify`,service 會把這些時刻推給你:
+
+```yaml
+settings:
+  notify:
+    url: "https://hooks.slack.com/services/T…/B…/x"   # 任何 webhook 端點
+    format: slack        # "json"(預設)| "slack"({"text": …})
+    secret: "s3cret"     # 選配;以 X-Evva-Webhook-Secret 標頭送出
+    events: [gates, errors, alerts]    # 預設:三組全開
+    command: "evva-notify"             # 和/或本機命令 —— JSON 走 stdin
+    rate_limit: 12       # 每 space 每分鐘上限(預設 12)
+```
+
+- **什麼會通知 —— 三組。** `gates`:成員在等批准或提問,每個 gate 只通知
+  一次 —— 重播與 WS 重連永不重複呼叫。`errors`:run 錯誤,或成員停在迭代
+  上限。`alerts`:watchdog／breaker 通知(stall、預算凍結、stale task、
+  stale mailbox)—— 這個 wave 同時把它們升級為 `ops_alert` 事件,從此
+  console 時間軸與持久 chatlog 也看得到,不再只躺在信箱裡。
+- **Payload。** `json` 送 `{space, spaceId, agent, kind, title, body, at,
+  console}` —— 每則通知都帶 console 深連結;處理 gate 回 console 做(這個
+  wave 不做 Slack 上直接批准)。`slack` 把同樣內容折進 `{"text": …}`,
+  Slack／Discord 相容 webhook 都吃。body 有上限(約 500 字元)—— 通知是
+  呼叫器,不是逐字稿。
+- **契約是 best-effort。** 非阻塞有界佇列、失敗後 5 秒重試一次、再失敗就
+  丟棄並計數 —— 死掉的端點只會讓 `/metrics` 的 `notifsDropped` 爬升,
+  絕不拖慢 swarm。`rate_limit` 令牌桶封頂爆量;被抑制時,下一則送達前會
+  先補一句「N 則已抑制」,沉默永遠不曖昧。
+- **`command` 模式。** JSON payload 走 stdin —— 桌面通知一行搞定:
+  `command: "jq -r .title | xargs -I{} notify-send evva {}"`。操作者在
+  manifest 裡寫的設定(與 `permission_mode: bypass` 同信任等級);15 秒
+  超時,整棵行程樹會被殺掉。
+- **觀測。** `/metrics` 帶 `notifsSent` / `notifsDropped` /
+  `notifsSuppressed`。
 
 ### Ledger 瘦身（`retention_days` / `evva swarm vacuum`）
 

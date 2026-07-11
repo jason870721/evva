@@ -502,6 +502,13 @@ func (sp *SwarmSpace) WebhookSecret() string {
 	return sp.settings.WebhookSecret // set once at construction, never mutated
 }
 
+// NotifySpec returns the space's outbound-notification config (nil = off,
+// NTF). Exported for the service, which owns the notifier beside the event
+// log — the space itself never sends.
+func (sp *SwarmSpace) NotifySpec() *agentdef.NotifySpec {
+	return sp.settings.Notify // set once at construction, never mutated
+}
+
 // RetentionDays returns the space's ledger retention window in days (0 =
 // retention disabled). Exported for the service's manual vacuum default (RP-16).
 func (sp *SwarmSpace) RetentionDays() int {

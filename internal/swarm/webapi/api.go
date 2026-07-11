@@ -415,10 +415,16 @@ type MetricsInfo struct {
 	// CHK check-runner tallies: delivered runs, failing runs (timeouts
 	// included), and timeouts — the signal the configured command outgrew
 	// its budget.
-	ChecksRun     int64                        `json:"checksRun"`
-	ChecksFailed  int64                        `json:"checksFailed"`
-	ChecksTimeout int64                        `json:"checksTimeout"`
-	Members       map[string]MemberMetricsInfo `json:"members"`
+	ChecksRun     int64 `json:"checksRun"`
+	ChecksFailed  int64 `json:"checksFailed"`
+	ChecksTimeout int64 `json:"checksTimeout"`
+	// NTF notifier tallies: notifications delivered, dropped (dead endpoint,
+	// full queue, teardown), and rate-limit-suppressed. All zero when the
+	// space configures no notify block.
+	NotifsSent       int64                        `json:"notifsSent"`
+	NotifsDropped    int64                        `json:"notifsDropped"`
+	NotifsSuppressed int64                        `json:"notifsSuppressed"`
+	Members          map[string]MemberMetricsInfo `json:"members"`
 }
 
 // MemberMetricsInfo is one member's scheduler counters. RunSeconds buckets

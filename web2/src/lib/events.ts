@@ -200,12 +200,14 @@ export function reduceChat(turns: Turn[], ev: WireEvent): Turn[] {
       return turns
     }
     // Engine lines: the space acting on leader-declared structure —
-    // auto-dispatches, the ephemeral-member lifecycle, and verify-time check
-    // results (CHK). TextPayload carries the one-line narration.
+    // auto-dispatches, the ephemeral-member lifecycle, verify-time check
+    // results (CHK), and ops alerts promoted from mailbox-only notices
+    // (NTF). TextPayload carries the narration.
     case 'task_dispatched':
     case 'member_spawned':
     case 'member_retired':
-    case 'task_check_done': {
+    case 'task_check_done':
+    case 'ops_alert': {
       closeAgentOpen(turns, agent)
       const text = textOf(ev)
       if (!text) return turns

@@ -295,12 +295,16 @@ func (s *Supervisor) tripBudget(name string, total, budget int) {
 // notifyOps sends one durable notice to the operator ("user" — read in the web)
 // and, when the subject member is not the leader itself, to the leader (waking
 // it so the team can react). Shared by the budget breaker and the stall
-// watchdog.
+// watchdog. Each notice is also promoted to an ops_alert space event (NTF-1)
+// so the console timeline, the durable chatlog, and the outbound notifier
+// carry it — previously these alerts were visible only to someone reading
+// the mailbox.
 func (s *Supervisor) notifyOps(about, subject, body string) {
 	if leader := s.sp.Roster.leaderName(); leader != "" && leader != about {
 		_, _ = s.sp.Bus.Send(store.Message{Sender: "system", Recipient: leader, Subject: subject, Body: body})
 	}
 	_, _ = s.sp.Bus.Send(store.Message{Sender: "system", Recipient: "user", Subject: subject, Body: body})
+	s.sp.emitEngineEvent(KindOpsAlert, about, subject+"\n"+body)
 }
 
 // sweepStalls is the RP-14 watchdog: a member whose in-flight run exceeded

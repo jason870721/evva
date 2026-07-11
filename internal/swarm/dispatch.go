@@ -33,6 +33,15 @@ const (
 	KindMemberRetired  = event.Kind("member_retired")
 )
 
+// KindOpsAlert is a system alert promoted to a first-class space event
+// (NTF-1): every notifyOps notice — stall, budget trip, stale task, stale
+// mailbox — emits one alongside its durable mail, so the console timeline,
+// the chatlog, and the outbound notifier see what was previously
+// mailbox-only. TextPayload carries "subject\nbody"; AgentID names the
+// member the alert is about. Dedup rides the sources (one per episode/stay/
+// run), exactly like the mail.
+const KindOpsAlert = event.Kind("ops_alert")
+
 // emitEngineEvent pushes one space-level synthetic event into sp.out —
 // engine actions have no member tool-call event to ride. Non-blocking: a
 // space nobody drains (lite tests) drops the line, and an engine action must

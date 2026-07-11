@@ -135,6 +135,7 @@ type spaceEntry struct {
 	pumpDone chan struct{}      // closed BY the pump when it exits — teardown waits on it
 	pending  *gateTracker       // outstanding approval/question gates, for reconnect replay
 	events   *eventLog          // RP-17 durable event mirror; nil when event_log: false
+	notify   *notifier          // NTF outbound notifications; nil when settings.notify absent
 }
 
 // live reports whether the entry currently has a running space behind it.
@@ -360,13 +361,20 @@ func teardownSpace(ent *spaceEntry) {
 	if ent.stopPump != nil {
 		close(ent.stopPump) // pump does a final drain, then exits
 	}
-	if ent.events != nil {
-		// Only close the event log once the pump has actually exited — Offer on
-		// a closed channel would panic, and the final drain above runs async.
+	if ent.events != nil || ent.notify != nil {
+		// Only close the observers once the pump has actually exited — Offer
+		// on a closed channel would panic, and the final drain above runs
+		// async. The notifier's Close drops its queue rather than draining
+		// it: teardown must never wait on a dead endpoint.
 		if ent.pumpDone != nil {
 			<-ent.pumpDone
 		}
+	}
+	if ent.events != nil {
 		ent.events.Close()
+	}
+	if ent.notify != nil {
+		ent.notify.Close()
 	}
 }
 
@@ -471,11 +479,19 @@ func (s *Service) register(id, name string, m agentdef.Manifest, loaded []agentd
 	if m.Settings.EventLog {
 		events = newEventLog(sp.Workdir, m.Settings.RetentionDays)
 	}
+	var notify *notifier
+	if n := m.Settings.Notify; n != nil {
+		console := ""
+		if addr := s.Addr(); addr != "" {
+			console = "http://" + addr + "/?space=" + id
+		}
+		notify = newNotifier(id, name, console, *n)
+	}
 	s.mu.Lock()
 	s.spaces[id] = &spaceEntry{
 		id: id, name: name, workdir: sp.Workdir, status: statusRunning,
 		space: sp, super: super, cancel: cancel, stopPump: stopPump, pumpDone: pumpDone,
-		pending: newGateTracker(), events: events,
+		pending: newGateTracker(), events: events, notify: notify,
 	}
 	s.mu.Unlock()
 
@@ -507,9 +523,9 @@ func (s *Service) StopSpace(ref string) error {
 	// Flip to stopped and detach the live handles UNDER the lock, so a concurrent
 	// reader never observes a half-torn-down running space; tear them down after.
 	live := &spaceEntry{cancel: ent.cancel, super: ent.super, space: ent.space,
-		stopPump: ent.stopPump, pumpDone: ent.pumpDone, events: ent.events}
+		stopPump: ent.stopPump, pumpDone: ent.pumpDone, events: ent.events, notify: ent.notify}
 	ent.status = statusStopped
-	ent.space, ent.super, ent.cancel, ent.stopPump, ent.pumpDone, ent.pending, ent.events = nil, nil, nil, nil, nil, nil, nil
+	ent.space, ent.super, ent.cancel, ent.stopPump, ent.pumpDone, ent.pending, ent.events, ent.notify = nil, nil, nil, nil, nil, nil, nil, nil
 	id, name := ent.id, ent.name
 	s.mu.Unlock()
 
@@ -872,6 +888,12 @@ func (s *Service) publish(e swarm.SpacedEvent, co *turnCoalescer) {
 	if pending, ok := s.pendingFor(e.SpaceID); ok {
 		pending.observe(e.Event)
 	}
+	// NTF tap: the one chokepoint every space event flows through sees the
+	// complete attention surface. consider() filters and offers without
+	// blocking — the notifier can never slow this pump.
+	if n, ok := s.notifierFor(e.SpaceID); ok {
+		n.consider(e.Event)
+	}
 	payload, err := json.Marshal(wireEvent{SpaceID: e.SpaceID, Event: e.Event})
 	if err != nil {
 		return
@@ -909,6 +931,19 @@ func (s *Service) offerSynthetics(spaceID string, evs []event.Event) {
 			log.Offer(b)
 		}
 	}
+}
+
+// notifierFor returns a live space's outbound notifier — eventLogFor's twin:
+// read under the registry lock, safe to use after release (teardown waits
+// for the pump to exit before closing it).
+func (s *Service) notifierFor(ref string) (*notifier, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	e := s.resolveLocked(ref)
+	if !e.live() || e.notify == nil {
+		return nil, false
+	}
+	return e.notify, true
 }
 
 // eventLogFor returns a live space's event log, read under the registry lock
@@ -1937,7 +1972,7 @@ func (s *Service) Metrics(ref string) (webapi.MetricsInfo, bool) {
 		s.mu.RUnlock()
 		return webapi.MetricsInfo{}, false
 	}
-	sp, events := ent.space, ent.events
+	sp, events, notify := ent.space, ent.events, ent.notify
 	s.mu.RUnlock()
 
 	members, started := sp.MetricsSnapshot()
@@ -1953,6 +1988,9 @@ func (s *Service) Metrics(ref string) (webapi.MetricsInfo, bool) {
 	}
 	if events != nil {
 		mi.EventsLogged, mi.EventsDropped = events.Logged(), events.Dropped()
+	}
+	if notify != nil {
+		mi.NotifsSent, mi.NotifsDropped, mi.NotifsSuppressed = notify.Sent(), notify.Dropped(), notify.Suppressed()
 	}
 	for name, m := range members {
 		mi.Members[name] = webapi.MemberMetricsInfo{

@@ -41,6 +41,31 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   zh-tw) §8 "Machine-checked verification"; PRD:
   `docs/roadmap/PRD/swarm-verify-checks.md`.
 
+- **Swarm outbound notifications (NTF-1..5) — get paged by your swarm.**
+  `settings.notify: {url, format: json|slack, secret, events: [gates,
+  errors, alerts], command, rate_limit}` pushes attention-worthy moments to
+  a webhook and/or a local command (JSON on stdin, 15 s tree-killed
+  timeout), so an operator away from the console learns within seconds that
+  a member is waiting on a gate, errored, paused at its iteration limit, or
+  tripped a watchdog/breaker. System alerts are promoted from mailbox-only
+  to first-class `ops_alert` space events (`notifyOps` now emits one
+  alongside its durable mail), so the console timeline, the durable
+  chatlog, AND the notifier all see them. The per-space notifier taps the
+  publish chokepoint with the event log's exact discipline — non-blocking
+  bounded queue, single sender, one retry after 5 s then drop-and-count —
+  a dead endpoint can never slow a swarm (teardown drops the queue rather
+  than draining it). Noise control by design: gates page once per
+  (requestID) first sighting with run-terminal pruning, sources keep their
+  one-per-episode dedup, and a per-space token bucket (`rate_limit`,
+  default 12/min) caps the blast — suppressed sends surface as one
+  "N suppressed" notice on the next delivery. Payloads carry the console
+  deep-link; bodies cap at ~500 chars; the outbound secret reuses the
+  RP-15 `X-Evva-Webhook-Secret` header for symmetry. `/metrics` gains
+  `notifsSent`/`notifsDropped`/`notifsSuppressed`. User guide (en, zh-tw)
+  §8 "Getting paged by your swarm"; PRD:
+  `docs/roadmap/PRD/swarm-outbound-notifications.md`.
+
+
 ## [v1.11.0-beta.4] — 2026-07-10
 
 ### Added

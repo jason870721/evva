@@ -117,6 +117,11 @@ type Settings struct {
 	// exit/output tail on the task row as evidence. Absent = feature off,
 	// space byte-identical to before the wave.
 	VerifyChecks *CheckSpec
+	// Notify enables outbound notifications (NTF): attention-worthy moments
+	// (gates, errors, ops alerts) are pushed to a webhook and/or a local
+	// command, so an operator away from the console learns within seconds.
+	// Absent = feature off, zero behavior change.
+	Notify *NotifySpec
 }
 
 // CheckSpec is the operator-authored verify-time check (CHK): one shell
@@ -128,6 +133,40 @@ type CheckSpec struct {
 	Command string
 	Timeout time.Duration
 }
+
+// NotifySpec is the operator's outbound-notification config (NTF). At least
+// one of URL/Command must be set; both may be. Delivery is best-effort by
+// contract — one retry, then drop and count (the event-log discipline), so a
+// dead endpoint can never wedge a space.
+type NotifySpec struct {
+	URL       string   // webhook endpoint; POSTed the payload
+	Format    string   // NotifyFormatJSON (default) | NotifyFormatSlack
+	Secret    string   // sent as X-Evva-Webhook-Secret when non-empty
+	Events    []string // groups to send: gates | errors | alerts; empty = all three
+	Command   string   // local exec (<shell> -c); receives the JSON payload on stdin
+	RateLimit int      // max sends per minute per space; 0 = DefaultNotifyRateLimit
+}
+
+// Notify payload formats: plain JSON (the documented shape), or the
+// lowest-common-denominator {"text": …} that Slack-compatible webhooks eat.
+const (
+	NotifyFormatJSON  = "json"
+	NotifyFormatSlack = "slack"
+)
+
+// Notify event groups: gates = approval_needed + question_needed; errors =
+// error + iter_limit; alerts = ops_alert (the promoted watchdog / breaker
+// notices).
+const (
+	NotifyGroupGates  = "gates"
+	NotifyGroupErrors = "errors"
+	NotifyGroupAlerts = "alerts"
+)
+
+// DefaultNotifyRateLimit caps sends per minute per space when the manifest
+// omits notify.rate_limit — enough for a real burst (a wide swarm's gate
+// storm), low enough that a misbehaving space can't flood a channel.
+const DefaultNotifyRateLimit = 12
 
 // DefaultStallThreshold is the alert line a manifest gets when it does not set
 // settings.stall_threshold. Long enough that legitimate tool-heavy runs don't
@@ -241,19 +280,20 @@ type manifestYml struct {
 	Leader   memberYml   `yaml:"leader"`
 	Workers  []memberYml `yaml:"workers,omitempty"`
 	Settings struct {
-		PermissionMode        string    `yaml:"permission_mode,omitempty"`
-		MaxIterations         int       `yaml:"max_iterations,omitempty"`
-		DailyBudgetTokens     int       `yaml:"daily_budget_tokens,omitempty"`
-		BudgetStayFrozen      bool      `yaml:"budget_stay_frozen,omitempty"`
-		MaxMembers            int       `yaml:"max_members,omitempty"`
-		StallThreshold        string    `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
-		StallHardTimeout      string    `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
-		WebhookSecret         string    `yaml:"webhook_secret,omitempty"`
-		RetentionDays         string    `yaml:"retention_days,omitempty"`          // days; "" = default 30, "0" = off
-		EventLog              *bool     `yaml:"event_log,omitempty"`               // nil = default true
-		TaskStaleThreshold    string    `yaml:"task_stale_threshold,omitempty"`    // duration; "" = default 24h, "0" = off
-		MailboxStaleThreshold string    `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
-		VerifyChecks          *checkYml `yaml:"verify_checks,omitempty"`           // nil = checks off
+		PermissionMode        string     `yaml:"permission_mode,omitempty"`
+		MaxIterations         int        `yaml:"max_iterations,omitempty"`
+		DailyBudgetTokens     int        `yaml:"daily_budget_tokens,omitempty"`
+		BudgetStayFrozen      bool       `yaml:"budget_stay_frozen,omitempty"`
+		MaxMembers            int        `yaml:"max_members,omitempty"`
+		StallThreshold        string     `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
+		StallHardTimeout      string     `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
+		WebhookSecret         string     `yaml:"webhook_secret,omitempty"`
+		RetentionDays         string     `yaml:"retention_days,omitempty"`          // days; "" = default 30, "0" = off
+		EventLog              *bool      `yaml:"event_log,omitempty"`               // nil = default true
+		TaskStaleThreshold    string     `yaml:"task_stale_threshold,omitempty"`    // duration; "" = default 24h, "0" = off
+		MailboxStaleThreshold string     `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
+		VerifyChecks          *checkYml  `yaml:"verify_checks,omitempty"`           // nil = checks off
+		Notify                *notifyYml `yaml:"notify,omitempty"`                  // nil = notifications off
 	} `yaml:"settings,omitempty"`
 }
 
@@ -288,6 +328,62 @@ func parseCheckYml(y *checkYml) (*CheckSpec, error) {
 		return nil, fmt.Errorf("timeout must be within (0, %s], got %s", MaxCheckTimeout, timeout)
 	}
 	return &CheckSpec{Command: cmd, Timeout: timeout}, nil
+}
+
+// notifyYml is the on-disk settings.notify block (NTF).
+type notifyYml struct {
+	URL       string   `yaml:"url,omitempty"`
+	Format    string   `yaml:"format,omitempty"`     // "" = json
+	Secret    string   `yaml:"secret,omitempty"`     // X-Evva-Webhook-Secret
+	Events    []string `yaml:"events,omitempty"`     // gates | errors | alerts; empty = all
+	Command   string   `yaml:"command,omitempty"`    // local exec, JSON on stdin
+	RateLimit int      `yaml:"rate_limit,omitempty"` // sends/min; 0 = default 12
+}
+
+// parseNotifyYml validates the optional notify block: absent = feature off;
+// present demands at least one target (url and/or command), a known format,
+// known event-group names, and a non-negative rate limit (0 = the default).
+func parseNotifyYml(y *notifyYml) (*NotifySpec, error) {
+	if y == nil {
+		return nil, nil
+	}
+	spec := &NotifySpec{
+		URL:       strings.TrimSpace(y.URL),
+		Format:    strings.TrimSpace(y.Format),
+		Secret:    strings.TrimSpace(y.Secret),
+		Command:   strings.TrimSpace(y.Command),
+		RateLimit: y.RateLimit,
+	}
+	if spec.URL == "" && spec.Command == "" {
+		return nil, fmt.Errorf("at least one of url/command is required (remove the notify block to disable notifications)")
+	}
+	switch spec.Format {
+	case "":
+		spec.Format = NotifyFormatJSON
+	case NotifyFormatJSON, NotifyFormatSlack:
+	default:
+		return nil, fmt.Errorf("invalid format %q (want %q or %q)", spec.Format, NotifyFormatJSON, NotifyFormatSlack)
+	}
+	if spec.RateLimit < 0 {
+		return nil, fmt.Errorf("rate_limit must not be negative (got %d)", spec.RateLimit)
+	}
+	if spec.RateLimit == 0 {
+		spec.RateLimit = DefaultNotifyRateLimit
+	}
+	seen := map[string]bool{}
+	for _, g := range y.Events {
+		g = strings.TrimSpace(g)
+		switch g {
+		case NotifyGroupGates, NotifyGroupErrors, NotifyGroupAlerts:
+		default:
+			return nil, fmt.Errorf("unknown events group %q (want %s|%s|%s)", g, NotifyGroupGates, NotifyGroupErrors, NotifyGroupAlerts)
+		}
+		if !seen[g] {
+			seen[g] = true
+			spec.Events = append(spec.Events, g)
+		}
+	}
+	return spec, nil
 }
 
 // parseRetentionDays reads the optional retention knob: "" → DefaultRetentionDays,
@@ -401,6 +497,10 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest settings.verify_checks: %w", err)
 	}
+	notify, err := parseNotifyYml(y.Settings.Notify)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.notify: %w", err)
+	}
 	// Space-level budget: negatives normalize to 0 = unlimited (RP-24 §5).
 	// The member-level knob keeps its signed semantics (<0 = exempt); here
 	// there is no space default to be exempt from, so the sign is meaningless
@@ -424,6 +524,7 @@ func LoadManifest(path string) (Manifest, error) {
 			TaskStaleThreshold:    taskStale,
 			MailboxStaleThreshold: mailboxStale,
 			VerifyChecks:          checks,
+			Notify:                notify,
 		},
 	}
 	for _, w := range y.Workers {
@@ -514,6 +615,18 @@ func WriteManifest(path string, m Manifest) error {
 		if c.Timeout != DefaultCheckTimeout {
 			y.Settings.VerifyChecks.Timeout = c.Timeout.String()
 		}
+	}
+	// notify round-trips whole: absent block = off; defaulted fields (json
+	// format, default rate limit) emit nothing and reload as the defaults.
+	if n := m.Settings.Notify; n != nil {
+		ny := &notifyYml{URL: n.URL, Secret: n.Secret, Events: n.Events, Command: n.Command}
+		if n.Format != NotifyFormatJSON {
+			ny.Format = n.Format
+		}
+		if n.RateLimit != DefaultNotifyRateLimit {
+			ny.RateLimit = n.RateLimit
+		}
+		y.Settings.Notify = ny
 	}
 	b, err := yaml.Marshal(y)
 	if err != nil {

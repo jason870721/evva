@@ -180,6 +180,9 @@ settings:
   # verify_checks:                # machine-checked verification (see §8): run this command
   #   command: "go test ./..."    #   whenever a task enters verifying; evidence lands on the task
   #   timeout: 5m                 #   per-run cap (omit = 2m, max 10m)
+  # notify:                       # push gates/errors/alerts to you (see §8)
+  #   url: "https://hooks.slack.com/services/…"   # webhook, json or slack format
+  #   command: "evva-notify"      #   and/or a local command (JSON on stdin)
 ```
 
 - **Member names are unique** within a space (no replicas — give each a distinct
@@ -675,6 +678,48 @@ settings:
   `checksTimeout`, and each run lands a `task_check_done` line in the live
   feed and the durable chatlog. Keep the command fast — a targeted subset
   beats the full suite; the 10-minute cap is a ceiling, not a target.
+### Getting paged by your swarm (`notify`)
+
+Gates, stalls, and budget freezes are visible on the console — but only to
+someone looking at it. Close the laptop and a blocked member waits forever.
+Configure `notify` and the service pushes those moments to you:
+
+```yaml
+settings:
+  notify:
+    url: "https://hooks.slack.com/services/T…/B…/x"   # any webhook endpoint
+    format: slack        # "json" (default) | "slack" ({"text": …})
+    secret: "s3cret"     # optional; sent as X-Evva-Webhook-Secret
+    events: [gates, errors, alerts]    # default: all three groups
+    command: "evva-notify"             # and/or local exec — JSON on stdin
+    rate_limit: 12       # max sends per minute per space (default 12)
+```
+
+- **What notifies — three groups.** `gates`: a member waiting for approval
+  or asking a question, once per gate — re-broadcasts and WS reconnects
+  never re-page. `errors`: a run error, or a member paused at its iteration
+  limit. `alerts`: the watchdog/breaker notices (stall, budget freeze, stale
+  task, stale mailbox) — this wave also promotes them to `ops_alert` events,
+  so they now appear in the console timeline and the durable chatlog too,
+  instead of being mailbox-only.
+- **Payload.** `json` sends `{space, spaceId, agent, kind, title, body, at,
+  console}` — the console deep-link rides every notification; acting on a
+  gate happens there (no approve-from-Slack this wave). `slack` folds the
+  same content into `{"text": …}`, the shape Slack- and Discord-compatible
+  webhooks eat. Bodies are capped (~500 chars) — a notification is a pager,
+  not a transcript.
+- **Best-effort by contract.** Non-blocking bounded queue, one retry after
+  5 s, then drop-and-count — a dead endpoint shows up as `notifsDropped`
+  climbing in `/metrics`, never as a slower swarm. The `rate_limit` token
+  bucket caps the blast radius; when it suppresses, the next delivery is
+  preceded by one "N notifications suppressed" notice, so silence is never
+  ambiguous.
+- **`command` mode.** The JSON payload arrives on stdin — a one-line desktop
+  recipe: `command: "jq -r .title | xargs -I{} notify-send evva {}"`.
+  Operator-authored manifest config (the `permission_mode: bypass` trust
+  class); 15 s timeout, process tree killed.
+- **Watch it.** `/metrics` carries `notifsSent` / `notifsDropped` /
+  `notifsSuppressed`.
 
 ### Ledger retention (`retention_days` / `evva swarm vacuum`)
 

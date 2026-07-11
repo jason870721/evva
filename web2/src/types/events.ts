@@ -34,13 +34,15 @@ export type EventKind =
   // Synthetic — exists only on the /chatlog replay wire (operator mail folded
   // into the conversation); the live WS never carries it.
   | 'user_message'
-  // Engine lines (space-level synthetics, live WS + event log alike):
-  // the engine acting on leader-declared structure, plus verify-time check
-  // results (CHK). TextPayload carries a one-line narration.
+  // Engine lines (space-level synthetics, live WS + event log alike): the
+  // engine acting on leader-declared structure, verify-time check results
+  // (CHK), and ops alerts promoted from mailbox-only notices (NTF —
+  // TextPayload carries "subject\nbody" for ops_alert).
   | 'task_dispatched'
   | 'member_spawned'
   | 'member_retired'
   | 'task_check_done'
+  | 'ops_alert'
 
 export interface QuestionOption {
   Label: string

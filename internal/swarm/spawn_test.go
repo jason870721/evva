@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
 	"github.com/johnny1110/evva/internal/swarm/store"
@@ -117,7 +118,23 @@ func TestSweepSpawnedRetire(t *testing.T) {
 		t.Fatalf("NewSpace: %v", err)
 	}
 	defer sp.Shutdown()
-	sup := startSup(t, sp)
+	// This test drives sweepSpawnedRetire BY HAND between assertions, and the
+	// sweep's contract is single-caller (production runs it off the rescan
+	// tick alone). startSup's fast rescan tick would race those manual calls:
+	// on a slow runner both goroutines retire the same settled clone, and an
+	// assertion can land between the loser's roster removal and the winner's
+	// provenance drop (the windows-latest flake). Park the tick's sweep out
+	// of reach — set BEFORE Start, which is when the ticker is built — so the
+	// manual calls are the only caller, per the contract.
+	ctx, cancel := context.WithCancel(context.Background())
+	sup := NewSupervisor(sp)
+	sup.tickInterval = 5 * time.Millisecond
+	sup.rescanInterval = time.Hour
+	sup.Start(ctx)
+	t.Cleanup(func() {
+		cancel()
+		sup.Wait()
+	})
 
 	name, err := sup.SpawnMember("worker-a", "")
 	if err != nil {
