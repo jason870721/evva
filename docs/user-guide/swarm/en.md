@@ -169,6 +169,8 @@ settings:
   max_iterations: 50        # per-run loop cap for each member
   # —— operational fuses (opt-in; see §8) ——
   # daily_budget_tokens: 2000000  # per-member daily token cap (in+out); 0/omit = unlimited (negatives read as 0)
+  # daily_budget_total_tokens: 8000000  # SPACE-wide daily ceiling (see §8); crossing freezes everyone
+  # daily_budget_total_usd: 20.0        #   dollar axis of the same ceiling (priced spend)
   # budget_stay_frozen: false     # true = a budget freeze survives the day rollover
   # stall_threshold: 10m          # alert when a member is busy longer; "0" off (omit = 10m)
   # stall_hard_timeout: 30m       # auto-cancel a run busy longer; 0/omit = off
@@ -580,6 +582,36 @@ workers:
   carries `tokensIn / tokensOut / tokensToday / tokensBudget`. Counters and
   breaker state persist — **restarting the service does not reset the day's
   spend**.
+
+**Dollars, and the space-wide ceiling (`daily_budget_total_*`)**
+
+The meter also prices every run at meter time — all four usage classes
+(input, output, cache-read, cache-write) against the built-in rate card
+(`pkg/constant.MODEL_PRICING`, list prices verified 2026-06; the same table
+the solo TUI's `/cost` reads). `list_members` shows `$0.42` per member, the
+web roster and `/metrics` carry the figures, and `/healthz` sums the
+service-wide total. Treat the dollars as **an estimate at list price**, not
+an invoice — and a member on a custom model with no rate-card entry shows
+`~` everywhere: its spend is *missing* from the $ figures, never counted as
+zero.
+
+```yaml
+settings:
+  daily_budget_total_tokens: 8000000   # space-wide in+out cap per LOCAL day; 0 = off
+  daily_budget_total_usd: 20.0         # space-wide priced-spend cap; 0 = off
+```
+
+Crossing **either** knob freezes the WHOLE roster — the leader included
+(it is routinely the most expensive member; exempting it would soften the
+ceiling exactly where spend concentrates). One `🧯 space budget ceiling`
+notice names the knob that fired and the largest spender. Mailboxes keep
+queuing; everyone auto-unfreezes at the day rollover (unless
+`budget_stay_frozen`). Unfreezing ONE member from the roster is an honored
+operator override — it runs while the rest stay frozen, and the held trip
+mark stops a re-notice storm. Costs are locked per run with the model that
+produced them, so a mid-day model switch never rewrites history. Token caps
+count **generation volume** (in+out only); the dollar cap counts **spend**
+(cache traffic included) — two different questions, two knobs.
 
 **Stall watchdog (hang alerts / auto-cancel)**
 

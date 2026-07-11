@@ -1097,6 +1097,10 @@ func (s *Service) Roster(id string) ([]webapi.MemberInfo, bool) {
 			TokensToday:    v.DailyTokens,
 			TokensBudget:   ent.space.BudgetFor(v.Name),
 		}
+		// Cost meter (CST): today's cache classes + the at-meter USD.
+		day := ent.space.DayFor(v.Name)
+		mi.TokensCacheRead, mi.TokensCacheWrite = day.CacheR, day.CacheW
+		mi.CostTodayUSD, mi.CostUnpriced = day.CostUSD, day.Unpriced
 		// Schedule lives in the space's map (RP-7 didn't put it on MemberView);
 		// surface it on the wire so the roster card can show/edit the crontab (RP-8).
 		if sch, ok := ent.space.ScheduleFor(v.Name); ok {
@@ -1949,6 +1953,7 @@ func (s *Service) Health() webapi.HealthInfo {
 			continue
 		}
 		h.SpacesRunning++
+		h.CostTodayUSD += ent.space.SpaceToday().CostUSD
 		for _, mv := range ent.space.Roster.Snapshot() {
 			if mv.Membership == swarm.MembershipFrozen {
 				h.MembersFrozen++
@@ -1983,6 +1988,10 @@ func (s *Service) Metrics(ref string) (webapi.MetricsInfo, bool) {
 	mi.TasksStale, mi.MailboxStale = sp.WorkflowStaleCounts()
 	mi.AutoDispatches, mi.MembersSpawned, mi.MembersRetired = sp.EngineCounts()
 	mi.ChecksRun, mi.ChecksFailed, mi.ChecksTimeout = sp.CheckCounts()
+	day := sp.SpaceToday()
+	mi.SpaceTokensToday, mi.SpaceCostTodayUSD = day.Tokens, day.CostUSD
+	mi.SpaceCostUnpriced, mi.CeilingTripped = day.Unpriced, day.Tripped
+	mi.CeilingTotalTokens, mi.CeilingTotalUSD = sp.Ceilings()
 	if !started.IsZero() {
 		mi.UptimeSecs = int64(time.Since(started).Seconds())
 	}

@@ -509,6 +509,13 @@ func (sp *SwarmSpace) NotifySpec() *agentdef.NotifySpec {
 	return sp.settings.Notify // set once at construction, never mutated
 }
 
+// Ceilings returns the space-wide daily budget ceilings (CST): the In+Out
+// token cap and the priced-USD cap, 0 = that axis off. Exported for the
+// metrics surface.
+func (sp *SwarmSpace) Ceilings() (tokens int, usd float64) {
+	return sp.settings.DailyBudgetTotalTokens, sp.settings.DailyBudgetTotalUSD // set once at construction
+}
+
 // RetentionDays returns the space's ledger retention window in days (0 =
 // retention disabled). Exported for the service's manual vacuum default (RP-16).
 func (sp *SwarmSpace) RetentionDays() int {

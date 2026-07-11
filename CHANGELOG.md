@@ -65,6 +65,29 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   §8 "Getting paged by your swarm"; PRD:
   `docs/roadmap/PRD/swarm-outbound-notifications.md`.
 
+- **Swarm cost accounting & space budget (CST-1..5) — "what did today cost,
+  and stop everything at $20".** The RP-13 meter becomes v2: every run's
+  delta is counted in all four usage classes (input / output / cache-read /
+  cache-write) and priced AT METER TIME with the model that produced it,
+  against the existing `pkg/constant.MODEL_PRICING` rate card — costs are
+  locked per delta, so mid-day model switches and future rate-card edits
+  never rewrite history; unpriced (custom/SDK) models count tokens and flag
+  the dollars as a floor rather than guessing $0. Member token caps keep
+  their exact RP-13 semantics (In+Out only — token caps bound generation
+  volume, the dollar figure bounds spend). New space-wide daily ceiling:
+  `settings.daily_budget_total_tokens` / `daily_budget_total_usd` — crossing
+  either freezes EVERY member, the leader included, with one `🧯` notice
+  naming the knob and the largest spender; rollover auto-releases (or
+  `budget_stay_frozen` pins), a manual per-member unfreeze is honored while
+  the held trip mark stops re-notice storms, and the trip survives service
+  restarts (`runtime.json` v2 usage persistence with a one-time legacy v1
+  import). Surfaces: `list_members` gains `$x.xx` (`~` = unpriced),
+  `MemberInfo` gains cache-class tokens + `costTodayUsd`/`costUnpriced`,
+  `/metrics` gains the space aggregate + ceilings + tripped flag, `/healthz`
+  gains service-wide `costTodayUsd`, and the web roster/metrics panel render
+  the figures. Estimates at list price by design — documented with the rate
+  card's provenance. User guide (en, zh-tw) §8; PRD:
+  `docs/roadmap/PRD/swarm-cost-accounting.md`.
 
 ## [v1.11.0-beta.4] — 2026-07-10
 

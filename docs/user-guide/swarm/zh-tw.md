@@ -161,6 +161,8 @@ settings:
   max_iterations: 50        # 每個成員單次執行的迴圈上限
   # —— 運營保險絲（按需啟用，詳見 §8）——
   # daily_budget_tokens: 2000000  # 每成員每日 token 上限（in+out）；0/省略 = 不限（負值按 0 處理）
+  # daily_budget_total_tokens: 8000000  # 全 space 每日上限（見 §8）；越線全員凍結
+  # daily_budget_total_usd: 20.0        #   同一天花板的美元軸（已定價花費）
   # budget_stay_frozen: false     # true = 超額凍結跨日不自動解凍（需手動）
   # stall_threshold: 10m          # 成員忙超過即告警；"0" 關閉（省略 = 預設 10m）
   # stall_hard_timeout: 30m       # 忙超過即自動取消該次執行；0/省略 = 關閉
@@ -497,6 +499,30 @@ workers:
 - 用量隨時看得到：leader 跑 `list_members` 每行帶 `tok in 1.2M out 345k, today 89k/500k`；
   Web 花名冊 API 帶 `tokensIn / tokensOut / tokensToday / tokensBudget`。計數與熔斷狀態
   會持久化 —— **重啟服務不會清零當天額度**。
+
+**美元,與全 space 天花板（`daily_budget_total_*`）**
+
+計量器同時在入賬當下把每次 run 定價 —— 四類用量(input、output、
+cache-read、cache-write)對內建價目表(`pkg/constant.MODEL_PRICING`,
+2026-06 驗證過的牌價;solo TUI 的 `/cost` 讀的同一張表)。`list_members`
+每個成員顯示 `$0.42`,web roster 與 `/metrics` 帶完整數字,`/healthz`
+彙總全服務。把美元當**牌價估算**,不是發票 —— 用自定義模型、價目表查
+不到的成員到處顯示 `~`:它的花費是**缺席**於 $ 數字,不是被記成零。
+
+```yaml
+settings:
+  daily_budget_total_tokens: 8000000   # 全 space 每日 in+out 上限(本地日界線);0 = 關
+  daily_budget_total_usd: 20.0         # 全 space 已定價花費上限;0 = 關
+```
+
+越過**任一**旋鈕就凍結整個名單 —— **包括 leader**(它通常是最貴的成
+員;豁免它等於在花費最集中的地方放軟天花板)。一封 `🧯 space budget
+ceiling` 通知指名觸發的旋鈕與最大花費者。信箱照常排隊;跨日自動全員解
+凍(除非 `budget_stay_frozen`)。從 roster 手動解凍**單一**成員是被尊
+重的操作者覆寫 —— 它繼續跑、其他人保持凍結,已觸發的標記擋住重複通知
+風暴。成本在入賬時以產生它的模型鎖定,日中換模型永不改寫歷史。token
+上限計的是**生成量**(僅 in+out);美元上限計的是**花費**(含 cache
+流量)—— 兩個問題,兩個旋鈕。
 
 **Stall 看門狗（卡死告警 / 自動止損）**
 

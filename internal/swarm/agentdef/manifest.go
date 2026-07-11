@@ -66,6 +66,14 @@ type Settings struct {
 	// member-level knob there is nothing at space level to be exempt FROM, so
 	// any non-positive value just means "no cap".
 	DailyBudgetTokens int
+	// DailyBudgetTotalTokens / DailyBudgetTotalUSD are the SPACE-wide daily
+	// ceiling (CST): crossing either freezes every member — the leader
+	// included — until the local day rolls over (budget_stay_frozen pins).
+	// Tokens compare In+Out (generation volume); USD compares priced spend
+	// only (unpriced custom models are flagged, never counted as $0). 0 =
+	// that axis off; negatives normalize to 0 at load.
+	DailyBudgetTotalTokens int
+	DailyBudgetTotalUSD    float64
 	// BudgetStayFrozen keeps a budget-frozen member frozen across the day
 	// rollover, requiring a manual unfreeze (default false = auto-unfreeze).
 	BudgetStayFrozen bool
@@ -280,20 +288,22 @@ type manifestYml struct {
 	Leader   memberYml   `yaml:"leader"`
 	Workers  []memberYml `yaml:"workers,omitempty"`
 	Settings struct {
-		PermissionMode        string     `yaml:"permission_mode,omitempty"`
-		MaxIterations         int        `yaml:"max_iterations,omitempty"`
-		DailyBudgetTokens     int        `yaml:"daily_budget_tokens,omitempty"`
-		BudgetStayFrozen      bool       `yaml:"budget_stay_frozen,omitempty"`
-		MaxMembers            int        `yaml:"max_members,omitempty"`
-		StallThreshold        string     `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
-		StallHardTimeout      string     `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
-		WebhookSecret         string     `yaml:"webhook_secret,omitempty"`
-		RetentionDays         string     `yaml:"retention_days,omitempty"`          // days; "" = default 30, "0" = off
-		EventLog              *bool      `yaml:"event_log,omitempty"`               // nil = default true
-		TaskStaleThreshold    string     `yaml:"task_stale_threshold,omitempty"`    // duration; "" = default 24h, "0" = off
-		MailboxStaleThreshold string     `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
-		VerifyChecks          *checkYml  `yaml:"verify_checks,omitempty"`           // nil = checks off
-		Notify                *notifyYml `yaml:"notify,omitempty"`                  // nil = notifications off
+		PermissionMode         string     `yaml:"permission_mode,omitempty"`
+		MaxIterations          int        `yaml:"max_iterations,omitempty"`
+		DailyBudgetTokens      int        `yaml:"daily_budget_tokens,omitempty"`
+		DailyBudgetTotalTokens int        `yaml:"daily_budget_total_tokens,omitempty"`
+		DailyBudgetTotalUSD    float64    `yaml:"daily_budget_total_usd,omitempty"`
+		BudgetStayFrozen       bool       `yaml:"budget_stay_frozen,omitempty"`
+		MaxMembers             int        `yaml:"max_members,omitempty"`
+		StallThreshold         string     `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
+		StallHardTimeout       string     `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
+		WebhookSecret          string     `yaml:"webhook_secret,omitempty"`
+		RetentionDays          string     `yaml:"retention_days,omitempty"`          // days; "" = default 30, "0" = off
+		EventLog               *bool      `yaml:"event_log,omitempty"`               // nil = default true
+		TaskStaleThreshold     string     `yaml:"task_stale_threshold,omitempty"`    // duration; "" = default 24h, "0" = off
+		MailboxStaleThreshold  string     `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
+		VerifyChecks           *checkYml  `yaml:"verify_checks,omitempty"`           // nil = checks off
+		Notify                 *notifyYml `yaml:"notify,omitempty"`                  // nil = notifications off
 	} `yaml:"settings,omitempty"`
 }
 
@@ -506,25 +516,29 @@ func LoadManifest(path string) (Manifest, error) {
 	// there is no space default to be exempt from, so the sign is meaningless
 	// and an operator's `-1` plainly intends "no cap".
 	budget := max(y.Settings.DailyBudgetTokens, 0)
+	totalTok := max(y.Settings.DailyBudgetTotalTokens, 0)
+	totalUSD := max(y.Settings.DailyBudgetTotalUSD, 0)
 	m := Manifest{
 		Name:    y.Name,
 		Workdir: y.Workdir,
 		Leader:  leader,
 		Settings: Settings{
-			PermissionMode:        settingsMode,
-			MaxIterations:         y.Settings.MaxIterations,
-			DailyBudgetTokens:     budget,
-			BudgetStayFrozen:      y.Settings.BudgetStayFrozen,
-			MaxMembers:            max(y.Settings.MaxMembers, 0),
-			StallThreshold:        stall,
-			StallHardTimeout:      hard,
-			WebhookSecret:         strings.TrimSpace(y.Settings.WebhookSecret),
-			RetentionDays:         retention,
-			EventLog:              y.Settings.EventLog == nil || *y.Settings.EventLog,
-			TaskStaleThreshold:    taskStale,
-			MailboxStaleThreshold: mailboxStale,
-			VerifyChecks:          checks,
-			Notify:                notify,
+			PermissionMode:         settingsMode,
+			MaxIterations:          y.Settings.MaxIterations,
+			DailyBudgetTokens:      budget,
+			DailyBudgetTotalTokens: totalTok,
+			DailyBudgetTotalUSD:    totalUSD,
+			BudgetStayFrozen:       y.Settings.BudgetStayFrozen,
+			MaxMembers:             max(y.Settings.MaxMembers, 0),
+			StallThreshold:         stall,
+			StallHardTimeout:       hard,
+			WebhookSecret:          strings.TrimSpace(y.Settings.WebhookSecret),
+			RetentionDays:          retention,
+			EventLog:               y.Settings.EventLog == nil || *y.Settings.EventLog,
+			TaskStaleThreshold:     taskStale,
+			MailboxStaleThreshold:  mailboxStale,
+			VerifyChecks:           checks,
+			Notify:                 notify,
 		},
 	}
 	for _, w := range y.Workers {
@@ -566,6 +580,8 @@ func WriteManifest(path string, m Manifest) error {
 	y.Settings.PermissionMode = m.Settings.PermissionMode
 	y.Settings.MaxIterations = m.Settings.MaxIterations
 	y.Settings.DailyBudgetTokens = m.Settings.DailyBudgetTokens
+	y.Settings.DailyBudgetTotalTokens = m.Settings.DailyBudgetTotalTokens
+	y.Settings.DailyBudgetTotalUSD = m.Settings.DailyBudgetTotalUSD
 	y.Settings.BudgetStayFrozen = m.Settings.BudgetStayFrozen
 	y.Settings.MaxMembers = m.Settings.MaxMembers
 	// Stall knobs round-trip losslessly: the default emits nothing (reloads as

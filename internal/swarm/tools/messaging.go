@@ -107,13 +107,22 @@ func newListMembers(mc swarm.MemberContext) pubtools.Tool {
 					fmt.Fprintf(&b, " · perm %s", m.PermissionMode)
 				}
 				// Token meter (RP-13): cumulative session spend, plus today's
-				// counter against the member's daily budget when one is set.
+				// counter against the member's daily budget when one is set,
+				// plus today's priced dollars (CST — "~" marks an unpriced
+				// model whose spend is missing from the figure).
 				if m.Usage.InputTokens+m.Usage.OutputTokens > 0 || m.DailyTokens > 0 {
 					fmt.Fprintf(&b, " · tok in %s out %s", fmtTokens(m.Usage.InputTokens), fmtTokens(m.Usage.OutputTokens))
 					if budget := mc.Space.BudgetFor(m.Name); budget > 0 {
 						fmt.Fprintf(&b, ", today %s/%s", fmtTokens(m.DailyTokens), fmtTokens(budget))
 					} else if m.DailyTokens > 0 {
 						fmt.Fprintf(&b, ", today %s", fmtTokens(m.DailyTokens))
+					}
+					if day := mc.Space.DayFor(m.Name); day.CostUSD > 0 || day.Unpriced {
+						mark := ""
+						if day.Unpriced {
+							mark = "~"
+						}
+						fmt.Fprintf(&b, ", $%s%.2f", mark, day.CostUSD)
 					}
 				}
 				if m.WhenToUse != "" {

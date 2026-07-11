@@ -85,6 +85,13 @@ function permTone(mode: string): 'warning' | 'info' {
     <div v-if="member.tokensBudget" class="l3">
       <EvContextBar :used="member.tokensToday || 0" :limit="member.tokensBudget" label="BDG" noun="tokens today" />
     </div>
+    <div
+      v-if="member.costTodayUsd || member.costUnpriced"
+      class="cost"
+      :title="member.costUnpriced ? 'estimate at list price — this member\'s model has no rate card, its spend is missing from the figure' : 'estimate at list price (today)'"
+    >
+      ${{ member.costUnpriced ? '~' : '' }}{{ (member.costTodayUsd || 0).toFixed(2) }} today
+    </div>
     <div v-if="member.cron" class="sched" :title="member.schedulePrompt">⏰ {{ describeCron(member.cron) }}</div>
 
     <div v-if="menu" class="menu" @click.stop>
@@ -115,6 +122,12 @@ function permTone(mode: string): 'warning' | 'info' {
 </template>
 
 <style scoped>
+.cost {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
 .card {
   border: 1px solid var(--color-line);
   border-radius: var(--r-md);

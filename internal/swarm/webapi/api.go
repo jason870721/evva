@@ -244,6 +244,13 @@ type MemberInfo struct {
 	TokensOut    int `json:"tokensOut,omitempty"`
 	TokensToday  int `json:"tokensToday,omitempty"`
 	TokensBudget int `json:"tokensBudget,omitempty"`
+	// Cost meter (CST): today's cache-class tokens and the USD priced at
+	// meter time. CostUnpriced marks a member whose model has no rate-card
+	// entry — its dollars are missing from every $ figure, not zero.
+	TokensCacheRead  int     `json:"tokensCacheRead,omitempty"`
+	TokensCacheWrite int     `json:"tokensCacheWrite,omitempty"`
+	CostTodayUSD     float64 `json:"costTodayUsd,omitempty"`
+	CostUnpriced     bool    `json:"costUnpriced,omitempty"`
 	// Ephemeral / SpawnedFrom mark a DWF member_spawn clone (the roster's
 	// ephemeral pill): a spawned member that retires itself when its work
 	// completes, and the base it was cloned from.
@@ -394,6 +401,10 @@ type HealthInfo struct {
 	SpacesStopped int    `json:"spacesStopped"`
 	MembersActive int    `json:"membersActive"`
 	MembersFrozen int    `json:"membersFrozen"`
+	// CostTodayUSD is the service-wide priced spend today — the sum over
+	// running spaces (CST). An estimate at list price, and a floor when any
+	// member runs an unpriced model.
+	CostTodayUSD float64 `json:"costTodayUsd"`
 }
 
 // MetricsInfo is GET /api/swarm/{id}/metrics (RP-17): plain counters, no
@@ -421,10 +432,20 @@ type MetricsInfo struct {
 	// NTF notifier tallies: notifications delivered, dropped (dead endpoint,
 	// full queue, teardown), and rate-limit-suppressed. All zero when the
 	// space configures no notify block.
-	NotifsSent       int64                        `json:"notifsSent"`
-	NotifsDropped    int64                        `json:"notifsDropped"`
-	NotifsSuppressed int64                        `json:"notifsSuppressed"`
-	Members          map[string]MemberMetricsInfo `json:"members"`
+	NotifsSent       int64 `json:"notifsSent"`
+	NotifsDropped    int64 `json:"notifsDropped"`
+	NotifsSuppressed int64 `json:"notifsSuppressed"`
+	// CST space-day cost aggregate: today's In+Out tokens across the roster,
+	// the cache classes, the PRICED spend (CostUnpriced marks exclusions),
+	// the configured ceilings (0 = axis off), and whether the ceiling
+	// tripped today (everyone frozen until rollover).
+	SpaceTokensToday   int                          `json:"spaceTokensToday"`
+	SpaceCostTodayUSD  float64                      `json:"spaceCostTodayUsd"`
+	SpaceCostUnpriced  bool                         `json:"spaceCostUnpriced,omitempty"`
+	CeilingTotalTokens int                          `json:"ceilingTotalTokens,omitempty"`
+	CeilingTotalUSD    float64                      `json:"ceilingTotalUsd,omitempty"`
+	CeilingTripped     bool                         `json:"ceilingTripped,omitempty"`
+	Members            map[string]MemberMetricsInfo `json:"members"`
 }
 
 // MemberMetricsInfo is one member's scheduler counters. RunSeconds buckets

@@ -48,6 +48,13 @@ export interface MemberInfo {
   tokensOut?: number
   tokensToday?: number
   tokensBudget?: number
+  // Cost meter (CST): today's cache-class tokens and USD priced at meter
+  // time. costUnpriced marks a member whose model has no rate card — its
+  // dollars are MISSING from every $ figure, not zero.
+  tokensCacheRead?: number
+  tokensCacheWrite?: number
+  costTodayUsd?: number
+  costUnpriced?: boolean
   // DWF member_spawn clone: an ephemeral seat that retires itself when its
   // work completes, and the base member it was cloned from.
   ephemeral?: boolean
@@ -185,5 +192,12 @@ export interface MetricsInfo {
   hintsDropped: number
   tasksStale: number
   mailboxStale: number
+  // CST space-day cost aggregate + the daily ceiling (0 = axis off).
+  spaceTokensToday: number
+  spaceCostTodayUsd: number
+  spaceCostUnpriced?: boolean
+  ceilingTotalTokens?: number
+  ceilingTotalUsd?: number
+  ceilingTripped?: boolean
   members: Record<string, MemberMetricsInfo>
 }
