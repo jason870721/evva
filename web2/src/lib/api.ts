@@ -13,6 +13,7 @@ import type {
   SkillSpec,
   ProposalInfo,
   MemoryFileInfo,
+  BlackboardInfo,
   MetricsInfo,
 } from '../types/wire'
 import type { WireEvent } from '../types/events'
@@ -71,6 +72,8 @@ export function createApi(getToken: () => string) {
     // Member long-term memory (RP-25), the operator's read-only transparency window.
     memberMemory: (id: string, agent: string) =>
       req<MemoryFileInfo[]>('GET', `/api/agents/${enc(agent)}/memory?space=${enc(id)}`),
+    // Team blackboard (BB), read-only: the leader-curated standing picture.
+    blackboard: (id: string) => req<BlackboardInfo>('GET', `/api/swarm/${enc(id)}/blackboard`),
     // Scheduler counters (RP-17) + watchdog tallies (RP-22) + run-token histograms (RP-28).
     metrics: (id: string) => req<MetricsInfo>('GET', `/api/swarm/${enc(id)}/metrics`),
 

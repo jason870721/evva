@@ -175,6 +175,13 @@ type Backend interface {
 	// space or member is unknown. Curation (delete) is deferred with the FE tab.
 	MemberMemory(spaceID, agent string) ([]MemoryFileInfo, bool)
 
+	// Blackboard reads the team blackboard read-only (BB): the leader-curated
+	// standing picture every member's wake brief carries. bool false when the
+	// space is unknown; an empty board is Content "" (dormant), not an error.
+	// Web write access is deferred (BB open question #1) — the operator edits
+	// .vero/blackboard.md on disk.
+	Blackboard(spaceID string) (BlackboardInfo, bool)
+
 	// Vacuum runs one ledger retention pass now (RP-16): archive-then-delete
 	// messages read ≥ days ago and tasks completed ≥ days ago. days <= 0 uses
 	// the space's configured window (or the default); dryRun only counts.
@@ -244,6 +251,13 @@ type MemberInfo struct {
 	TokensOut    int `json:"tokensOut,omitempty"`
 	TokensToday  int `json:"tokensToday,omitempty"`
 	TokensBudget int `json:"tokensBudget,omitempty"`
+	// Cost meter (CST): today's cache-class tokens and the USD priced at
+	// meter time. CostUnpriced marks a member whose model has no rate-card
+	// entry — its dollars are missing from every $ figure, not zero.
+	TokensCacheRead  int     `json:"tokensCacheRead,omitempty"`
+	TokensCacheWrite int     `json:"tokensCacheWrite,omitempty"`
+	CostTodayUSD     float64 `json:"costTodayUsd,omitempty"`
+	CostUnpriced     bool    `json:"costUnpriced,omitempty"`
 	// Ephemeral / SpawnedFrom mark a DWF member_spawn clone (the roster's
 	// ephemeral pill): a spawned member that retires itself when its work
 	// completes, and the base it was cloned from.
@@ -286,6 +300,16 @@ type MemoryFileInfo struct {
 	Content string `json:"content"`
 }
 
+// BlackboardInfo is GET /api/swarm/{id}/blackboard (BB): the team blackboard
+// document. UpdatedAt is the file's mtime in unix millis (0 when the board is
+// empty/absent); By is the last tool writer when the file is still that
+// writer's version ("" after a restart or an operator disk edit).
+type BlackboardInfo struct {
+	Content   string `json:"content"`
+	UpdatedAt int64  `json:"updatedAt"`
+	By        string `json:"by,omitempty"`
+}
+
 // SkillSpec is the body of POST /api/agents/{name}/skills (RP-10): the operator
 // authors a skill. The first line of the written SKILL.md becomes `# <name>
 // <description>`; Body is the rest (the instructions the skill tool loads).
@@ -308,11 +332,31 @@ type TaskInfo struct {
 	ParentID   *int64 `json:"parentId,omitempty"`
 	// DependsOn / VerifyPolicy are the DWF task-graph fields: the dependency
 	// edges holding a blocked task (the board's dep badges) and who settles
-	// verifying ("leader" | "auto").
+	// verifying ("leader" | "auto" | "checks").
 	DependsOn    []int64 `json:"dependsOn,omitempty"`
 	VerifyPolicy string  `json:"verifyPolicy,omitempty"`
-	CreatedAt    int64   `json:"createdAt"`
-	UpdatedAt    int64   `json:"updatedAt"`
+	// Checks is the latest check run's evidence (CHK; absent = never ran);
+	// CheckRunning marks a queued/executing check — the board chip's third
+	// state; CheckOff marks a task opted out at creation.
+	Checks       *CheckInfo `json:"checks,omitempty"`
+	CheckRunning bool       `json:"checkRunning,omitempty"`
+	CheckOff     bool       `json:"checkOff,omitempty"`
+	CreatedAt    int64      `json:"createdAt"`
+	UpdatedAt    int64      `json:"updatedAt"`
+}
+
+// CheckInfo mirrors store.CheckEvidence on the wire — one verify-time check
+// run's machine evidence (CHK).
+type CheckInfo struct {
+	Command    string `json:"command"`
+	Exit       int    `json:"exit"`
+	TimedOut   bool   `json:"timedOut,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+	StartedAt  int64  `json:"startedAt"`
+	Workdir    string `json:"workdir,omitempty"`
+	Tail       string `json:"tail,omitempty"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	Pass       bool   `json:"pass"`
 }
 
 // TaskPage is a bounded slice of tasks plus the full match total, so a paged
@@ -374,6 +418,10 @@ type HealthInfo struct {
 	SpacesStopped int    `json:"spacesStopped"`
 	MembersActive int    `json:"membersActive"`
 	MembersFrozen int    `json:"membersFrozen"`
+	// CostTodayUSD is the service-wide priced spend today — the sum over
+	// running spaces (CST). An estimate at list price, and a floor when any
+	// member runs an unpriced model.
+	CostTodayUSD float64 `json:"costTodayUsd"`
 }
 
 // MetricsInfo is GET /api/swarm/{id}/metrics (RP-17): plain counters, no
@@ -389,10 +437,32 @@ type MetricsInfo struct {
 	MailboxStale int64 `json:"mailboxStale"`
 	// DWF engine tallies: tasks the engine dispatched (no leader relay), and
 	// the ephemeral-member lifecycle.
-	AutoDispatches int64                        `json:"autoDispatches"`
-	MembersSpawned int64                        `json:"membersSpawned"`
-	MembersRetired int64                        `json:"membersRetired"`
-	Members        map[string]MemberMetricsInfo `json:"members"`
+	AutoDispatches int64 `json:"autoDispatches"`
+	MembersSpawned int64 `json:"membersSpawned"`
+	MembersRetired int64 `json:"membersRetired"`
+	// CHK check-runner tallies: delivered runs, failing runs (timeouts
+	// included), and timeouts — the signal the configured command outgrew
+	// its budget.
+	ChecksRun     int64 `json:"checksRun"`
+	ChecksFailed  int64 `json:"checksFailed"`
+	ChecksTimeout int64 `json:"checksTimeout"`
+	// NTF notifier tallies: notifications delivered, dropped (dead endpoint,
+	// full queue, teardown), and rate-limit-suppressed. All zero when the
+	// space configures no notify block.
+	NotifsSent       int64 `json:"notifsSent"`
+	NotifsDropped    int64 `json:"notifsDropped"`
+	NotifsSuppressed int64 `json:"notifsSuppressed"`
+	// CST space-day cost aggregate: today's In+Out tokens across the roster,
+	// the cache classes, the PRICED spend (CostUnpriced marks exclusions),
+	// the configured ceilings (0 = axis off), and whether the ceiling
+	// tripped today (everyone frozen until rollover).
+	SpaceTokensToday   int                          `json:"spaceTokensToday"`
+	SpaceCostTodayUSD  float64                      `json:"spaceCostTodayUsd"`
+	SpaceCostUnpriced  bool                         `json:"spaceCostUnpriced,omitempty"`
+	CeilingTotalTokens int                          `json:"ceilingTotalTokens,omitempty"`
+	CeilingTotalUSD    float64                      `json:"ceilingTotalUsd,omitempty"`
+	CeilingTripped     bool                         `json:"ceilingTripped,omitempty"`
+	Members            map[string]MemberMetricsInfo `json:"members"`
 }
 
 // MemberMetricsInfo is one member's scheduler counters. RunSeconds buckets
@@ -820,6 +890,16 @@ func NewRouter(b Backend, hub *Hub, spa fs.FS) http.Handler {
 	}))
 	mux.Handle("DELETE /api/swarm/{id}/skills/{skill}", guard(func(w http.ResponseWriter, r *http.Request) {
 		respondInputErr(w, b.DeleteSharedSkill(r.PathValue("id"), r.PathValue("skill")))
+	}))
+	// Team blackboard, read-only (BB): the leader-curated standing picture.
+	// Web write access is deferred — the operator edits .vero/blackboard.md.
+	mux.Handle("GET /api/swarm/{id}/blackboard", guard(func(w http.ResponseWriter, r *http.Request) {
+		board, ok := b.Blackboard(r.PathValue("id"))
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, board)
 	}))
 	// The tool catalog the add-agent form offers (collaboration tools excluded).
 	mux.Handle("GET /api/tools", guard(func(w http.ResponseWriter, r *http.Request) {

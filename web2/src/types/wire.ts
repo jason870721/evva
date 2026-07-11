@@ -48,6 +48,13 @@ export interface MemberInfo {
   tokensOut?: number
   tokensToday?: number
   tokensBudget?: number
+  // Cost meter (CST): today's cache-class tokens and USD priced at meter
+  // time. costUnpriced marks a member whose model has no rate card — its
+  // dollars are MISSING from every $ figure, not zero.
+  tokensCacheRead?: number
+  tokensCacheWrite?: number
+  costTodayUsd?: number
+  costUnpriced?: boolean
   // DWF member_spawn clone: an ephemeral seat that retires itself when its
   // work completes, and the base member it was cloned from.
   ephemeral?: boolean
@@ -92,11 +99,31 @@ export interface TaskInfo {
   verifyNote?: string
   parentId?: number
   // DWF task graph: the dependency edges holding a blocked task (dep badges),
-  // and who settles verifying ('leader' | 'auto').
+  // and who settles verifying ('leader' | 'auto' | 'checks').
   dependsOn?: number[]
   verifyPolicy?: string
+  // CHK machine evidence: the latest verify-time check run (absent = never
+  // ran), whether one is queued/executing right now (the RUNNING chip), and
+  // the creation-time opt-out.
+  checks?: CheckInfo
+  checkRunning?: boolean
+  checkOff?: boolean
   createdAt: number
   updatedAt: number
+}
+
+// CheckInfo — one verify-time check run's evidence (CHK), mirrored from
+// webapi.CheckInfo.
+export interface CheckInfo {
+  command: string
+  exit: number
+  timedOut?: boolean
+  durationMs: number
+  startedAt: number
+  workdir?: string
+  tail?: string
+  truncated?: boolean
+  pass: boolean
 }
 export interface TaskPage {
   tasks: TaskInfo[]
@@ -146,6 +173,15 @@ export interface MemoryFileInfo {
   content: string
 }
 
+// BlackboardInfo — GET /api/swarm/:id/blackboard (BB): the leader-curated team
+// blackboard. updatedAt is the file mtime in unix millis (0 = empty board); by
+// is the last tool writer ("" after a restart or an operator disk edit).
+export interface BlackboardInfo {
+  content: string
+  updatedAt: number
+  by?: string
+}
+
 // MetricsInfo / MemberMetricsInfo — GET /api/swarm/:id/metrics (RP-17).
 // RunSeconds buckets completed runs by wall-clock (lt10s/lt1m/lt10m/gte10m);
 // RunTokens by per-run token cost (lt1k/lt10k/lt50k/gte50k, RP-28). TasksStale /
@@ -165,5 +201,12 @@ export interface MetricsInfo {
   hintsDropped: number
   tasksStale: number
   mailboxStale: number
+  // CST space-day cost aggregate + the daily ceiling (0 = axis off).
+  spaceTokensToday: number
+  spaceCostTodayUsd: number
+  spaceCostUnpriced?: boolean
+  ceilingTotalTokens?: number
+  ceilingTotalUsd?: number
+  ceilingTripped?: boolean
   members: Record<string, MemberMetricsInfo>
 }

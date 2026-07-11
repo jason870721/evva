@@ -66,6 +66,17 @@ function dist(buckets: [string, string][], counts?: Record<string, number>): str
         <div class="c"><span class="k">hints dropped</span><span class="v" :class="{ bad: m.hintsDropped }">{{ m.hintsDropped }}</span></div>
         <div class="c"><span class="k">stale-task alerts</span><span class="v" :class="{ bad: m.tasksStale }">{{ m.tasksStale }}</span></div>
         <div class="c"><span class="k">mailbox alerts</span><span class="v" :class="{ bad: m.mailboxStale }">{{ m.mailboxStale }}</span></div>
+        <div class="c">
+          <span class="k">tokens today</span>
+          <span class="v">{{ m.spaceTokensToday }}<template v-if="m.ceilingTotalTokens"> / {{ m.ceilingTotalTokens }}</template></span>
+        </div>
+        <div class="c" :title="m.spaceCostUnpriced ? 'estimate at list price — unpriced (custom) models are excluded, real spend is higher' : 'estimate at list price'">
+          <span class="k">cost today</span>
+          <span class="v" :class="{ bad: m.ceilingTripped }">
+            ${{ m.spaceCostUnpriced ? '~' : '' }}{{ (m.spaceCostTodayUsd || 0).toFixed(2) }}<template v-if="m.ceilingTotalUsd"> / ${{ m.ceilingTotalUsd.toFixed(2) }}</template>
+            <template v-if="m.ceilingTripped"> · CEILING TRIPPED</template>
+          </span>
+        </div>
       </div>
 
       <table class="members">

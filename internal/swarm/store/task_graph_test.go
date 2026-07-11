@@ -204,7 +204,7 @@ func TestCreateTaskGraph(t *testing.T) {
 
 	t.Run("verify_policy", func(t *testing.T) {
 		st := openTemp(t)
-		if _, err := st.CreateTask(Task{Title: "t", Spec: "s", Assignee: "w", CreatedBy: "l", VerifyPolicy: "checks"}); !errors.Is(err, ErrBadVerifyPolicy) {
+		if _, err := st.CreateTask(Task{Title: "t", Spec: "s", Assignee: "w", CreatedBy: "l", VerifyPolicy: "vibes"}); !errors.Is(err, ErrBadVerifyPolicy) {
 			t.Fatalf("unknown policy: err = %v, want ErrBadVerifyPolicy", err)
 		}
 		id, err := st.CreateTask(Task{Title: "t", Spec: "s", Assignee: "w", CreatedBy: "l"})
@@ -214,6 +214,14 @@ func TestCreateTaskGraph(t *testing.T) {
 		got, _ := st.GetTask(id)
 		if got.VerifyPolicy != VerifyLeader {
 			t.Fatalf("default policy = %q, want %q", got.VerifyPolicy, VerifyLeader)
+		}
+		// "checks" became a valid policy with the CHK wave (0006 reserved the slot).
+		cid, err := st.CreateTask(Task{Title: "t", Spec: "s", Assignee: "w", CreatedBy: "l", VerifyPolicy: VerifyChecks})
+		if err != nil {
+			t.Fatalf("CreateTask(checks): %v", err)
+		}
+		if got, _ := st.GetTask(cid); got.VerifyPolicy != VerifyChecks {
+			t.Fatalf("checks policy = %q, want %q", got.VerifyPolicy, VerifyChecks)
 		}
 	})
 }

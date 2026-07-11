@@ -43,9 +43,16 @@ type runtimeState struct {
 	// they tripped (so a restart can tell a budget freeze from an operator
 	// freeze, and the sweep can release stale marks — only breaker freezes
 	// auto-unfreeze at rollover). Absent in a pre-RP-13 file → zero meter.
-	UsageDay     string            `json:"usage_day,omitempty"`
-	UsageDaily   map[string]int    `json:"usage_daily,omitempty"`
-	BudgetFrozen map[string]string `json:"budget_frozen,omitempty"`
+	//
+	// UsageDaily is LEGACY, read-only (pre-CST meter v1: one In+Out int per
+	// member). Reload imports it once as an In-lump with zero cost when the
+	// v2 map is absent; persistRuntime writes only UsageDailyV2 — the
+	// four-class + at-meter-USD shape — plus the space ceiling's trip day.
+	UsageDay     string               `json:"usage_day,omitempty"`
+	UsageDaily   map[string]int       `json:"usage_daily,omitempty"`
+	UsageDailyV2 map[string]memberDay `json:"usage_daily_v2,omitempty"`
+	SpaceTripped string               `json:"space_tripped,omitempty"`
+	BudgetFrozen map[string]string    `json:"budget_frozen,omitempty"`
 
 	// PermModes holds RUNTIME permission-mode overrides (the web's per-member
 	// switch) — overrides ONLY, never construction-time seeds, so the manifest
@@ -81,9 +88,10 @@ func (sp *SwarmSpace) persistRuntime() {
 	}
 	sp.mu.Lock()
 	rs.UsageDay = sp.meter.day
+	rs.SpaceTripped = sp.meter.tripped
 	if len(sp.meter.daily) > 0 {
-		rs.UsageDaily = make(map[string]int, len(sp.meter.daily))
-		maps.Copy(rs.UsageDaily, sp.meter.daily)
+		rs.UsageDailyV2 = make(map[string]memberDay, len(sp.meter.daily))
+		maps.Copy(rs.UsageDailyV2, sp.meter.daily)
 	}
 	if len(sp.meter.frozen) > 0 {
 		rs.BudgetFrozen = make(map[string]string, len(sp.meter.frozen))
@@ -184,15 +192,25 @@ func (sp *SwarmSpace) Reload() {
 		}
 	}
 
-	// Restore the budget meter (RP-13). A stale day is left as-is: the
+	// Restore the budget meter (RP-13/CST). A stale day is left as-is: the
 	// supervisor's first tick sweep rolls it over and releases budget-frozen
 	// members (their frozen MEMBERSHIP below is what keeps them parked until
 	// then). Same-day restart keeps counters and marks — no budget reset by
-	// bouncing the service.
+	// bouncing the service. A legacy v1 file (one In+Out int per member)
+	// imports once as an In-lump with zero cost — the resume.go legacy-import
+	// precedent; persistRuntime rewrites it as v2 at the next change.
 	sp.mu.Lock()
 	sp.meter.day = rt.UsageDay
-	sp.meter.daily = make(map[string]int, len(rt.UsageDaily))
-	maps.Copy(sp.meter.daily, rt.UsageDaily)
+	sp.meter.tripped = rt.SpaceTripped
+	if rt.UsageDailyV2 != nil {
+		sp.meter.daily = make(map[string]memberDay, len(rt.UsageDailyV2))
+		maps.Copy(sp.meter.daily, rt.UsageDailyV2)
+	} else {
+		sp.meter.daily = make(map[string]memberDay, len(rt.UsageDaily))
+		for name, lump := range rt.UsageDaily {
+			sp.meter.daily[name] = memberDay{In: lump}
+		}
+	}
 	sp.meter.frozen = make(map[string]string, len(rt.BudgetFrozen))
 	maps.Copy(sp.meter.frozen, rt.BudgetFrozen)
 	sp.mu.Unlock()

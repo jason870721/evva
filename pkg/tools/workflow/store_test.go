@@ -307,8 +307,11 @@ func TestPersistenceReplayRoundTrip(t *testing.T) {
 	s.Close()
 
 	// Fresh store, same session → identical board; id counter continues.
+	// Closed via defer: the Create below reopens the session log lazily, and
+	// a handle still open at cleanup fails TempDir removal on Windows.
 	r := NewStore()
 	r.SetPersistence(dir)
+	defer r.Close()
 	if err := r.SetSession("sess-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -332,6 +335,7 @@ func TestPersistenceReplayRoundTrip(t *testing.T) {
 	// A different session id starts an empty board.
 	f := NewStore()
 	f.SetPersistence(dir)
+	defer f.Close()
 	if err := f.SetSession("sess-2"); err != nil {
 		t.Fatal(err)
 	}
@@ -364,6 +368,7 @@ func TestReplayToleratesCRLFAndGarbage(t *testing.T) {
 
 	r := NewStore()
 	r.SetPersistence(dir)
+	defer r.Close()
 	if err := r.SetSession("sess"); err != nil {
 		t.Fatal(err)
 	}

@@ -59,6 +59,7 @@ evva 是一個終端程式設計 agent。**Veronica** 是它的 *swarm（蜂群�
 | 溝通 | `send_message`、`list_members` | `send_message`、`list_members` |
 | 扇出 | `member_spawn`、`member_retire`（臨時分身） | — |
 | 制度沉澱 | `skill_publish`（釋出全隊共享 skill） | —（載入共享 skill，不著作） |
+| 團隊黑板 | `blackboard_write`（整篇替換常駐圖景）、`blackboard_read` | `blackboard_read`（喚醒簡報已自帶） |
 | 能寫賬本？ | **能**（唯一寫者） | 不能 |
 
 leader 把目標拆成任務，**推送**給合適的 worker，驗收結果後再向你彙報。worker 不能
@@ -161,6 +162,8 @@ settings:
   max_iterations: 50        # 每個成員單次執行的迴圈上限
   # —— 運營保險絲（按需啟用，詳見 §8）——
   # daily_budget_tokens: 2000000  # 每成員每日 token 上限（in+out）；0/省略 = 不限（負值按 0 處理）
+  # daily_budget_total_tokens: 8000000  # 全 space 每日上限（見 §8）；越線全員凍結
+  # daily_budget_total_usd: 20.0        #   同一天花板的美元軸（已定價花費）
   # budget_stay_frozen: false     # true = 超額凍結跨日不自動解凍（需手動）
   # stall_threshold: 10m          # 成員忙超過即告警；"0" 關閉（省略 = 預設 10m）
   # stall_hard_timeout: 30m       # 忙超過即自動取消該次執行；0/省略 = 關閉
@@ -169,6 +172,13 @@ settings:
   # webhook_secret: "hunter2"     # 要求事件 POST 攜帶 X-Evva-Webhook-Secret（見 §10）
   # retention_days: 30            # 已消費歷史 N 天後歸檔+刪除；"0" = 永不刪除
   # event_log: true               # 事件映象到 .vero/events/（按日 jsonl）；false = 關閉
+  # verify_checks:                # 機器驗證（見 §8）：任務進入 verifying 時
+  #   command: "go test ./..."    #   執行這條命令，證據落在任務行上
+  #   timeout: 5m                 #   單次上限（省略 = 2m，最大 10m）
+  # notify:                       # 把 gate／錯誤／告警推播給你（見 §8）
+  #   url: "https://hooks.slack.com/services/…"   # webhook,json 或 slack 格式
+  #   command: "evva-notify"      #   和/或本機命令（JSON 走 stdin）
+  # blackboard_max_bytes: 4096    # 團隊黑板大小上限（見 §7）；省略 = 4096，最大 16384
 ```
 
 - 同一 space 內**成員名唯一**（不支援副本 —— 每個成員取不同名字）。
@@ -363,6 +373,41 @@ Web 介面（`:8888`）針對每個 space 提供：
 `task_create`/`task_assign`，worker 接走各自的任務、回報，看板一路推進到
 **completed**。
 
+### 終端機駕駛艙 —— `evva swarm attach`
+
+住在終端機裡?`evva swarm attach <ref> [成員]` 用 Bubble Tea 把同一個 space
+開成即時終端主控台 —— 它是 Web 所消費的那套線協議的**第二個 client**
+（REST 快照 + 持久 `/chatlog` 重播 + `/ws` 即時流),你看到的內容跟瀏覽器
+逐 turn 一致。定位是**駕駛艙**,不是工作站:看、讀、答、操舵。成員編輯、
+排程、skills、記憶、提案、metrics 仍是 Web 專屬。
+
+```
+┌ roster ──────────┬ stream: qa ────────────────────────────┐
+│ ▸ lead   idle    │ [10:31] user → qa  task #42 …          │
+│ ● qa   ⚠ gate   │ [10:32] ⚙ qa bash go test ./…           │
+│   dev-a  run    │          ✗ exit 1 (tail…)               │
+├ tasks ───────────┤ [10:33] ✋ approval — qa wants bash     │
+│ ▶ #42 build  qa  ├─────────────────────────────────────────┤
+│ ▢ #43 docs   a   │ > message qa…               [enter=send]│
+└──────────────────┴─────────────────────────────────────────┘
+```
+
+- **花名冊** —— 成員按注意力排序（leader 最前,然後 act > warn,再來
+  busy),帶即時 phase 藥丸與耗時時鐘。`↑/↓` 選擇、`enter` 聚焦該成員的
+  stream、`a` 回到全員交錯視圖。
+- **Gate** —— 聚焦成員拋出的審批/提問自動彈成可作答的覆蓋層（approve /
+  **always allow** / 附理由 deny;提問支援多選);其他成員的 gate 以
+  `✋ N gate(s)` 信標提示 —— `g` 開最舊的一個。你離線期間累積的 gate 在
+  attach 時就在（`/pending` 補水)。若回覆輸給別人（有人先在 Web 上答了),
+  錯誤會回聲顯示並重新同步 gate 清單。
+- **輸入欄** —— `m` 給聚焦/選中成員發信（operator 郵件,sender `user`);
+  `:` 進命令模式 —— `:run <提示詞>` 起一輪 leader run、`:all <正文>` 廣播。
+- **生命週期鍵** —— `s/r` 暫停/恢復、`f/u` 凍結/解凍選中成員、`H` 全部
+  中止（帶確認)、`q` 離開 —— space 照常運行。
+- **斷線安全** —— 服務掉線時顯示 `↻ reconnecting (n)…`,各窗格保持最後
+  狀態;重連後從持久 chatlog 重新補水（拉取失敗絕不清空畫面)。
+  `--addr`/`--token` 可連遠端（`--allow-remote`）服務。
+
 ---
 
 ## 7. 協作到底是怎麼運作的（底層）
@@ -384,6 +429,11 @@ Web 介面（`:8888`）針對每個 space 提供：
   後續。逐任務的 `verify: "auto"`（預設 `"leader"`）讓宣告為機械性的步驟在
   worker 回報 `task_done` 的瞬間直接完成 —— 一條 `auto` 鏈可以無 leader 全程
   自流。判斷永遠留在 leader 手上：引擎只執行 leader 在建立時就宣告好的結構。
+- **機器驗證（靠證據，不靠信任）。** 配置了 `settings.verify_checks`（§8）
+  之後，每個進入 `verifying` 的任務都會觸發操作者設定的檢查命令（build／
+  test／lint）；exit code 和輸出尾段作為持久**證據**落在任務行上，並在
+  leader 裁決前寄達其信箱。逐任務的 `verify: "checks"` 讓檢查與任務圖組合：
+  綠燈自動完成任務、紅燈連同證據升級給 leader —— CI 把關的無 leader 鏈。
 - **臨時分身（隨需擴充扇出寬度）。** leader 的
   `member_spawn {from, count, retire?}` 會複製一個既有 worker（同 prompt／
   工具／模型／預算）成派生名字（`backend-2`、`backend-3`⋯）—— 不寫目錄、不動
@@ -430,6 +480,19 @@ Web 介面（`:8888`）針對每個 space 提供：
   **寫己讀眾**：寫自己的 memory dir 免審批，寫隊友的一律被拒（bypass 檔位也攔），
   讀隊友的隨意 —— 團隊心智對彼此與 operator 都透明（Web 端 `GET
   /api/agents/<名字>/memory?space=<id>` 唯讀可看；Memory 分頁隨 FE 批次落地）。
+- **團隊黑板（常駐的「當前圖景」）。** 廣播信是*叫醒電話* —— 每人落一行、全員被
+  喚醒，然後捲走。常駐脈絡（目標、已定決策、誰負責什麼、當前階段）改由 leader
+  維護**一份** markdown 文件：`blackboard_write {content}`（整篇替換、僅 leader），
+  存於 ledger 旁的 `.vero/blackboard.md`。**每個成員在每次喚醒簡報裡都看得到**
+  （`## Team blackboard` 區塊，帶新鮮度「updated 3m ago by lead」）——
+  被 compaction 洗過的成員自動重拾團隊圖景，而且更新**不喚醒任何人**：成員在
+  自己下一次因故醒來時自然讀到。任何成員可在執行中 `blackboard_read` 取最新版。
+  寫入端有大小上限（`settings.blackboard_max_bytes`，預設 4 KiB），每次喚醒的
+  token 成本從結構上就有天花板；每次改寫自動記一條 `blackboard_updated` 事件
+  （即時串流 + event log 都有）。你在 Web 看板頁的面板可讀
+  （`GET /api/swarm/{id}/blackboard`），也可以直接在磁碟上改檔案 —— 手改下一次
+  喚醒即生效、不產生事件、且會摘掉「by <成員>」署名（mtime 新鮮度照常更新）。
+  檔案空缺 = 功能休眠，任何簡報零位元組。
 - **空閒即省錢。** 沒有理由（訊息、任務、定時器）就什麼都不跑。一個空閒的 swarm
   不產生任何花費。
 
@@ -462,6 +525,45 @@ evva service stop
 
 對整個 space，**右上角的 refresh 按鈕**身兼兩職。在 space 列表頁它只是重新抓一次列表；**進到某個 space 後它就變成「重新套用設定」**：重新讀取 `evva-swarm.yml` 與每個 agent 的 `system_prompt.md`＋`tools/*.yml`，就地把全部成員在同一個 space id 下重建 —— 於是你調整提示詞、工具清單、manifest 設定時，**不必再走以前 remove + 重啟那一套**（滑鼠移上去會顯示一行說明）。因為重建會中斷所有在飛的執行，按下後會先請你確認。對話、任務、訊息都會**保留**；但 manifest 以檔案為準，所以你在 web 上臨時改的權限模式／排程會回退到 yml 寫的值 —— 若你本來就想留著，重建後再套用一次即可。
 
+### 起飛前檢查（`evva swarm doctor`）
+
+昂貴的設置錯誤 —— model 打錯字、provider key 沒設、`.vero` 被更新版 binary
+寫過 —— 今天都要到註冊**之後**、成員第一次 run 的深處才爆炸。doctor 先把
+整條梯子跑一遍:
+
+```sh
+evva swarm doctor            # 診斷目前目錄
+evva swarm doctor ~/team     # 或任何 workdir
+evva swarm doctor --offline  # 跳過 service 探測(完全不撥號)
+evva swarm doctor --strict --json   # CI 模式:警告升級為錯誤、輸出 JSON
+```
+
+```
+  A manifest      ✓ evva-swarm.yml — space "demo-team", leader "lead", 1 worker(s)
+  B members       ✗ qa: agentdef: qa: read system_prompt.md: no such file or directory
+  C models        ⚠ w: model "claude-sonet-5" is not a built-in — custom model?
+  D provider keys ✗ deepseek — no API key configured
+  E state         ✓ .vero absent (fresh dir — created at register)
+  F service       ✓ 127.0.0.1:8888 healthy (v1.11.0)
+2 error(s), 0 warning(s) — register would fail.   exit 1
+```
+
+- **嚴格唯讀。** doctor 不建目錄、不遷移資料庫、不寫 config、不註冊 ——
+  跑兩次、或在不屬於你的機器上跑,什麼都不會變。ledger 探針以唯讀模式
+  打開 `vero.db`,拿 schema 版本與這顆 binary 內嵌的比(較舊 = 「註冊時
+  會遷移」✓;**較新 = 被更新版 evva 寫過** ⚠)。壞掉的 `runtime.json`
+  會連後果一起警告:註冊時它會被靜默當成空的。
+- **成員用真正的 loader 探測** —— dir 成員跑的就是註冊時那個 `Build`
+  (同樣的錯誤文字);persona 成員對同一個 registry 解析、同樣的
+  main-tier 檢查。
+- **自定義模型是 ⚠ 不是 ✗** —— 不認識的 model id 可能是 SDK 註冊的自定
+  義模型,會在 client build 時解析(這個契約被尊重);只用內建模型的
+  團隊可用 `--strict` 升級它。
+- **key 只查存在、不驗有效性**(doctor 不打計費呼叫),值永不回顯。
+  Ollama 無 key —— 只看 base URL。
+- **給腳本的 exit code:**`0` 乾淨 · `1` 有 ✗ · `2` 僅當 `--strict`
+  升級的警告存在且沒有真正的失敗。
+
 ### 成本與卡死保險絲（token 預算 / stall 看門狗）
 
 7×24 跑的團隊需要兩根保險絲。都在 `evva-swarm.yml` 的 `settings:` 裡、按 space 生效；
@@ -486,6 +588,30 @@ workers:
 - 用量隨時看得到：leader 跑 `list_members` 每行帶 `tok in 1.2M out 345k, today 89k/500k`；
   Web 花名冊 API 帶 `tokensIn / tokensOut / tokensToday / tokensBudget`。計數與熔斷狀態
   會持久化 —— **重啟服務不會清零當天額度**。
+
+**美元,與全 space 天花板（`daily_budget_total_*`）**
+
+計量器同時在入賬當下把每次 run 定價 —— 四類用量(input、output、
+cache-read、cache-write)對內建價目表(`pkg/constant.MODEL_PRICING`,
+2026-06 驗證過的牌價;solo TUI 的 `/cost` 讀的同一張表)。`list_members`
+每個成員顯示 `$0.42`,web roster 與 `/metrics` 帶完整數字,`/healthz`
+彙總全服務。把美元當**牌價估算**,不是發票 —— 用自定義模型、價目表查
+不到的成員到處顯示 `~`:它的花費是**缺席**於 $ 數字,不是被記成零。
+
+```yaml
+settings:
+  daily_budget_total_tokens: 8000000   # 全 space 每日 in+out 上限(本地日界線);0 = 關
+  daily_budget_total_usd: 20.0         # 全 space 已定價花費上限;0 = 關
+```
+
+越過**任一**旋鈕就凍結整個名單 —— **包括 leader**(它通常是最貴的成
+員;豁免它等於在花費最集中的地方放軟天花板)。一封 `🧯 space budget
+ceiling` 通知指名觸發的旋鈕與最大花費者。信箱照常排隊;跨日自動全員解
+凍(除非 `budget_stay_frozen`)。從 roster 手動解凍**單一**成員是被尊
+重的操作者覆寫 —— 它繼續跑、其他人保持凍結,已觸發的標記擋住重複通知
+風暴。成本在入賬時以產生它的模型鎖定,日中換模型永不改寫歷史。token
+上限計的是**生成量**(僅 in+out);美元上限計的是**花費**(含 cache
+流量)—— 兩個問題,兩個旋鈕。
 
 **Stall 看門狗（卡死告警 / 自動止損）**
 
@@ -528,6 +654,79 @@ settings:
 - `alarm_set` 等處的裸時間字串按**系統本地時區**解析；要表達 UTC 用 RFC3339
   （`2026-06-10T12:25:00Z`），確認回執會同時給出 UTC 對照，下錯時區一眼可見。
 - cron（manifest 的 `schedule` 與 leader 的 `schedule_set`）按系統本地牆鍾比對。
+
+### 機器驗證（`verify_checks`）
+
+對 coding swarm 來說,驗收裡真正要緊的是機械性的那部分:能不能 build、測試
+過不過。配置**一條**檢查命令,任務每次進入 `verifying` 時 service 就替你跑:
+
+```yaml
+settings:
+  verify_checks:
+    command: "go build ./... && go test ./..."
+    timeout: 5m        # 省略 = 2m;最大 10m
+```
+
+- **會發生什麼。** 每次 verifying-entry(worker 的 `task_done`,或 leader 的
+  `task_update_status`)都會在 space workdir 執行該命令(`<shell> -c`,
+  與 bash 工具同一套 shell 解析;超時會殺掉整棵行程樹)。exit code + 輸出
+  尾段(約 16 KB,超長時保留頭+尾)作為持久**證據**落在任務行上 ——
+  `task_get`/`task_list` 看得到、web 看板卡片上有標記(✓ pass / ✗ fail /
+  執行中閃爍的「checks…」),並同時寄給 leader 和你。
+- **信任模型。** 命令文字**只有操作者能寫** —— 與 `permission_mode: bypass`
+  同一信任等級。任何 agent(包括 leader)都不能選擇或修改它,被 prompt
+  injection 的成員永遠無法把任務欄位變成 shell。agent 手上只有一根槓桿:
+  `task_create {check: "off"}` 讓純文件／討論型任務跳過檢查。
+- **CI 把關的無 leader 鏈。** 逐任務的 `verify: "checks"` 讓檢查成為關卡:
+  綠燈**自動完成任務**(後續自動派工,leader 不被喚醒),紅燈讓任務留在
+  `verifying` 並把證據寄給 leader —— 尾段就是駁回意見的初稿。紅燈永不自動
+  駁回;leader 可以用 `task_verify {approve: true}` 推翻一個 flaky test。
+  `verify: "auto"` 則完全忽略檢查(它宣告的就是「機械步驟,不設關卡」)。
+- **要知道的語意。** 每個 space 同時只跑一個檢查。重新進入 `verifying`
+  (駁回 → 返工 → 再次 `task_done`)會重跑,而執行中重入會殺掉舊的那次
+  (「最新一次為準」)。service 在檢查中途重啟只會丟掉那一次 —— 任務留在
+  `verifying`、沒有證據,`task_stale_threshold` 保險絲是後盾。目前檢查跑在
+  共用 workdir 上,隊友改到一半可能讓不屬於 assignee 的失敗出現 —— 證據會
+  註明它跑在哪個目錄。
+- **觀測。** `/metrics` 帶 `checksRun` / `checksFailed` / `checksTimeout`;
+  每次執行都在即時流與持久 chatlog 落一行 `task_check_done`。命令保持快 ——
+  精準子集勝過全套;10 分鐘上限是天花板,不是目標。
+### 讓 swarm 呼叫你（`notify`）
+
+gate、stall、預算凍結在 console 上都看得到 —— 但前提是有人在看。蓋上筆電,
+一個等待批准的成員就會永遠等下去。配置 `notify`,service 會把這些時刻推給你:
+
+```yaml
+settings:
+  notify:
+    url: "https://hooks.slack.com/services/T…/B…/x"   # 任何 webhook 端點
+    format: slack        # "json"(預設)| "slack"({"text": …})
+    secret: "s3cret"     # 選配;以 X-Evva-Webhook-Secret 標頭送出
+    events: [gates, errors, alerts]    # 預設:三組全開
+    command: "evva-notify"             # 和/或本機命令 —— JSON 走 stdin
+    rate_limit: 12       # 每 space 每分鐘上限(預設 12)
+```
+
+- **什麼會通知 —— 三組。** `gates`:成員在等批准或提問,每個 gate 只通知
+  一次 —— 重播與 WS 重連永不重複呼叫。`errors`:run 錯誤,或成員停在迭代
+  上限。`alerts`:watchdog／breaker 通知(stall、預算凍結、stale task、
+  stale mailbox)—— 這個 wave 同時把它們升級為 `ops_alert` 事件,從此
+  console 時間軸與持久 chatlog 也看得到,不再只躺在信箱裡。
+- **Payload。** `json` 送 `{space, spaceId, agent, kind, title, body, at,
+  console}` —— 每則通知都帶 console 深連結;處理 gate 回 console 做(這個
+  wave 不做 Slack 上直接批准)。`slack` 把同樣內容折進 `{"text": …}`,
+  Slack／Discord 相容 webhook 都吃。body 有上限(約 500 字元)—— 通知是
+  呼叫器,不是逐字稿。
+- **契約是 best-effort。** 非阻塞有界佇列、失敗後 5 秒重試一次、再失敗就
+  丟棄並計數 —— 死掉的端點只會讓 `/metrics` 的 `notifsDropped` 爬升,
+  絕不拖慢 swarm。`rate_limit` 令牌桶封頂爆量;被抑制時,下一則送達前會
+  先補一句「N 則已抑制」,沉默永遠不曖昧。
+- **`command` 模式。** JSON payload 走 stdin —— 桌面通知一行搞定:
+  `command: "jq -r .title | xargs -I{} notify-send evva {}"`。操作者在
+  manifest 裡寫的設定(與 `permission_mode: bypass` 同信任等級);15 秒
+  超時,整棵行程樹會被殺掉。
+- **觀測。** `/metrics` 帶 `notifsSent` / `notifsDropped` /
+  `notifsSuppressed`。
 
 ### Ledger 瘦身（`retention_days` / `evva swarm vacuum`）
 
@@ -737,6 +936,7 @@ curl -X POST http://127.0.0.1:8888/api/swarm/<space-id>/event \
 | `evva swarm stop <id>` | 停止（並移除）一個 space。 |
 | `evva swarm add <id> <成員>` | 向 space 熱載入一個 worker（`agents/sub/<成員>/`）。 |
 | `evva swarm vacuum <ref> [--days N] [--dry-run]` | 歸檔後刪除已消費歷史（RP-16）；dry-run 先預覽。 |
+| `evva swarm attach <ref> [成員] [--addr h:p] [--token t]` | 在運行中的 space 上開終端駕駛艙:注意力排序的花名冊、成員即時 stream、任務、可作答的 gate、輸入欄、生命週期鍵。`q` 離開,space 照常運行。需要 TTY（否則印出 Web URL)。 |
 | `evva swarm send <ref> <成員> <文字\|->` | 以 operator 身份（sender=`user`，與 Web 信箱完全同語義）給成員發一條訊息：idle 成員隨即喚醒、busy 成員折進當前 run；列印持久 message id 作回執。`-` 從 stdin 讀正文（指令碼管道）；成員名可寫角色 `leader`。打錯名字會回有效成員清單（RP-27）。 |
 
 ### 環境變數
@@ -786,8 +986,9 @@ swarm 的 cron 是自寫的、刻意精簡。五個欄位——`分 時 日 月 
 
 這些會**根據角色自動注入** —— **永遠不要在 `active.yml` 裡列它們**。
 Leader：`task_create`、`task_assign`、`task_update_status`、`task_verify`、
-`task_list`、`member_spawn`、`member_retire`。Worker：`my_tasks`、`task_get`、
-`task_done`。兩者都有：`send_message`、`list_members`。`active.yml` 裡只列成員
+`task_list`、`member_spawn`、`member_retire`、`blackboard_write`。Worker：
+`my_tasks`、`task_get`、`task_done`。兩者都有：`send_message`、`list_members`、
+`blackboard_read`。`active.yml` 裡只列成員
 需要的常規 evva 工具 —— `read`、`write`、`edit`、`bash`、`grep`、`glob`、
 `tree`、`web_fetch`……
 

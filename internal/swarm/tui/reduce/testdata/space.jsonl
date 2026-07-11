@@ -1,0 +1,21 @@
+{"Kind":"user_message","Time":"2026-07-11T10:30:00Z","UserMessage":{"Sender":"user","Recipient":"lead","Subject":"kickoff","Body":"ship v2"}}
+{"Kind":"run_start","AgentID":"ag-lead","Time":"2026-07-11T10:30:01Z"}
+{"Kind":"thinking_chunk","AgentID":"ag-lead","Time":"2026-07-11T10:30:02Z","Thinking":{"Text":"plan: "}}
+{"Kind":"thinking_chunk","AgentID":"ag-lead","Time":"2026-07-11T10:30:03Z","Thinking":{"Text":"split into two tasks"}}
+{"Kind":"text_chunk","AgentID":"ag-lead","Time":"2026-07-11T10:30:04Z","Text":{"Text":"Creating "}}
+{"Kind":"text_chunk","AgentID":"ag-qa","Time":"2026-07-11T10:30:05Z","Text":{"Text":"reading the spec"}}
+{"Kind":"text_chunk","AgentID":"ag-lead","Time":"2026-07-11T10:30:06Z","Text":{"Text":"the task graph."}}
+{"Kind":"tool_use_start","AgentID":"ag-lead","Time":"2026-07-11T10:30:07Z","ToolUseStart":{"Name":"task_create","ToolID":"t1","Input":{"title":"build"}}}
+{"Kind":"tool_use_result","AgentID":"ag-lead","Time":"2026-07-11T10:30:08Z","ToolUseResult":{"ToolID":"t1","Content":"task #42 created","IsError":false}}
+{"Kind":"task_dispatched","AgentID":"qa","Time":"2026-07-11T10:30:09Z","Text":{"Text":"task #42 \"build\" auto-dispatched → qa"}}
+{"Kind":"tool_use_start","AgentID":"ag-qa","Time":"2026-07-11T10:30:10Z","ToolUseStart":{"Name":"bash","ToolID":"t2","Input":{"command":"go test ./..."}}}
+{"Kind":"tool_use_result","AgentID":"ag-qa","Time":"2026-07-11T10:30:20Z","ToolUseResult":{"ToolID":"t2","Content":"FAIL: TestX (exit 1)","IsError":true}}
+{"Kind":"approval_needed","AgentID":"ag-qa","Time":"2026-07-11T10:30:21Z","ApprovalNeeded":{"RequestID":"req-7","ToolName":"bash","InputDescription":"rm -rf ./dist","Reason":"cleanup"}}
+{"Kind":"text","AgentID":"ag-dev","Time":"2026-07-11T10:30:22Z","Text":{"Text":"done with the refactor"}}
+{"Kind":"turn_end","AgentID":"ag-lead","Time":"2026-07-11T10:30:23Z"}
+{"Kind":"user_message","Time":"2026-07-11T10:30:24Z","UserMessage":{"Sender":"user","Recipient":"all","Body":"standup in 5"}}
+{"Kind":"blackboard_updated","AgentID":"lead","Time":"2026-07-11T10:30:25Z","Text":{"Text":"blackboard updated by lead (120 bytes)"}}
+{"Kind":"error","AgentID":"ag-dev","Time":"2026-07-11T10:30:26Z","Error":{"Message":"provider 500"}}
+{"Kind":"text_chunk","AgentID":"ag-qa","Time":"2026-07-11T10:30:27Z","Text":{"Text":" — retrying"}}
+{"Kind":"run_end","AgentID":"ag-qa","Time":"2026-07-11T10:30:28Z"}
+{"Kind":"store_update","AgentID":"ag-lead","Time":"2026-07-11T10:30:29Z"}

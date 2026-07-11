@@ -43,6 +43,13 @@ type spaceMetrics struct {
 	autoDispatches int64
 	membersSpawned int64
 	membersRetired int64
+
+	// CHK check-runner tallies, space-level: delivered runs, failing runs
+	// (timeouts included), and timeouts specifically — the operator's signal
+	// that the configured command outgrew its budget.
+	checksRun     int64
+	checksFailed  int64
+	checksTimeout int64
 }
 
 func newSpaceMetrics() *spaceMetrics {
@@ -166,6 +173,35 @@ func (m *spaceMetrics) countRetired() {
 	m.mu.Lock()
 	m.membersRetired++
 	m.mu.Unlock()
+}
+
+// countCheck tallies one DELIVERED check run (superseded and teardown-killed
+// runs never count — they never landed anywhere).
+func (m *spaceMetrics) countCheck(pass, timedOut bool) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.checksRun++
+	if !pass {
+		m.checksFailed++
+	}
+	if timedOut {
+		m.checksTimeout++
+	}
+	m.mu.Unlock()
+}
+
+// CheckCounts reports the CHK runner tallies (runs delivered, failed,
+// timed out). Exported for the metrics endpoint.
+func (sp *SwarmSpace) CheckCounts() (run, failed, timeout int64) {
+	m := sp.metrics
+	if m == nil {
+		return 0, 0, 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.checksRun, m.checksFailed, m.checksTimeout
 }
 
 // EngineCounts reports the DWF engine tallies (auto-dispatched tasks, members

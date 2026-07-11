@@ -199,12 +199,16 @@ export function reduceChat(turns: Turn[], ev: WireEvent): Turn[] {
       turns.push(t)
       return turns
     }
-    // DWF engine lines: the space acting on leader-declared structure —
-    // auto-dispatches and the ephemeral-member lifecycle. TextPayload carries
-    // the one-line narration.
+    // Engine lines: the space acting on leader-declared structure —
+    // auto-dispatches, the ephemeral-member lifecycle, verify-time check
+    // results (CHK), ops alerts promoted from mailbox-only notices (NTF),
+    // and blackboard rewrites (BB). TextPayload carries the narration.
     case 'task_dispatched':
     case 'member_spawned':
-    case 'member_retired': {
+    case 'member_retired':
+    case 'task_check_done':
+    case 'ops_alert':
+    case 'blackboard_updated': {
       closeAgentOpen(turns, agent)
       const text = textOf(ev)
       if (!text) return turns

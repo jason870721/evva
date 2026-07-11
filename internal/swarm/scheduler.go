@@ -151,7 +151,8 @@ func (s *Supervisor) serve(ctx context.Context, name string, m *memberRun, reaso
 		// after fireDue poked, so "the time the duty actually runs" is the right
 		// value to hand a long-running agent whose static prompt holds no date — RP-5).
 		s.log.Debug("swarm serve: timer duty", "member", name)
-		if !s.runOnce(ctx, name, m, scheduledWakePrompt(time.Now(), dutyPrompt, s.sp.memoryWakeReminder(name))) {
+		now := time.Now()
+		if !s.runOnce(ctx, name, m, scheduledWakePrompt(now, dutyPrompt, s.sp.memoryWakeReminder(name), s.sp.blackboardWakeSection(now))) {
 			return // suspended/errored — stop here
 		}
 	}
@@ -169,7 +170,8 @@ func (s *Supervisor) serve(ctx context.Context, name string, m *memberRun, reaso
 			return // nothing unread — idle burns no tokens
 		}
 		s.log.Debug("swarm serve: member has mail", "member", name, "batch", len(batch))
-		if !s.runOnce(ctx, name, m, composeMailPrompt(time.Now(), batch, s.sp.memoryWakeReminder(name))) {
+		now := time.Now()
+		if !s.runOnce(ctx, name, m, composeMailPrompt(now, batch, s.sp.memoryWakeReminder(name), s.sp.blackboardWakeSection(now))) {
 			return // suspended/errored — runOnce already unclaimed the batch for retry
 		}
 	}
@@ -246,28 +248,94 @@ func (s *Supervisor) runOnce(ctx context.Context, name string, m *memberRun, pro
 	return clean
 }
 
-// meterRun folds one finished run's token delta into the member's daily
-// counter, refreshes the roster's usage snapshot, and trips the budget breaker
-// when the member crossed its daily cap (RP-13). Runs on the member's loop
-// goroutine right after the run — the only place the session is safely
+// meterRun folds one finished run's token delta — all four usage classes,
+// priced at meter time with the model that produced it (CST meter v2) —
+// into the member's daily counter, refreshes the roster's usage snapshot,
+// and trips the breakers: the member's own cap first (RP-13, In+Out
+// semantics unchanged), then the space-wide ceiling. Runs on the member's
+// loop goroutine right after the run — the only place the session is safely
 // readable while the loop owns the member.
 func (s *Supervisor) meterRun(name string, pre llm.Usage, ctl ui.Controller) {
 	post := ctl.Usage()
-	delta := (post.InputTokens + post.OutputTokens) - (pre.InputTokens + pre.OutputTokens)
-	s.sp.metrics.countRunTokens(name, delta) // RP-28: same delta as the daily fold below
-	total := s.sp.addDailyUsage(name, delta, localDay(time.Now()))
+	dIn := post.InputTokens - pre.InputTokens
+	dOut := post.OutputTokens - pre.OutputTokens
+	dCR := post.CacheReadTokens - pre.CacheReadTokens
+	dCW := post.CacheCreationTokens - pre.CacheCreationTokens
+	s.sp.metrics.countRunTokens(name, dIn+dOut) // RP-28: same delta as the daily fold below
+	total, space := s.sp.addDailyUsage(name, ctl.Model(), dIn, dOut, dCR, dCW, localDay(time.Now()))
 	s.sp.Roster.setUsage(name, post, ctl.LastTurnInputTokens(), total)
 
-	budget := s.sp.BudgetFor(name)
-	if budget <= 0 || total < budget {
+	// Member cap first — unchanged RP-13 semantics. Fresh mark only: a member
+	// the operator unfroze while still over budget re-trips exactly once
+	// after its next run (Unfreeze clears the mark).
+	if budget := s.sp.BudgetFor(name); budget > 0 && total >= budget && s.sp.markBudgetFrozen(name) {
+		s.tripBudget(name, total, budget)
+	}
+	s.checkSpaceCeiling(space)
+}
+
+// checkSpaceCeiling trips the space-wide daily ceiling (CST): crossing
+// daily_budget_total_tokens (In+Out) or daily_budget_total_usd (priced
+// spend only — unpriced members are named in the mail, never silently
+// counted as $0 toward the limit) freezes EVERY active member, the leader
+// included: the leader is routinely the most expensive member, and
+// exempting it would soften the ceiling exactly where spend concentrates.
+// Order per the PRD: mark → notify (mail is store-write — it works with
+// everyone frozen) → freeze. Rollover releases the marks and members
+// together via the RP-13 axis unless budget_stay_frozen.
+func (s *Supervisor) checkSpaceCeiling(space spaceDay) {
+	tokCap := s.sp.settings.DailyBudgetTotalTokens
+	usdCap := s.sp.settings.DailyBudgetTotalUSD
+	tokHit := tokCap > 0 && space.Tokens >= tokCap
+	usdHit := usdCap > 0 && space.CostUSD >= usdCap
+	if !tokHit && !usdHit {
 		return
 	}
-	// Fresh mark only: a member the operator unfroze while still over budget
-	// re-trips exactly once after its next run (Unfreeze clears the mark).
-	if !s.sp.markBudgetFrozen(name) {
+	if !s.sp.markSpaceTripped() {
 		return
 	}
-	s.tripBudget(name, total, budget)
+
+	knob := "daily_budget_total_tokens"
+	standing := fmt.Sprintf("%d tokens (cap %d)", space.Tokens, tokCap)
+	if usdHit {
+		knob = "daily_budget_total_usd"
+		standing = fmt.Sprintf("$%.2f (cap $%.2f)", space.CostUSD, usdCap)
+		if tokHit {
+			knob = "both daily_budget_total knobs"
+			standing = fmt.Sprintf("%d tokens (cap %d) and $%.2f (cap $%.2f)", space.Tokens, tokCap, space.CostUSD, usdCap)
+		}
+	}
+	top, topDay := "", memberDay{}
+	for _, mv := range s.sp.Roster.Snapshot() {
+		if d := s.sp.DayFor(mv.Name); d.BudgetTokens() > topDay.BudgetTokens() {
+			top, topDay = mv.Name, d
+		}
+	}
+	body := fmt.Sprintf(
+		"The space crossed %s: today it stands at %s, so the ceiling FROZE every member — the leader included. "+
+			"Mailboxes keep queuing; nobody runs until the local day rolls over (auto-release unless "+
+			"settings.budget_stay_frozen) or an operator unfreezes members via the web. Largest spender: %s "+
+			"(%d tokens, $%.2f).", knob, standing, top, topDay.BudgetTokens(), topDay.CostUSD)
+	if space.Unpriced {
+		body += " Note: the $-figure EXCLUDES members on unpriced (custom) models — real spend is higher."
+	}
+	s.notifyOps("", fmt.Sprintf("🧯 space budget ceiling: everyone frozen (%s)", knob), body)
+
+	for _, mv := range s.sp.Roster.Snapshot() {
+		if mv.Membership != MembershipActive {
+			continue
+		}
+		// Day-stamped member marks ride the space trip so the existing
+		// rollover sweep releases everyone with no extra machinery; a manual
+		// per-member Unfreeze (which clears its mark) stays an honored
+		// operator override while the space mark stops a re-trip storm.
+		s.sp.markBudgetFrozen(mv.Name)
+		if err := s.Freeze(mv.Name); err != nil {
+			s.log.Warn("swarm: space ceiling could not freeze member", "member", mv.Name, "err", err)
+		}
+	}
+	s.log.Warn("swarm: space budget ceiling tripped — all members frozen",
+		"knob", knob, "tokens", space.Tokens, "usd", space.CostUSD)
 }
 
 // tripBudget freezes an over-budget member and notifies the operator and the
@@ -295,12 +363,16 @@ func (s *Supervisor) tripBudget(name string, total, budget int) {
 // notifyOps sends one durable notice to the operator ("user" — read in the web)
 // and, when the subject member is not the leader itself, to the leader (waking
 // it so the team can react). Shared by the budget breaker and the stall
-// watchdog.
+// watchdog. Each notice is also promoted to an ops_alert space event (NTF-1)
+// so the console timeline, the durable chatlog, and the outbound notifier
+// carry it — previously these alerts were visible only to someone reading
+// the mailbox.
 func (s *Supervisor) notifyOps(about, subject, body string) {
 	if leader := s.sp.Roster.leaderName(); leader != "" && leader != about {
 		_, _ = s.sp.Bus.Send(store.Message{Sender: "system", Recipient: leader, Subject: subject, Body: body})
 	}
 	_, _ = s.sp.Bus.Send(store.Message{Sender: "system", Recipient: "user", Subject: subject, Body: body})
+	s.sp.emitEngineEvent(KindOpsAlert, about, subject+"\n"+body)
 }
 
 // sweepStalls is the RP-14 watchdog: a member whose in-flight run exceeded
@@ -431,9 +503,11 @@ func (s *Supervisor) safeRun(ctx context.Context, name, prompt string) (out stri
 // each message carries its sent stamp so stale mail is visible as stale.
 // memIndex, when non-empty, is the member's memory index block (RP-25) — it
 // rides INSIDE the same reminder, so the model reads it as harness context.
-func composeMailPrompt(now time.Time, batch []store.Message, memIndex string) string {
+// board, when non-empty, is the team blackboard section (BB) — same mechanics,
+// team-level content: the leader's standing picture, on every wake.
+func composeMailPrompt(now time.Time, batch []store.Message, memIndex, board string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "<system-reminder>currenttime: %s%s</system-reminder>\n", common.Stamp(now), wakeMemoryBlock(memIndex))
+	fmt.Fprintf(&b, "<system-reminder>currenttime: %s%s%s</system-reminder>\n", common.Stamp(now), wakeMemoryBlock(memIndex), wakeBoardBlock(board))
 	b.WriteString("You have unread messages from teammates. Reply to each with send_message — your output text goes to the operator, not your teammates. Keep your output text brief (e.g., \"Replied to analyst\"). Do NOT use send_message to \"user\".\n")
 	for _, msg := range batch {
 		b.WriteString("\n--- Message from ")
@@ -467,13 +541,16 @@ const scheduledDutyPrompt = "[Scheduled duty] Your recurring schedule fired. Car
 // <system-reminder> so the model reads it as harness context, not a teammate's
 // request. memIndex (RP-25) hangs the member's memory index in the same
 // reminder — wake prompts are also where MEMORY enters the conversation, for
-// exactly the bit-stable-prefix reason the date lives here.
-func scheduledWakePrompt(now time.Time, prompt, memIndex string) string {
+// exactly the bit-stable-prefix reason the date lives here. board (BB) hangs
+// the team blackboard after it — timer wakes carry the team picture too, so a
+// scheduled patrol acts on the leader's current plan, not a compacted memory
+// of it.
+func scheduledWakePrompt(now time.Time, prompt, memIndex, board string) string {
 	body := strings.TrimSpace(prompt)
 	if body == "" {
 		body = scheduledDutyPrompt
 	}
-	return fmt.Sprintf("<system-reminder>currenttime: %s, %s%s</system-reminder>", common.Stamp(now), body, wakeMemoryBlock(memIndex))
+	return fmt.Sprintf("<system-reminder>currenttime: %s, %s%s%s</system-reminder>", common.Stamp(now), body, wakeMemoryBlock(memIndex), wakeBoardBlock(board))
 }
 
 // wakeMemoryBlock formats a member's memory index for in-reminder injection:
@@ -484,6 +561,16 @@ func wakeMemoryBlock(memIndex string) string {
 		return ""
 	}
 	return "\n\n" + memIndex
+}
+
+// wakeBoardBlock formats the team blackboard section for in-reminder injection
+// (BB): same shape as the memory block, "" when the board is dormant — a
+// board-less space's wake reminder is byte-identical to the pre-BB form.
+func wakeBoardBlock(board string) string {
+	if board == "" {
+		return ""
+	}
+	return "\n\n" + board
 }
 
 // poke signals a member's non-message wake (timer or resume). Non-blocking: if a

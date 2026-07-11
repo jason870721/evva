@@ -164,6 +164,27 @@ func (s *Store) migrate() error {
 	return nil
 }
 
+// LatestMigration reports the highest embedded migration version — the
+// schema this binary migrates a ledger to. Exported for the doctor's
+// read-only version-skew probe, which must NOT call Open (Open creates
+// .vero/ and migrates — exactly what a diagnostic may never do).
+func LatestMigration() int64 {
+	entries, err := migrationsFS.ReadDir("migrations")
+	if err != nil {
+		return 0
+	}
+	var latest int64
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		if v, err := migrationVersion(e.Name()); err == nil && v > latest {
+			latest = v
+		}
+	}
+	return latest
+}
+
 // migrationVersion parses the leading integer of a migration filename
 // ("0001_init.sql" -> 1).
 func migrationVersion(name string) (int64, error) {

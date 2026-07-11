@@ -29,8 +29,11 @@ import (
 // sections. A blank persona still yields a usable prompt (grounding + protocol
 // only). canWriteMemory gates the memory section: a member with no write/edit
 // tool cannot maintain memory files, so teaching it the protocol is noise.
-func injectTeamProtocol(persona, name, space string, role agentdef.Role, canWriteMemory bool) string {
-	suffix := teamProtocolSuffix(name, space, role, canWriteMemory)
+// checks, when non-nil, teaches the space's verify-time check (CHK) — the
+// command is settings-fixed at construction, so the prompt stays byte-stable
+// across rebuilds (RP-5).
+func injectTeamProtocol(persona, name, space string, role agentdef.Role, canWriteMemory bool, checks *agentdef.CheckSpec) string {
+	suffix := teamProtocolSuffix(name, space, role, canWriteMemory, checks)
 	if p := strings.TrimRight(persona, "\n"); p != "" {
 		return p + "\n\n" + suffix
 	}
@@ -39,11 +42,12 @@ func injectTeamProtocol(persona, name, space string, role agentdef.Role, canWrit
 
 // teamProtocolSuffix renders the swarm's collaboration sections WITHOUT a
 // persona body: grounding, channel rules, common protocol, role protocol,
-// and (for file-writing members) the memory protocol. Dir members get it
-// concatenated into their prompt body (injectTeamProtocol); persona members
-// get it as AgentDefinition.PromptSuffix so it survives the internally-
-// assembled prompt path and every re-render (RP-29).
-func teamProtocolSuffix(name, space string, role agentdef.Role, canWriteMemory bool) string {
+// the check protocol (spaces with verify_checks), and (for file-writing
+// members) the memory protocol. Dir members get it concatenated into their
+// prompt body (injectTeamProtocol); persona members get it as
+// AgentDefinition.PromptSuffix so it survives the internally-assembled
+// prompt path and every re-render (RP-29).
+func teamProtocolSuffix(name, space string, role agentdef.Role, canWriteMemory bool, checks *agentdef.CheckSpec) string {
 	var b strings.Builder
 	b.WriteString(swarmIdentity(name, space, role))
 	b.WriteString("\n\n")
@@ -56,11 +60,46 @@ func teamProtocolSuffix(name, space string, role agentdef.Role, canWriteMemory b
 	} else {
 		b.WriteString(workerProtocol)
 	}
+	if cs := checksProtocol(role, checks); cs != "" {
+		b.WriteString("\n\n")
+		b.WriteString(cs)
+	}
 	if canWriteMemory {
 		b.WriteString("\n\n")
 		b.WriteString(memoryProtocol(name, role))
 	}
 	return b.String()
+}
+
+// checksProtocol teaches the space's verify-time check (CHK) when one is
+// configured: every member learns the command that will judge its work and
+// the discipline of making it pass before task_done; the leader additionally
+// learns the evidence flow and its policy levers. "" when checks are off —
+// those spaces' prompts stay byte-identical to the pre-CHK form. Parametrized
+// only by construction-fixed values (RP-5 prompt-cache stability).
+func checksProtocol(role agentdef.Role, checks *agentdef.CheckSpec) string {
+	if checks == nil {
+		return ""
+	}
+	common := "## Machine checks at verify time\n\n" +
+		"This space runs an operator-configured check command whenever a task enters `verifying`:\n\n" +
+		"    " + checks.Command + "\n\n" +
+		"Its exit code and output tail land on the task as durable evidence (shown in `task_get`/`task_list`). " +
+		"Run it (or its fast subset) locally and make it pass BEFORE `task_done` — a red check on your task " +
+		"comes straight back to you as rework. The command is operator-owned config; no member, leader included, can change it."
+	if role != agentdef.RoleLeader {
+		return common
+	}
+	return common + "\n\n" +
+		"Your levers on it:\n\n" +
+		"- On a `verifying` task, wait for the check-evidence mail before ruling; a FAIL tail is your rejection " +
+		"note's first draft. If no evidence arrives after a reasonable wait, treat it as no-evidence and inspect manually.\n" +
+		"- `task_create {verify: \"checks\"}` makes the check the gate: a green run completes the task by itself " +
+		"(dependents dispatch, you are not woken); a red run escalates to you with the evidence attached. Use it " +
+		"for the code steps of engine-managed chains — it is what makes them CI-gated and leaderless.\n" +
+		"- `task_create {check: \"off\"}` skips the check for tasks the command cannot judge (docs-only, discussion).\n" +
+		"- A red check never auto-rejects. You may overrule it (flaky test, known-red main) with " +
+		"`task_verify {approve: true}` — record why in the note."
 }
 
 // memoryProtocol teaches a member its long-term memory discipline (RP-25): the
@@ -150,6 +189,14 @@ Communicate deliberately: hand off context when a teammate needs it, ask when yo
 are blocked or unsure, and report progress and results. Don't go silent during
 long work, and don't start a task a teammate already owns — check first.
 
+**Team blackboard** — the leader's standing team picture (goal, decisions made,
+who-owns-what, current phase). When it has content, your wake brief carries it
+under ` + "`## Team blackboard`" + ` with its freshness ("updated 3m ago"). Trust it over
+older broadcast mail for TEAM context; for YOUR OWN task, a direct task message
+beats the board. ` + "`blackboard_read`" + ` re-fetches it mid-run if a teammate mentions
+an update. Only the leader writes it — if the board is wrong or stale, say so to
+the leader.
+
 **Wake yourself later.** To resume at a specific future moment, set a one-shot
 alarm: ` + "`alarm_set { at, prompt }`" + ` wakes you once at an absolute time (e.g.
 "2026-09-11 12:31:50", your local zone) with a self-contained prompt — useful for
@@ -215,7 +262,16 @@ how-to — publish it as a shared skill with
 a message is forgotten at the next context compaction, a skill loads into every
 member's catalog permanently. Update a published skill with ` + "`overwrite: true`" + `
 when the procedure evolves. Publish sparingly — a handful of well-named skills the
-team actually uses, not a dump of every thought.`
+team actually uses, not a dump of every thought.
+
+**Maintain the team blackboard.** ` + "`blackboard_write { content }`" + ` replaces the one
+standing document every member sees in every wake brief: the goal, standing
+decisions, who-owns-what, and the current phase — your synthesized picture, not a
+log. Update it at milestones (a decision made, a phase change, ownership moved),
+not per message, and prune stale lines so it stays under its size cap. Updating
+wakes no one — the board replaces broadcast for STANDING context; keep
+` + "`send_message to: \"all\"`" + ` for "wake up and act now". A skill teaches HOW
+(permanent procedure); the board says WHERE WE ARE (current situation).`
 
 const workerProtocol = `## Your role: a worker
 

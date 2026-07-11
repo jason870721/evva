@@ -36,6 +36,13 @@ type Client struct {
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
 
+	// writeMu serializes send: Request/Notify are concurrent APIs, and a
+	// JSON-RPC frame must land on the wire whole — two interleaved
+	// header/body pairs desync the server's framing for good (the reader
+	// then blocks on a length that never arrives, and every later write
+	// blocks behind it).
+	writeMu sync.Mutex
+
 	mu        sync.Mutex
 	pending   map[int64]chan *response
 	handlers  map[string]NotificationHandler
@@ -185,12 +192,15 @@ func (c *Client) send(id int64, method string, params any) error {
 		return fmt.Errorf("lsp: marshal %s: %w", method, err)
 	}
 
-	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body))
-	if _, err := c.stdin.Write([]byte(header)); err != nil {
-		return fmt.Errorf("lsp: write header: %w", err)
-	}
-	if _, err := c.stdin.Write(body); err != nil {
-		return fmt.Errorf("lsp: write body: %w", err)
+	// One frame, one write, under the write lock: the mutex stops concurrent
+	// sends from interleaving, and the single buffer keeps header+body
+	// contiguous on the pipe even against non-Go readers.
+	frame := append([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body))), body...)
+	c.writeMu.Lock()
+	_, err = c.stdin.Write(frame)
+	c.writeMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("lsp: write frame: %w", err)
 	}
 	return nil
 }

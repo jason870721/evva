@@ -169,6 +169,8 @@ settings:
   max_iterations: 50        # per-run loop cap for each member
   # —— operational fuses (opt-in; see §8) ——
   # daily_budget_tokens: 2000000  # per-member daily token cap (in+out); 0/omit = unlimited (negatives read as 0)
+  # daily_budget_total_tokens: 8000000  # SPACE-wide daily ceiling (see §8); crossing freezes everyone
+  # daily_budget_total_usd: 20.0        #   dollar axis of the same ceiling (priced spend)
   # budget_stay_frozen: false     # true = a budget freeze survives the day rollover
   # stall_threshold: 10m          # alert when a member is busy longer; "0" off (omit = 10m)
   # stall_hard_timeout: 30m       # auto-cancel a run busy longer; 0/omit = off
@@ -177,6 +179,13 @@ settings:
   # webhook_secret: "hunter2"     # require X-Evva-Webhook-Secret on event POSTs (see §10)
   # retention_days: 30            # archive+delete consumed history after N days; "0" = keep forever
   # event_log: true               # mirror events to .vero/events/ (daily jsonl); false = off
+  # verify_checks:                # machine-checked verification (see §8): run this command
+  #   command: "go test ./..."    #   whenever a task enters verifying; evidence lands on the task
+  #   timeout: 5m                 #   per-run cap (omit = 2m, max 10m)
+  # notify:                       # push gates/errors/alerts to you (see §8)
+  #   url: "https://hooks.slack.com/services/…"   # webhook, json or slack format
+  #   command: "evva-notify"      #   and/or a local command (JSON on stdin)
+  # blackboard_max_bytes: 4096    # team-blackboard size cap (see §7); omit = 4096, max 16384
 ```
 
 - **Member names are unique** within a space (no replicas — give each a distinct
@@ -393,6 +402,47 @@ pick up their tasks, report back, and the board march to **completed**.
 > out, `evva swarm .`, and follow its README. A larger 7-member team is at
 > [`examples/evva-swarm/tech-team/`](../../../examples/evva-swarm/tech-team/).
 
+### The terminal cockpit — `evva swarm attach`
+
+Living in the terminal? `evva swarm attach <ref> [member]` opens the same
+space as a live Bubble Tea console — a second client of the exact wire
+surface the web consumes (REST snapshots + the durable `/chatlog` replay +
+the `/ws` feed), so what you see matches the browser turn for turn. It is
+the **cockpit**, not the workstation: watch, read, answer, steer. Membership
+editing, schedules, skills, memory, proposals, and metrics stay web-only.
+
+```
+┌ roster ──────────┬ stream: qa ────────────────────────────┐
+│ ▸ lead   idle    │ [10:31] user → qa  task #42 …          │
+│ ● qa   ⚠ gate   │ [10:32] ⚙ qa bash go test ./…           │
+│   dev-a  run    │          ✗ exit 1 (tail…)               │
+├ tasks ───────────┤ [10:33] ✋ approval — qa wants bash     │
+│ ▶ #42 build  qa  ├─────────────────────────────────────────┤
+│ ▢ #43 docs   a   │ > message qa…               [enter=send]│
+└──────────────────┴─────────────────────────────────────────┘
+```
+
+- **Roster** — members ordered by attention (leader first, then act > warn,
+  then busy), with live phase pills and elapsed clocks. `↑/↓` select,
+  `enter` focuses that member's stream, `a` returns to the all-members view.
+- **Gates** — an approval/question raised by the focused member opens as an
+  answerable overlay (approve / **always allow** / deny-with-reason;
+  questions support multi-select); gates elsewhere show a `✋ N gate(s)`
+  beacon — `g` opens the oldest. Gates raised while you were detached appear
+  on attach (`/pending` hydration). If a reply loses the race (someone
+  answered on the web first), the error echoes back and the gate list
+  re-syncs.
+- **Composer** — `m` messages the focused/selected member (operator mail,
+  sender `user`); `:` opens command mode — `:run <prompt>` starts a leader
+  turn, `:all <body>` broadcasts.
+- **Lifecycle keys** — `s/r` suspend/resume, `f/u` freeze/unfreeze the
+  selected member, `H` halt-all (with confirm), `q` detaches — the space
+  keeps running.
+- **Reconnect-safe** — a dropped service shows `↻ reconnecting (n)…` while
+  every pane keeps its last state; on reconnect the console re-hydrates from
+  the durable chatlog (nothing blanks on a failed fetch). `--addr`/`--token`
+  reach a remote (`--allow-remote`) service.
+
 ---
 
 ## 7. How collaboration actually works (under the hood)
@@ -420,6 +470,13 @@ pick up their tasks, report back, and the board march to **completed**.
   `task_done` — a chain of `auto` tasks flows end-to-end leaderlessly. All
   judgment stays with the leader: the engine only executes structure the
   leader declared at create time.
+- **Machine-checked verification (evidence, not trust).** With
+  `settings.verify_checks` configured (§8), every task entering `verifying`
+  triggers the operator's check command (build / test / lint); its exit code
+  and output tail land on the task as durable evidence and reach the leader
+  as mail before it rules. Per-task `verify: "checks"` composes it with the
+  graph: a green run completes the task by itself, a red run escalates to
+  the leader with the evidence attached — CI-gated leaderless chains.
 - **Ephemeral clones (fan-out width on demand).** The leader's
   `member_spawn {from, count, retire?}` clones an existing worker (same
   prompt/tools/model/budget) under derived names (`backend-2`, `backend-3`, …)
@@ -488,6 +545,24 @@ pick up their tasks, report back, and the board march to **completed**.
   open — the team's mind is transparent to teammates and the operator alike
   (read-only `GET /api/agents/<name>/memory?space=<id>`; the web Memory tab
   lands with the FE batch).
+- **Team blackboard (the standing picture).** Broadcast mail is a *wake-up
+  call* — it fans one row per member and wakes everyone, then scrolls away.
+  For standing context (the goal, decisions made, who-owns-what, current
+  phase) the leader instead maintains ONE markdown document —
+  `blackboard_write {content}`, whole-document replace, leader-only — stored
+  at `.vero/blackboard.md` beside the ledger. **Every member sees it in every
+  wake brief** (under `## Team blackboard`, with freshness: "updated 3m ago
+  by lead"), so a post-compaction member re-acquires the team picture
+  automatically, and updating it **wakes no one** — members read it whenever
+  they next wake for their own reasons. Any member can `blackboard_read`
+  mid-run for a fresh copy. Size-capped at write time
+  (`settings.blackboard_max_bytes`, default 4 KiB) so the per-wake token cost
+  is bounded by construction; every write self-audits as a
+  `blackboard_updated` event (live feed + event log). You read it on the web
+  (board view panel, `GET /api/swarm/{id}/blackboard`) and may edit the file
+  directly on disk — a hand edit is live at the next wake, produces no event,
+  and drops the "by <member>" attribution (the mtime freshness still
+  updates). Empty/absent file = feature off, zero bytes in any brief.
 - **Idle = cheap.** Nothing runs until there's a reason (a message, a task, a
   timer). An idle swarm costs nothing.
 
@@ -538,6 +613,48 @@ in-flight runs, it asks you to confirm first. Conversations, tasks, and messages
 changes you made from the web revert to what the yml says — re-apply those after if
 you meant to keep them.
 
+### Preflight (`evva swarm doctor`)
+
+The expensive setup mistakes — a typo'd model pin, a missing provider key, a
+`.vero` written by a newer binary — all surface *after* register today, deep
+inside a member's first run. Doctor runs the whole ladder first:
+
+```sh
+evva swarm doctor            # diagnose the current directory
+evva swarm doctor ~/team     # or any workdir
+evva swarm doctor --offline  # skip the service probes (never dials)
+evva swarm doctor --strict --json   # CI mode: warnings become errors, JSON out
+```
+
+```
+  A manifest      ✓ evva-swarm.yml — space "demo-team", leader "lead", 1 worker(s)
+  B members       ✗ qa: agentdef: qa: read system_prompt.md: no such file or directory
+  C models        ⚠ w: model "claude-sonet-5" is not a built-in — custom model?
+  D provider keys ✗ deepseek — no API key configured
+  E state         ✓ .vero absent (fresh dir — created at register)
+  F service       ✓ 127.0.0.1:8888 healthy (v1.11.0)
+2 error(s), 0 warning(s) — register would fail.   exit 1
+```
+
+- **Strictly read-only.** Doctor never creates directories, never migrates a
+  database, never writes config, never registers — running it twice, or on a
+  machine you don't own, changes nothing. The ledger probe opens `vero.db`
+  in read-only mode and compares its schema version against this binary's
+  (older = "will migrate at register" ✓; **newer = written by a newer evva**
+  ⚠). A corrupt `runtime.json` warns with the real consequence: register
+  silently treats it as empty.
+- **Members probe with the real loader** — a dir member runs the exact
+  `Build` register runs (same error text); a persona member resolves against
+  the same registry with the same main-tier check.
+- **Custom models are a ⚠, not an ✗** — an unknown model id may be an SDK-
+  registered custom model that resolves at client build (that contract is
+  honored); `--strict` promotes it for teams that only use built-ins.
+- **Keys are checked for presence, never validity** (no billable calls from
+  a doctor), and values are never echoed. Ollama is keyless — only its base
+  URL is looked at.
+- **Exit codes for scripts:** `0` clean · `1` any ✗ · `2` only when
+  `--strict` promoted warnings and nothing failed outright.
+
 ### Cost & stall fuses (token budget / run watchdog)
 
 A team running 24/7 needs two fuses. Both live under `settings:` in
@@ -567,6 +684,36 @@ workers:
   carries `tokensIn / tokensOut / tokensToday / tokensBudget`. Counters and
   breaker state persist — **restarting the service does not reset the day's
   spend**.
+
+**Dollars, and the space-wide ceiling (`daily_budget_total_*`)**
+
+The meter also prices every run at meter time — all four usage classes
+(input, output, cache-read, cache-write) against the built-in rate card
+(`pkg/constant.MODEL_PRICING`, list prices verified 2026-06; the same table
+the solo TUI's `/cost` reads). `list_members` shows `$0.42` per member, the
+web roster and `/metrics` carry the figures, and `/healthz` sums the
+service-wide total. Treat the dollars as **an estimate at list price**, not
+an invoice — and a member on a custom model with no rate-card entry shows
+`~` everywhere: its spend is *missing* from the $ figures, never counted as
+zero.
+
+```yaml
+settings:
+  daily_budget_total_tokens: 8000000   # space-wide in+out cap per LOCAL day; 0 = off
+  daily_budget_total_usd: 20.0         # space-wide priced-spend cap; 0 = off
+```
+
+Crossing **either** knob freezes the WHOLE roster — the leader included
+(it is routinely the most expensive member; exempting it would soften the
+ceiling exactly where spend concentrates). One `🧯 space budget ceiling`
+notice names the knob that fired and the largest spender. Mailboxes keep
+queuing; everyone auto-unfreezes at the day rollover (unless
+`budget_stay_frozen`). Unfreezing ONE member from the roster is an honored
+operator override — it runs while the rest stay frozen, and the held trip
+mark stops a re-notice storm. Costs are locked per run with the model that
+produced them, so a mid-day model switch never rewrites history. Token caps
+count **generation volume** (in+out only); the dollar cap counts **spend**
+(cache traffic included) — two different questions, two knobs.
 
 **Stall watchdog (hang alerts / auto-cancel)**
 
@@ -620,6 +767,93 @@ settings:
   the UTC twin, so a timezone mix-up is visible at a glance.
 - Cron (the manifest's `schedule` and the leader's `schedule_set`) matches the
   system's local wall clock.
+
+### Machine-checked verification (`verify_checks`)
+
+For a coding swarm, the verify step that matters is mechanical: does it
+build, do the tests pass. Configure ONE check command and the service runs
+it every time a task enters `verifying`:
+
+```yaml
+settings:
+  verify_checks:
+    command: "go build ./... && go test ./..."
+    timeout: 5m        # omit = 2m; max 10m
+```
+
+- **What happens.** On every verifying-entry (a worker's `task_done`, or the
+  leader's `task_update_status`), the service runs the command in the space
+  workdir (`<shell> -c`, the bash tool's shell resolution; the whole process
+  tree is killed at the timeout). Exit code + output tail (~16 KB, head+tail
+  kept when longer) land on the task row as durable **evidence** — visible
+  in `task_get`/`task_list`, on the web board card (✓ pass / ✗ fail / a
+  pulsing "checks…" while running), and mailed to the leader and to you.
+- **Trust model.** The command text is **operator-authored only** — the same
+  trust class as `permission_mode: bypass`. No agent, the leader included,
+  can choose or edit it, so a prompt-injected member can never turn a task
+  field into shell. Agents hold exactly one lever: `task_create
+  {check: "off"}` opts a docs-only / discussion task out.
+- **CI-gated leaderless chains.** Per-task `verify: "checks"` makes the
+  check the gate: a green run **completes the task by itself** (dependents
+  auto-dispatch; the leader is not woken), a red run leaves it in
+  `verifying` and mails the leader the evidence — the tail is the rejection
+  note's first draft. A red check never auto-rejects; the leader may
+  overrule a flaky test with `task_verify {approve: true}`. `verify: "auto"`
+  ignores checks entirely (it declares "mechanical, don't gate").
+- **Semantics to know.** One check runs at a time per space. Re-entering
+  `verifying` (reject → rework → `task_done` again) re-runs the check, and a
+  re-entry mid-run kills the stale run ("latest entry wins"). A service
+  restart mid-check simply loses that run — the task sits in `verifying`
+  with no evidence, and the `task_stale_threshold` fuse is the backstop.
+  Checks run against the shared workdir today, so a teammate mid-edit can
+  fail a check that isn't the assignee's fault — the evidence names the
+  directory it ran in.
+- **Watch it.** `/metrics` carries `checksRun` / `checksFailed` /
+  `checksTimeout`, and each run lands a `task_check_done` line in the live
+  feed and the durable chatlog. Keep the command fast — a targeted subset
+  beats the full suite; the 10-minute cap is a ceiling, not a target.
+### Getting paged by your swarm (`notify`)
+
+Gates, stalls, and budget freezes are visible on the console — but only to
+someone looking at it. Close the laptop and a blocked member waits forever.
+Configure `notify` and the service pushes those moments to you:
+
+```yaml
+settings:
+  notify:
+    url: "https://hooks.slack.com/services/T…/B…/x"   # any webhook endpoint
+    format: slack        # "json" (default) | "slack" ({"text": …})
+    secret: "s3cret"     # optional; sent as X-Evva-Webhook-Secret
+    events: [gates, errors, alerts]    # default: all three groups
+    command: "evva-notify"             # and/or local exec — JSON on stdin
+    rate_limit: 12       # max sends per minute per space (default 12)
+```
+
+- **What notifies — three groups.** `gates`: a member waiting for approval
+  or asking a question, once per gate — re-broadcasts and WS reconnects
+  never re-page. `errors`: a run error, or a member paused at its iteration
+  limit. `alerts`: the watchdog/breaker notices (stall, budget freeze, stale
+  task, stale mailbox) — this wave also promotes them to `ops_alert` events,
+  so they now appear in the console timeline and the durable chatlog too,
+  instead of being mailbox-only.
+- **Payload.** `json` sends `{space, spaceId, agent, kind, title, body, at,
+  console}` — the console deep-link rides every notification; acting on a
+  gate happens there (no approve-from-Slack this wave). `slack` folds the
+  same content into `{"text": …}`, the shape Slack- and Discord-compatible
+  webhooks eat. Bodies are capped (~500 chars) — a notification is a pager,
+  not a transcript.
+- **Best-effort by contract.** Non-blocking bounded queue, one retry after
+  5 s, then drop-and-count — a dead endpoint shows up as `notifsDropped`
+  climbing in `/metrics`, never as a slower swarm. The `rate_limit` token
+  bucket caps the blast radius; when it suppresses, the next delivery is
+  preceded by one "N notifications suppressed" notice, so silence is never
+  ambiguous.
+- **`command` mode.** The JSON payload arrives on stdin — a one-line desktop
+  recipe: `command: "jq -r .title | xargs -I{} notify-send evva {}"`.
+  Operator-authored manifest config (the `permission_mode: bypass` trust
+  class); 15 s timeout, process tree killed.
+- **Watch it.** `/metrics` carries `notifsSent` / `notifsDropped` /
+  `notifsSuppressed`.
 
 ### Ledger retention (`retention_days` / `evva swarm vacuum`)
 
@@ -854,6 +1088,7 @@ Replies: new → 202, duplicate `idempotency_key` → 200, bad/missing secret �
 | `evva swarm stop <id>` | Stop (and drop) one space. |
 | `evva swarm add <id> <member>` | Hot-load a worker (`agents/sub/<member>/`) into a space. |
 | `evva swarm vacuum <ref> [--days N] [--dry-run]` | Archive-then-delete consumed history (RP-16); dry-run previews. |
+| `evva swarm attach <ref> [member] [--addr h:p] [--token t]` | Open the terminal cockpit on a running space: attention-ordered roster, live member streams, tasks, answerable gates, composer, lifecycle keys. `q` detaches; the space keeps running. Needs a TTY (otherwise it prints the web URL). |
 | `evva swarm send <ref> <member> <text\|->` | Message a member as the operator (sender=`user` — identical semantics to the web composer): an idle member wakes on it, a busy one folds it into its current run; prints the durable message id as the receipt. `-` reads the body from stdin (script pipelines); `member` may be the role `leader`. A typo'd name comes back with the valid-recipient list (RP-27). |
 
 ### Environment variables
@@ -906,8 +1141,9 @@ prefixes (the timezone is always system-local).
 
 These are added **automatically** based on the member's role — **never list them
 in `active.yml`**. Leader: `task_create`, `task_assign`, `task_update_status`,
-`task_verify`, `task_list`, `member_spawn`, `member_retire`. Worker: `my_tasks`,
-`task_get`, `task_done`. Both: `send_message`, `list_members`. In `active.yml`
+`task_verify`, `task_list`, `member_spawn`, `member_retire`,
+`blackboard_write`. Worker: `my_tasks`, `task_get`, `task_done`. Both:
+`send_message`, `list_members`, `blackboard_read`. In `active.yml`
 you list only the regular evva tools your member needs — `read`, `write`,
 `edit`, `bash`, `grep`, `glob`, `tree`, `web_fetch`, …
 

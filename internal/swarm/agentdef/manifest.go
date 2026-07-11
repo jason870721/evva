@@ -66,6 +66,14 @@ type Settings struct {
 	// member-level knob there is nothing at space level to be exempt FROM, so
 	// any non-positive value just means "no cap".
 	DailyBudgetTokens int
+	// DailyBudgetTotalTokens / DailyBudgetTotalUSD are the SPACE-wide daily
+	// ceiling (CST): crossing either freezes every member — the leader
+	// included — until the local day rolls over (budget_stay_frozen pins).
+	// Tokens compare In+Out (generation volume); USD compares priced spend
+	// only (unpriced custom models are flagged, never counted as $0). 0 =
+	// that axis off; negatives normalize to 0 at load.
+	DailyBudgetTotalTokens int
+	DailyBudgetTotalUSD    float64
 	// BudgetStayFrozen keeps a budget-frozen member frozen across the day
 	// rollover, requiring a manual unfreeze (default false = auto-unfreeze).
 	BudgetStayFrozen bool
@@ -112,7 +120,67 @@ type Settings struct {
 	// forgotten or the wake chain regressed. 0 = disabled; omitted gets
 	// DefaultMailboxStaleThreshold.
 	MailboxStaleThreshold time.Duration
+	// VerifyChecks enables machine-checked verification (CHK): when set, the
+	// service runs Command whenever a task enters `verifying` and lands its
+	// exit/output tail on the task row as evidence. Absent = feature off,
+	// space byte-identical to before the wave.
+	VerifyChecks *CheckSpec
+	// Notify enables outbound notifications (NTF): attention-worthy moments
+	// (gates, errors, ops alerts) are pushed to a webhook and/or a local
+	// command, so an operator away from the console learns within seconds.
+	// Absent = feature off, zero behavior change.
+	Notify *NotifySpec
+	// BlackboardMaxBytes caps the team blackboard document (BB): the leader's
+	// blackboard_write rejects anything larger, which is what bounds the
+	// wake-brief token cost across N members × every wake. A manifest that
+	// omits the knob gets DefaultBlackboardMaxBytes; values above
+	// MaxBlackboardMaxBytes are rejected at load.
+	BlackboardMaxBytes int
 }
+
+// CheckSpec is the operator-authored verify-time check (CHK): one shell
+// command plus its timeout. The command text is the manifest's trust surface
+// — the same class as permission_mode: bypass — and no agent, leader
+// included, can author or edit it; agents hold exactly one lever, the
+// per-task check:"off" opt-out (CHK §4).
+type CheckSpec struct {
+	Command string
+	Timeout time.Duration
+}
+
+// NotifySpec is the operator's outbound-notification config (NTF). At least
+// one of URL/Command must be set; both may be. Delivery is best-effort by
+// contract — one retry, then drop and count (the event-log discipline), so a
+// dead endpoint can never wedge a space.
+type NotifySpec struct {
+	URL       string   // webhook endpoint; POSTed the payload
+	Format    string   // NotifyFormatJSON (default) | NotifyFormatSlack
+	Secret    string   // sent as X-Evva-Webhook-Secret when non-empty
+	Events    []string // groups to send: gates | errors | alerts; empty = all three
+	Command   string   // local exec (<shell> -c); receives the JSON payload on stdin
+	RateLimit int      // max sends per minute per space; 0 = DefaultNotifyRateLimit
+}
+
+// Notify payload formats: plain JSON (the documented shape), or the
+// lowest-common-denominator {"text": …} that Slack-compatible webhooks eat.
+const (
+	NotifyFormatJSON  = "json"
+	NotifyFormatSlack = "slack"
+)
+
+// Notify event groups: gates = approval_needed + question_needed; errors =
+// error + iter_limit; alerts = ops_alert (the promoted watchdog / breaker
+// notices).
+const (
+	NotifyGroupGates  = "gates"
+	NotifyGroupErrors = "errors"
+	NotifyGroupAlerts = "alerts"
+)
+
+// DefaultNotifyRateLimit caps sends per minute per space when the manifest
+// omits notify.rate_limit — enough for a real burst (a wide swarm's gate
+// storm), low enough that a misbehaving space can't flood a channel.
+const DefaultNotifyRateLimit = 12
 
 // DefaultStallThreshold is the alert line a manifest gets when it does not set
 // settings.stall_threshold. Long enough that legitimate tool-heavy runs don't
@@ -140,6 +208,24 @@ const DefaultTaskStaleThreshold = 24 * time.Hour
 // chain normally drains in seconds, so anything older signals a frozen or
 // broken member, not load.
 const DefaultMailboxStaleThreshold = 30 * time.Minute
+
+// DefaultCheckTimeout / MaxCheckTimeout bound a verify check's runtime — the
+// bash tool's norms (pkg/tools/shell: default 2 min, max 10 min). A check
+// past its timeout is tree-killed and lands as failing evidence.
+const (
+	DefaultCheckTimeout = 2 * time.Minute
+	MaxCheckTimeout     = 10 * time.Minute
+)
+
+// DefaultBlackboardMaxBytes / MaxBlackboardMaxBytes bound the team blackboard
+// (BB §5.1): 4 KiB ≈ 1k tokens is a generous standing brief, and even the
+// 16 KiB hard ceiling keeps the per-wake injection cost of one board within a
+// few thousand tokens. The cap is enforced at write time — the ONE point that
+// makes the wake-brief cost bounded by construction.
+const (
+	DefaultBlackboardMaxBytes = 4096
+	MaxBlackboardMaxBytes     = 16384
+)
 
 // scheduleYml is the on-disk schedule block shared by the manifest's leader and
 // workers (and mirrored by profile.yml). Exactly one of cron/every is set.
@@ -218,19 +304,131 @@ type manifestYml struct {
 	Leader   memberYml   `yaml:"leader"`
 	Workers  []memberYml `yaml:"workers,omitempty"`
 	Settings struct {
-		PermissionMode        string `yaml:"permission_mode,omitempty"`
-		MaxIterations         int    `yaml:"max_iterations,omitempty"`
-		DailyBudgetTokens     int    `yaml:"daily_budget_tokens,omitempty"`
-		BudgetStayFrozen      bool   `yaml:"budget_stay_frozen,omitempty"`
-		MaxMembers            int    `yaml:"max_members,omitempty"`
-		StallThreshold        string `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
-		StallHardTimeout      string `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
-		WebhookSecret         string `yaml:"webhook_secret,omitempty"`
-		RetentionDays         string `yaml:"retention_days,omitempty"`          // days; "" = default 30, "0" = off
-		EventLog              *bool  `yaml:"event_log,omitempty"`               // nil = default true
-		TaskStaleThreshold    string `yaml:"task_stale_threshold,omitempty"`    // duration; "" = default 24h, "0" = off
-		MailboxStaleThreshold string `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
+		PermissionMode         string     `yaml:"permission_mode,omitempty"`
+		MaxIterations          int        `yaml:"max_iterations,omitempty"`
+		DailyBudgetTokens      int        `yaml:"daily_budget_tokens,omitempty"`
+		DailyBudgetTotalTokens int        `yaml:"daily_budget_total_tokens,omitempty"`
+		DailyBudgetTotalUSD    float64    `yaml:"daily_budget_total_usd,omitempty"`
+		BudgetStayFrozen       bool       `yaml:"budget_stay_frozen,omitempty"`
+		MaxMembers             int        `yaml:"max_members,omitempty"`
+		StallThreshold         string     `yaml:"stall_threshold,omitempty"`    // duration; "" = default, "0" = off
+		StallHardTimeout       string     `yaml:"stall_hard_timeout,omitempty"` // duration; "" or "0" = off
+		WebhookSecret          string     `yaml:"webhook_secret,omitempty"`
+		RetentionDays          string     `yaml:"retention_days,omitempty"`          // days; "" = default 30, "0" = off
+		EventLog               *bool      `yaml:"event_log,omitempty"`               // nil = default true
+		TaskStaleThreshold     string     `yaml:"task_stale_threshold,omitempty"`    // duration; "" = default 24h, "0" = off
+		MailboxStaleThreshold  string     `yaml:"mailbox_stale_threshold,omitempty"` // duration; "" = default 30m, "0" = off
+		VerifyChecks           *checkYml  `yaml:"verify_checks,omitempty"`           // nil = checks off
+		Notify                 *notifyYml `yaml:"notify,omitempty"`                  // nil = notifications off
+		BlackboardMaxBytes     int        `yaml:"blackboard_max_bytes,omitempty"`    // 0 = default 4096, max 16384
 	} `yaml:"settings,omitempty"`
+}
+
+// checkYml is the on-disk settings.verify_checks block (CHK).
+type checkYml struct {
+	Command string `yaml:"command,omitempty"`
+	Timeout string `yaml:"timeout,omitempty"` // duration; "" = default 2m, max 10m
+}
+
+// parseCheckYml validates the optional verify_checks block: absent = feature
+// off; present demands a non-empty command and a timeout inside
+// (0, MaxCheckTimeout] — "" defaults to DefaultCheckTimeout. An explicit "0"
+// is rejected rather than read as "off": a check that can never run is a
+// misconfiguration; disabling checks means removing the block.
+func parseCheckYml(y *checkYml) (*CheckSpec, error) {
+	if y == nil {
+		return nil, nil
+	}
+	cmd := strings.TrimSpace(y.Command)
+	if cmd == "" {
+		return nil, fmt.Errorf("command is required (remove the verify_checks block to disable checks)")
+	}
+	timeout := DefaultCheckTimeout
+	if s := strings.TrimSpace(y.Timeout); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return nil, fmt.Errorf("timeout: %w", err)
+		}
+		timeout = d
+	}
+	if timeout <= 0 || timeout > MaxCheckTimeout {
+		return nil, fmt.Errorf("timeout must be within (0, %s], got %s", MaxCheckTimeout, timeout)
+	}
+	return &CheckSpec{Command: cmd, Timeout: timeout}, nil
+}
+
+// notifyYml is the on-disk settings.notify block (NTF).
+type notifyYml struct {
+	URL       string   `yaml:"url,omitempty"`
+	Format    string   `yaml:"format,omitempty"`     // "" = json
+	Secret    string   `yaml:"secret,omitempty"`     // X-Evva-Webhook-Secret
+	Events    []string `yaml:"events,omitempty"`     // gates | errors | alerts; empty = all
+	Command   string   `yaml:"command,omitempty"`    // local exec, JSON on stdin
+	RateLimit int      `yaml:"rate_limit,omitempty"` // sends/min; 0 = default 12
+}
+
+// parseNotifyYml validates the optional notify block: absent = feature off;
+// present demands at least one target (url and/or command), a known format,
+// known event-group names, and a non-negative rate limit (0 = the default).
+func parseNotifyYml(y *notifyYml) (*NotifySpec, error) {
+	if y == nil {
+		return nil, nil
+	}
+	spec := &NotifySpec{
+		URL:       strings.TrimSpace(y.URL),
+		Format:    strings.TrimSpace(y.Format),
+		Secret:    strings.TrimSpace(y.Secret),
+		Command:   strings.TrimSpace(y.Command),
+		RateLimit: y.RateLimit,
+	}
+	if spec.URL == "" && spec.Command == "" {
+		return nil, fmt.Errorf("at least one of url/command is required (remove the notify block to disable notifications)")
+	}
+	switch spec.Format {
+	case "":
+		spec.Format = NotifyFormatJSON
+	case NotifyFormatJSON, NotifyFormatSlack:
+	default:
+		return nil, fmt.Errorf("invalid format %q (want %q or %q)", spec.Format, NotifyFormatJSON, NotifyFormatSlack)
+	}
+	if spec.RateLimit < 0 {
+		return nil, fmt.Errorf("rate_limit must not be negative (got %d)", spec.RateLimit)
+	}
+	if spec.RateLimit == 0 {
+		spec.RateLimit = DefaultNotifyRateLimit
+	}
+	seen := map[string]bool{}
+	for _, g := range y.Events {
+		g = strings.TrimSpace(g)
+		switch g {
+		case NotifyGroupGates, NotifyGroupErrors, NotifyGroupAlerts:
+		default:
+			return nil, fmt.Errorf("unknown events group %q (want %s|%s|%s)", g, NotifyGroupGates, NotifyGroupErrors, NotifyGroupAlerts)
+		}
+		if !seen[g] {
+			seen[g] = true
+			spec.Events = append(spec.Events, g)
+		}
+	}
+	return spec, nil
+}
+
+// parseBlackboardMaxBytes reads the optional blackboard cap: 0 (omitted) →
+// DefaultBlackboardMaxBytes, otherwise a positive byte count no larger than
+// MaxBlackboardMaxBytes. There is no "0 = off" reading — the feature's off
+// switch is an empty board, not an unwritable one; a cap nothing fits under
+// is a misconfiguration and fails the manifest at register time.
+func parseBlackboardMaxBytes(n int) (int, error) {
+	if n == 0 {
+		return DefaultBlackboardMaxBytes, nil
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("must be positive: %d", n)
+	}
+	if n > MaxBlackboardMaxBytes {
+		return 0, fmt.Errorf("must not exceed %d bytes, got %d", MaxBlackboardMaxBytes, n)
+	}
+	return n, nil
 }
 
 // parseRetentionDays reads the optional retention knob: "" → DefaultRetentionDays,
@@ -340,28 +538,47 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("agentdef: manifest settings.mailbox_stale_threshold: %w", err)
 	}
+	checks, err := parseCheckYml(y.Settings.VerifyChecks)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.verify_checks: %w", err)
+	}
+	notify, err := parseNotifyYml(y.Settings.Notify)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.notify: %w", err)
+	}
+	boardCap, err := parseBlackboardMaxBytes(y.Settings.BlackboardMaxBytes)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("agentdef: manifest settings.blackboard_max_bytes: %w", err)
+	}
 	// Space-level budget: negatives normalize to 0 = unlimited (RP-24 §5).
 	// The member-level knob keeps its signed semantics (<0 = exempt); here
 	// there is no space default to be exempt from, so the sign is meaningless
 	// and an operator's `-1` plainly intends "no cap".
 	budget := max(y.Settings.DailyBudgetTokens, 0)
+	totalTok := max(y.Settings.DailyBudgetTotalTokens, 0)
+	totalUSD := max(y.Settings.DailyBudgetTotalUSD, 0)
 	m := Manifest{
 		Name:    y.Name,
 		Workdir: y.Workdir,
 		Leader:  leader,
 		Settings: Settings{
-			PermissionMode:        settingsMode,
-			MaxIterations:         y.Settings.MaxIterations,
-			DailyBudgetTokens:     budget,
-			BudgetStayFrozen:      y.Settings.BudgetStayFrozen,
-			MaxMembers:            max(y.Settings.MaxMembers, 0),
-			StallThreshold:        stall,
-			StallHardTimeout:      hard,
-			WebhookSecret:         strings.TrimSpace(y.Settings.WebhookSecret),
-			RetentionDays:         retention,
-			EventLog:              y.Settings.EventLog == nil || *y.Settings.EventLog,
-			TaskStaleThreshold:    taskStale,
-			MailboxStaleThreshold: mailboxStale,
+			PermissionMode:         settingsMode,
+			MaxIterations:          y.Settings.MaxIterations,
+			DailyBudgetTokens:      budget,
+			DailyBudgetTotalTokens: totalTok,
+			DailyBudgetTotalUSD:    totalUSD,
+			BudgetStayFrozen:       y.Settings.BudgetStayFrozen,
+			MaxMembers:             max(y.Settings.MaxMembers, 0),
+			StallThreshold:         stall,
+			StallHardTimeout:       hard,
+			WebhookSecret:          strings.TrimSpace(y.Settings.WebhookSecret),
+			RetentionDays:          retention,
+			EventLog:               y.Settings.EventLog == nil || *y.Settings.EventLog,
+			TaskStaleThreshold:     taskStale,
+			MailboxStaleThreshold:  mailboxStale,
+			VerifyChecks:           checks,
+			Notify:                 notify,
+			BlackboardMaxBytes:     boardCap,
 		},
 	}
 	for _, w := range y.Workers {
@@ -403,6 +620,8 @@ func WriteManifest(path string, m Manifest) error {
 	y.Settings.PermissionMode = m.Settings.PermissionMode
 	y.Settings.MaxIterations = m.Settings.MaxIterations
 	y.Settings.DailyBudgetTokens = m.Settings.DailyBudgetTokens
+	y.Settings.DailyBudgetTotalTokens = m.Settings.DailyBudgetTotalTokens
+	y.Settings.DailyBudgetTotalUSD = m.Settings.DailyBudgetTotalUSD
 	y.Settings.BudgetStayFrozen = m.Settings.BudgetStayFrozen
 	y.Settings.MaxMembers = m.Settings.MaxMembers
 	// Stall knobs round-trip losslessly: the default emits nothing (reloads as
@@ -444,6 +663,31 @@ func WriteManifest(path string, m Manifest) error {
 		y.Settings.MailboxStaleThreshold = "0"
 	default:
 		y.Settings.MailboxStaleThreshold = m.Settings.MailboxStaleThreshold.String()
+	}
+	// verify_checks round-trips whole: absent block = off; the default
+	// timeout emits nothing (reloads as the default).
+	if c := m.Settings.VerifyChecks; c != nil {
+		y.Settings.VerifyChecks = &checkYml{Command: c.Command}
+		if c.Timeout != DefaultCheckTimeout {
+			y.Settings.VerifyChecks.Timeout = c.Timeout.String()
+		}
+	}
+	// notify round-trips whole: absent block = off; defaulted fields (json
+	// format, default rate limit) emit nothing and reload as the defaults.
+	if n := m.Settings.Notify; n != nil {
+		ny := &notifyYml{URL: n.URL, Secret: n.Secret, Events: n.Events, Command: n.Command}
+		if n.Format != NotifyFormatJSON {
+			ny.Format = n.Format
+		}
+		if n.RateLimit != DefaultNotifyRateLimit {
+			ny.RateLimit = n.RateLimit
+		}
+		y.Settings.Notify = ny
+	}
+	// The blackboard cap round-trips like the other defaulted knobs: the
+	// default emits nothing (reloads as the default).
+	if m.Settings.BlackboardMaxBytes != DefaultBlackboardMaxBytes {
+		y.Settings.BlackboardMaxBytes = m.Settings.BlackboardMaxBytes
 	}
 	b, err := yaml.Marshal(y)
 	if err != nil {

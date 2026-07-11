@@ -18,9 +18,10 @@ import (
 	"github.com/johnny1110/evva/pkg/ui"
 )
 
-// fakeController is a scripted ui.Controller. The supervisor calls Run plus the
-// RP-13 metering reads (Usage / LastTurnInputTokens); the embedded nil
-// interface satisfies the rest of the (fat) surface.
+// fakeController is a scripted ui.Controller. The supervisor calls Run plus
+// the metering reads (Usage / LastTurnInputTokens / Model — the CST at-meter
+// pricing lookup); the embedded nil interface satisfies the rest of the
+// (fat) surface.
 type fakeController struct {
 	ui.Controller
 	runs     atomic.Int32
@@ -34,11 +35,24 @@ type fakeController struct {
 	// usagePerRun is folded into the cumulative total on every Run, so metering
 	// tests can script a member's burn rate. Set before Start; read-only after.
 	usagePerRun llm.Usage
+	// model overrides Model()'s return so cost tests can hit a real rate-card
+	// entry; "" keeps the unpriced default.
+	model string
 
 	mu              sync.Mutex
 	prompts         []string
 	usage           llm.Usage
 	lastCompactKind string
+}
+
+// Model satisfies the meterRun pricing lookup. The default is a name absent
+// from the rate card, so scripted usage counts tokens and lands Unpriced;
+// cost tests set f.model to a real id.
+func (f *fakeController) Model() string {
+	if f.model != "" {
+		return f.model
+	}
+	return "fake-model"
 }
 
 func (f *fakeController) Run(ctx context.Context, prompt string) (string, error) {

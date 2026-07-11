@@ -370,6 +370,50 @@ func TestManifestRetentionKnob(t *testing.T) {
 	}
 }
 
+// BB: settings.blackboard_max_bytes — omitted → default, explicit values
+// round-trip, negative and over-ceiling reject at load.
+func TestManifestBlackboardKnob(t *testing.T) {
+	m, err := LoadManifest(writeManifest(t, "leader:\n  agent: lead\n"))
+	if err != nil {
+		t.Fatalf("LoadManifest (omitted): %v", err)
+	}
+	if m.Settings.BlackboardMaxBytes != DefaultBlackboardMaxBytes {
+		t.Fatalf("omitted blackboard_max_bytes = %d, want default %d", m.Settings.BlackboardMaxBytes, DefaultBlackboardMaxBytes)
+	}
+
+	p := writeManifest(t, "leader:\n  agent: lead\nsettings:\n  blackboard_max_bytes: 8192\n")
+	m, err = LoadManifest(p)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	if m.Settings.BlackboardMaxBytes != 8192 {
+		t.Fatalf("blackboard_max_bytes = %d, want 8192", m.Settings.BlackboardMaxBytes)
+	}
+	if err := WriteManifest(p, m); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+	if back, err := LoadManifest(p); err != nil || back.Settings.BlackboardMaxBytes != 8192 {
+		t.Fatalf("round-trip = %d (err %v), want 8192", back.Settings.BlackboardMaxBytes, err)
+	}
+
+	// The default round-trips by omission: re-emitting a default manifest must
+	// not pin the current default into the file.
+	m.Settings.BlackboardMaxBytes = DefaultBlackboardMaxBytes
+	if err := WriteManifest(p, m); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+	if b, _ := os.ReadFile(p); strings.Contains(string(b), "blackboard_max_bytes") {
+		t.Errorf("default cap should be omitted on write:\n%s", b)
+	}
+
+	for _, bad := range []string{"-1", "16385", "999999"} {
+		p := writeManifest(t, "leader:\n  agent: lead\nsettings:\n  blackboard_max_bytes: "+bad+"\n")
+		if _, err := LoadManifest(p); err == nil {
+			t.Errorf("blackboard_max_bytes %s should fail to load", bad)
+		}
+	}
+}
+
 // RP-17: settings.event_log — omitted → true, explicit false → false, and the
 // value round-trips (true omits, false writes).
 func TestManifestEventLogKnob(t *testing.T) {

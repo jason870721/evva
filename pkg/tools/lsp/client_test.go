@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -187,6 +189,65 @@ func TestClientConcurrentRequests(t *testing.T) {
 		if r.err != nil {
 			t.Errorf("request %d failed: %v", r.id, r.err)
 		}
+	}
+}
+
+// send is a concurrent API (Request/Notify race in production — diagnostics
+// sync fires alongside repo-map lookups), so frames from racing senders must
+// never interleave on the wire: one desynced length header blocks the
+// server's reader for good, and every later write blocks behind it — the
+// TestClientConcurrentRequests 10-minute hang the Windows CI caught. 32
+// writers of distinct sizes through a pipe; the reader must see exactly 32
+// well-formed frames. Deadline-guarded so a framing regression fails fast
+// instead of hanging the suite.
+func TestSendConcurrentFraming(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pr.Close()
+	c := &Client{
+		stdin:     pw,
+		pending:   make(map[int64]chan *response),
+		handlers:  make(map[string]NotificationHandler),
+		connCtx:   context.Background(),
+		connClose: func() {},
+	}
+
+	const n = 32
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_ = c.send(0, "test/frame", map[string]any{"pad": strings.Repeat("x", i*17)})
+		}(i)
+	}
+	go func() {
+		wg.Wait()
+		pw.Close()
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		reader := bufio.NewReader(pr)
+		for got := 0; got < n; got++ {
+			body, err := readMessage(reader)
+			if err != nil {
+				done <- fmt.Errorf("frame %d: %v", got, err)
+				return
+			}
+			if !json.Valid(body) {
+				done <- fmt.Errorf("frame %d: interleaved (invalid JSON): %.60q", got, body)
+				return
+			}
+		}
+		done <- nil
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("reader stalled — a desynced frame blocked the stream")
 	}
 }
 

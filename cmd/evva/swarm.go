@@ -9,8 +9,13 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"golang.org/x/term"
+
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
+	"github.com/johnny1110/evva/internal/swarm/doctor"
+	"github.com/johnny1110/evva/internal/swarm/tui/app"
 	"github.com/johnny1110/evva/internal/swarm/webapi"
+	"github.com/johnny1110/evva/pkg/config"
 )
 
 // runSwarm dispatches the swarm control-plane CLI — thin authenticated HTTP
@@ -35,6 +40,10 @@ func runSwarm(args []string) {
 	name, args := extractNameFlag(args)
 	// vacuum's flags, likewise position-independent.
 	days, dryRun, args := extractVacuumFlags(args)
+	// doctor's flags, likewise.
+	strict, offline, jsonOut, args := extractDoctorFlags(args)
+	// attach's flags, likewise.
+	attachAddr, attachToken, args := extractAttachFlags(args)
 
 	sub := ""
 	if len(args) > 0 {
@@ -91,6 +100,22 @@ func runSwarm(args []string) {
 			exitf(2, "usage: evva swarm send <ref> <member> <text> (use - to read the text from stdin)")
 		}
 		err = swarmSend(os.Stdout, args[1], args[2], args[3])
+	case "doctor":
+		dir := "."
+		if len(args) > 1 {
+			dir = args[1]
+		}
+		swarmDoctor(dir, strict, offline, jsonOut) // exits itself (0/1/2)
+		return
+	case "attach":
+		if len(args) < 2 {
+			exitf(2, "usage: evva swarm attach <ref> [member] [--addr host:port] [--token t]")
+		}
+		member := ""
+		if len(args) > 2 {
+			member = args[2]
+		}
+		err = swarmAttach(args[1], member, attachAddr, attachToken)
 	default:
 		exitf(2, "evva swarm: unknown subcommand %q — run `evva swarm help`", sub)
 	}
@@ -120,6 +145,16 @@ Commands:
                      message member <m> as the operator (sender "user" — same as
                      the web composer). <text> of - reads the body from stdin.
                      <m> may also be "leader" (the role resolves to the member)
+  doctor [dir]       read-only preflight: will register work here, and will the
+                     members actually run? Checks manifest → member definitions →
+                     models/efforts → provider keys → .vero state → the service.
+                     Never writes, never migrates, never registers.
+  attach <ref> [member]
+                     open the terminal cockpit on a running space: live member
+                     streams, attention-ordered roster, tasks, answerable
+                     approval/question gates, composer, lifecycle keys. [member]
+                     opens focused on that member. q detaches (the space keeps
+                     running). The web console remains the full workstation.
   help               show this help
 
 Flags:
@@ -128,6 +163,13 @@ Flags:
   --days <n>         with 'vacuum', override the retention window (default: the
                      space's settings.retention_days, or 30)
   --dry-run          with 'vacuum', only report what would be cleared
+  --strict           with 'doctor', promote warnings (custom models, skews) to
+                     errors; exit 2 when only promoted warnings remain
+  --offline          with 'doctor', skip the service probes — never dials
+  --json             with 'doctor', emit findings as a JSON array (CI use)
+  --addr <h:p>       with 'attach', target a remote service (RP-15 --allow-remote)
+  --token <t>        with 'attach', override the session token (default: the
+                     local daemon's token file)
 
 <ref> is a space id OR its name (the NAME column of 'evva swarm ls').
 Start the service first with 'evva service start'.
@@ -161,6 +203,94 @@ func extractVacuumFlags(args []string) (days int, dryRun bool, rest []string) {
 		}
 	}
 	return days, dryRun, rest
+}
+
+// extractAttachFlags pulls attach's `--addr <a>` / `--token <t>` (either
+// form) out of args from any position, returning the leftovers. Defaults
+// resolve at call time (targetAddr / readToken) so a bare attach follows the
+// local daemon exactly like every other swarm verb.
+func extractAttachFlags(args []string) (addr, token string, rest []string) {
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--addr" && i+1 < len(args):
+			addr = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--addr="):
+			addr = strings.TrimPrefix(a, "--addr=")
+		case a == "--token" && i+1 < len(args):
+			token = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--token="):
+			token = strings.TrimPrefix(a, "--token=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return addr, token, rest
+}
+
+// swarmAttach opens the terminal cockpit (TUI) on a running space. It needs a
+// real terminal — piped/CI stdout gets the web console URL instead.
+func swarmAttach(ref, member, addr, token string) error {
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		return fmt.Errorf("attach needs a terminal; use the web console at http://%s/?space=%s", targetAddr(), ref)
+	}
+	if addr == "" {
+		addr = targetAddr()
+	}
+	if token == "" {
+		token = readToken()
+	}
+	version := config.Version // ldflags-injected tag on release builds
+	if version == "" {
+		version = config.DefaultAppVersion
+	}
+	return app.Run(addr, token, ref, member, version)
+}
+
+// extractDoctorFlags pulls doctor's flags out of args from any position.
+func extractDoctorFlags(args []string) (strict, offline, jsonOut bool, rest []string) {
+	rest = make([]string, 0, len(args))
+	for _, a := range args {
+		switch a {
+		case "--strict":
+			strict = true
+		case "--offline":
+			offline = true
+		case "--json":
+			jsonOut = true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return strict, offline, jsonOut, rest
+}
+
+// swarmDoctor runs the read-only preflight (DR) and exits with its
+// deterministic code: 0 clean, 1 any ✗, 2 when --strict promoted warnings
+// and nothing failed outright. Everything except the service section works
+// with no daemon; --offline skips that section entirely (doctor then never
+// dials at all).
+func swarmDoctor(dir string, strict, offline, jsonOut bool) {
+	opts := doctor.Options{Dir: dir, Strict: strict, Config: config.Get()}
+	if !offline {
+		version := config.Version // ldflags-injected tag on release builds
+		if version == "" {
+			version = config.DefaultAppVersion
+		}
+		opts.Service = &doctor.ServiceTarget{Addr: targetAddr(), Token: readToken(), Version: version}
+	}
+	rep := doctor.Run(opts)
+	if jsonOut {
+		if err := rep.JSON(os.Stdout); err != nil {
+			exitf(1, "evva swarm doctor: %v", err)
+		}
+	} else {
+		rep.Render(os.Stdout)
+	}
+	os.Exit(rep.Exit())
 }
 
 // extractNameFlag pulls a `--name <value>` (or `--name=value`) flag out of args

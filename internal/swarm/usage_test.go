@@ -201,13 +201,13 @@ func TestUsageSeedAndPersistRoundTrip(t *testing.T) {
 	}
 
 	today := localDay(time.Now())
-	sp.addDailyUsage("w", 42, today)
+	sp.addDailyUsage("w", "", 42, 0, 0, 0, today)
 	sp.markBudgetFrozen("w")
 	sp.persistRuntime()
 
 	rt := loadRuntime(sp.Workdir)
-	if rt.UsageDay != today || rt.UsageDaily["w"] != 42 || rt.BudgetFrozen["w"] != today {
-		t.Fatalf("persisted meter = day %q daily %v frozen %v", rt.UsageDay, rt.UsageDaily, rt.BudgetFrozen)
+	if rt.UsageDay != today || rt.UsageDailyV2["w"].In != 42 || rt.BudgetFrozen["w"] != today {
+		t.Fatalf("persisted meter = day %q daily %v frozen %v", rt.UsageDay, rt.UsageDailyV2, rt.BudgetFrozen)
 	}
 
 	sp2 := &SwarmSpace{Workdir: sp.Workdir, Roster: newRoster(), schedules: map[string]agentdef.Schedule{}}

@@ -10,8 +10,8 @@ import (
 func TestInjectTeamProtocol_RoleSpecific(t *testing.T) {
 	persona := "# Backend Engineer\nYou build APIs."
 
-	leader := injectTeamProtocol(persona, "lead", "vero-tech-swarm", agentdef.RoleLeader, true)
-	worker := injectTeamProtocol(persona, "backend-a", "vero-tech-swarm", agentdef.RoleWorker, true)
+	leader := injectTeamProtocol(persona, "lead", "vero-tech-swarm", agentdef.RoleLeader, true, nil)
+	worker := injectTeamProtocol(persona, "backend-a", "vero-tech-swarm", agentdef.RoleWorker, true, nil)
 
 	// Persona leads in both (grounding + protocol are appended after it).
 	if !strings.HasPrefix(leader, persona) || !strings.HasPrefix(worker, persona) {
@@ -64,6 +64,20 @@ func TestInjectTeamProtocol_RoleSpecific(t *testing.T) {
 	}
 	if strings.Contains(worker, "skill_publish") {
 		t.Error("skill_publish guidance is leader-only")
+	}
+
+	// BB: everyone learns to trust the wake brief's board and refresh it with
+	// blackboard_read; only the leader learns the curation discipline.
+	for _, p := range []string{leader, worker} {
+		if !strings.Contains(p, "Team blackboard") || !strings.Contains(p, "blackboard_read") {
+			t.Error("common protocol should teach the blackboard brief + mid-run refresh")
+		}
+	}
+	if !strings.Contains(leader, "Maintain the team blackboard") || !strings.Contains(leader, "blackboard_write") {
+		t.Error("leader protocol should teach blackboard curation")
+	}
+	if strings.Contains(worker, "blackboard_write") {
+		t.Error("blackboard_write guidance is leader-only")
 	}
 
 	// Worker gets the worker protocol + its read-only task tools.
@@ -122,7 +136,7 @@ func TestNewSpaceInjectsProtocol(t *testing.T) {
 
 // A member that authored no persona still gets a usable, protocol-only prompt.
 func TestInjectTeamProtocol_BlankPersona(t *testing.T) {
-	out := injectTeamProtocol("", "backend-a", "vero-tech-swarm", agentdef.RoleWorker, true)
+	out := injectTeamProtocol("", "backend-a", "vero-tech-swarm", agentdef.RoleWorker, true, nil)
 	if strings.HasPrefix(out, "\n") {
 		t.Error("blank persona should not leave leading blank lines")
 	}
@@ -135,9 +149,9 @@ func TestInjectTeamProtocol_BlankPersona(t *testing.T) {
 // maintain memory files (write/edit), names the member's own tier-correct dir,
 // and stays out of write-less members' prompts entirely.
 func TestInjectTeamProtocol_MemoryProtocol(t *testing.T) {
-	leader := injectTeamProtocol("p", "lead", "s", agentdef.RoleLeader, true)
-	worker := injectTeamProtocol("p", "friday", "s", agentdef.RoleWorker, true)
-	readonly := injectTeamProtocol("p", "observer", "s", agentdef.RoleWorker, false)
+	leader := injectTeamProtocol("p", "lead", "s", agentdef.RoleLeader, true, nil)
+	worker := injectTeamProtocol("p", "friday", "s", agentdef.RoleWorker, true, nil)
+	readonly := injectTeamProtocol("p", "observer", "s", agentdef.RoleWorker, false, nil)
 
 	if !strings.Contains(leader, "## Your long-term memory") ||
 		!strings.Contains(leader, "agents/main/lead/memory") {

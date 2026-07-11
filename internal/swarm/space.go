@@ -118,6 +118,22 @@ type SwarmSpace struct {
 	// fired alarm is delivered as a durable bus message to its target member.
 	alarmSched *alarm.Scheduler
 
+	// checks is the CHK verify-time check runner (see checks.go); nil when
+	// the manifest sets no verify_checks — the space is then byte-identical
+	// to the pre-CHK behavior.
+	checks *checkRunner
+
+	// blackboardBy/-At remember the last blackboard_write's author, keyed to
+	// the file mtime that write produced (BB): Blackboard() attributes the
+	// board to that writer only while the file is still that version, so an
+	// operator disk edit drops the stale "by" instead of mislabeling. Guarded
+	// by mu; in-memory only (a restart forgets the author, never the board).
+	// blackboardWriteMu serializes same-process writes — Windows denies
+	// replace-renames racing on one destination (see WriteBlackboard).
+	blackboardBy      string
+	blackboardByAt    time.Time
+	blackboardWriteMu sync.Mutex
+
 	// super is the run engine driving this space, set once by NewSupervisor
 	// (before Start, before any tool can fire). It is the seam the leader's
 	// schedule tools reach the live run loops through — see SetMemberSchedule.
@@ -190,6 +206,13 @@ func NewSpace(id string, m agentdef.Manifest, loaded []agentdef.Loaded, ts ToolS
 	}
 	sp.Bus = bus.New(st, sp.Roster)
 
+	// Verify-time checks (CHK): the runner lives under the space context and
+	// Shutdown drains it before the store closes. Absent knob = nil runner =
+	// byte-identical to the pre-CHK space.
+	if m.Settings.VerifyChecks != nil {
+		sp.ConfigureChecks(ctx, *m.Settings.VerifyChecks)
+	}
+
 	// Two phases: register every persona first so each agent.New sees all its
 	// siblings in the subagent_type list (a leader can spawn a worker as an
 	// intra-task subagent), then construct.
@@ -250,7 +273,7 @@ func (sp *SwarmSpace) registerDef(ld *agentdef.Loaded) error {
 	// maintain memory files — i.e. carry a file-write tool.
 	canWriteMemory := slices.Contains(def.ActiveTools, tools.WRITE_FILE) ||
 		slices.Contains(def.ActiveTools, tools.EDIT_FILE)
-	def.SystemPrompt = injectTeamProtocol(def.SystemPrompt, def.Name, sp.Name, ld.Role, canWriteMemory)
+	def.SystemPrompt = injectTeamProtocol(def.SystemPrompt, def.Name, sp.Name, ld.Role, canWriteMemory, sp.settings.VerifyChecks)
 	sp.mu.Lock()
 	sp.reg.Register(def)
 	sp.mu.Unlock()
@@ -303,7 +326,7 @@ func (sp *SwarmSpace) registerPersonaDef(ld *agentdef.Loaded) error {
 	canWrite := len(def.ActiveTools) == 0 ||
 		slices.Contains(def.ActiveTools, tools.WRITE_FILE) ||
 		slices.Contains(def.ActiveTools, tools.EDIT_FILE)
-	def.PromptSuffix = teamProtocolSuffix(name, sp.Name, ld.Role, canWrite)
+	def.PromptSuffix = teamProtocolSuffix(name, sp.Name, ld.Role, canWrite, sp.settings.VerifyChecks)
 	sp.mu.Lock()
 	sp.reg.Register(def)
 	if sp.personaMembers == nil {
@@ -488,6 +511,20 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 // RP-9 loopback trust). Exported for the service's webhook auth check (RP-15).
 func (sp *SwarmSpace) WebhookSecret() string {
 	return sp.settings.WebhookSecret // set once at construction, never mutated
+}
+
+// NotifySpec returns the space's outbound-notification config (nil = off,
+// NTF). Exported for the service, which owns the notifier beside the event
+// log — the space itself never sends.
+func (sp *SwarmSpace) NotifySpec() *agentdef.NotifySpec {
+	return sp.settings.Notify // set once at construction, never mutated
+}
+
+// Ceilings returns the space-wide daily budget ceilings (CST): the In+Out
+// token cap and the priced-USD cap, 0 = that axis off. Exported for the
+// metrics surface.
+func (sp *SwarmSpace) Ceilings() (tokens int, usd float64) {
+	return sp.settings.DailyBudgetTotalTokens, sp.settings.DailyBudgetTotalUSD // set once at construction
 }
 
 // RetentionDays returns the space's ledger retention window in days (0 =
@@ -919,6 +956,10 @@ func (sp *SwarmSpace) Shutdown() {
 		ag.Shutdown()
 	}
 	sp.stopAlarms()
+	// Drain the check runner (its in-flight command was tree-killed by the
+	// ctx cancel above) BEFORE the store closes — a mid-delivery evidence
+	// write must never hit a closed DB.
+	sp.stopChecks()
 	if sp.Store != nil {
 		_ = sp.Store.Close()
 	}

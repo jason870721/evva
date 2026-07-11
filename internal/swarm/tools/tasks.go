@@ -53,8 +53,14 @@ func formatTask(t store.Task, staleAfter time.Duration) string {
 	if len(t.DependsOn) > 0 {
 		fmt.Fprintf(&b, " ⛓ deps: %s", idList(t.DependsOn))
 	}
-	if t.VerifyPolicy == store.VerifyAuto {
+	switch t.VerifyPolicy {
+	case store.VerifyAuto:
 		b.WriteString(" [verify:auto]")
+	case store.VerifyChecks:
+		b.WriteString(" [verify:checks]")
+	}
+	if t.CheckOff {
+		b.WriteString(" [check:off]")
 	}
 	if staleAfter > 0 && (t.Status == store.StatusRunning || t.Status == store.StatusVerifying) {
 		if age := time.Since(time.UnixMilli(t.UpdatedAt)); age >= staleAfter {
@@ -69,6 +75,9 @@ func formatTask(t store.Task, staleAfter time.Duration) string {
 	}
 	if t.VerifyNote != "" {
 		fmt.Fprintf(&b, "\n    note: %s", t.VerifyNote)
+	}
+	if t.Checks != nil {
+		fmt.Fprintf(&b, "\n    checks: %s", t.Checks.Outcome())
 	}
 	return b.String()
 }
@@ -157,7 +166,8 @@ func newTaskCreate(mc swarm.MemberContext) pubtools.Tool {
 			`"spec":{"type":"string","description":"Full task specification / acceptance criteria."},` +
 			`"assignee":{"type":"string","description":"Member name to own this task (see list_members)."},` +
 			`"depends_on":{"type":"array","items":{"type":"integer"},"description":"Existing task ids this task waits for (AND-join, immutable). The engine auto-dispatches it when all complete."},` +
-			`"verify":{"type":"string","enum":["leader","auto"],"description":"Who settles verifying: 'leader' (default — you inspect, then task_verify) or 'auto' (completes the instant the worker reports task_done; reserve for mechanical, low-risk steps)."},` +
+			`"verify":{"type":"string","enum":["leader","auto","checks"],"description":"Who settles verifying: 'leader' (default — you inspect, then task_verify), 'auto' (completes the instant the worker reports task_done; reserve for mechanical, low-risk steps), or 'checks' (the space's configured check command gates it — green auto-completes, red escalates to you with evidence; needs settings.verify_checks)."},` +
+			`"check":{"type":"string","enum":["on","off"],"description":"Verify-time check opt-out: 'off' skips the space check for this task (docs-only, discussion). Default 'on' when the space configures checks."},` +
 			`"parent_task":{"type":"integer","description":"Optional parent task id for a subtask."}` +
 			`},"required":["title","assignee"]}`,
 		exec: func(_ context.Context, input json.RawMessage) (pubtools.Result, error) {
@@ -167,10 +177,26 @@ func newTaskCreate(mc swarm.MemberContext) pubtools.Tool {
 				Assignee   string  `json:"assignee"`
 				DependsOn  []int64 `json:"depends_on"`
 				Verify     string  `json:"verify"`
+				Check      string  `json:"check"`
 				ParentTask *int64  `json:"parent_task"`
 			}
 			if err := json.Unmarshal(input, &in); err != nil {
 				return errf("task_create: invalid input: %v", err), nil
+			}
+			switch in.Check {
+			case "", "on", "off":
+			default:
+				return errf(`task_create: check must be "on" or "off" (got %q)`, in.Check), nil
+			}
+			// verify:"checks" is only meaningful where a check can actually
+			// run — fail at create time, not deep inside the first task_done.
+			if in.Verify == store.VerifyChecks {
+				if mc.Space == nil || !mc.Space.ChecksConfigured() {
+					return errf(`task_create: verify:"checks" needs settings.verify_checks configured on this space — use "leader" or "auto", or ask the operator to add the check command to the manifest`), nil
+				}
+				if in.Check == "off" {
+					return errf(`task_create: verify:"checks" with check:"off" is contradictory — the policy gates on the check it would skip`), nil
+				}
 			}
 			// Validate the assignee against the live roster: assigning to a
 			// non-member would dead-letter the dispatch (task_assign notifies a
@@ -189,6 +215,7 @@ func newTaskCreate(mc swarm.MemberContext) pubtools.Tool {
 				CreatedBy:    mc.Name,
 				DependsOn:    in.DependsOn,
 				VerifyPolicy: in.Verify,
+				CheckOff:     in.Check == "off",
 				ParentID:     in.ParentTask,
 			})
 			if err != nil {
@@ -286,8 +313,15 @@ func newTaskUpdateStatus(mc swarm.MemberContext) pubtools.Tool {
 				return transitionError("task_update_status", err), nil
 			}
 			var cascade string
-			if store.Status(in.Status) == store.StatusCompleted {
+			switch store.Status(in.Status) {
+			case store.StatusCompleted:
 				cascade = dispatchNote(mc.Space)
+			case store.StatusVerifying:
+				// Verifying-entry trigger (CHK): the space check runs against
+				// this task; evidence lands on the row and in the mailbox.
+				if mc.Space.EnqueueCheck(in.TaskID) {
+					cascade = " Check queued — evidence will follow as mail."
+				}
 			}
 			return okf("Task #%d → %s.%s", in.TaskID, in.Status, cascade), nil
 		},
@@ -487,6 +521,23 @@ func newTaskDone(mc swarm.MemberContext) pubtools.Tool {
 				return okf("Task #%d done and auto-completed (verify policy: auto).%s", in.TaskID, dispatchNote(mc.Space)), nil
 			}
 
+			// Verifying-entry trigger (CHK): queue the space check before the
+			// leader mail composes, so evidence lands before (or with) the
+			// leader's verify wake.
+			checkQueued := mc.Space.EnqueueCheck(in.TaskID)
+
+			if t.VerifyPolicy == store.VerifyChecks {
+				if checkQueued {
+					// The check gates settlement: green auto-completes with
+					// zero leader wakes, red mails the leader the evidence.
+					// No done-mail here — the check outcome IS the message.
+					return okf("Task #%d done → verifying; the space check is running — green auto-completes the task (and dispatches dependents), red escalates to the leader with evidence.", in.TaskID), nil
+				}
+				// The policy asks for a check this space can no longer run
+				// (verify_checks removed since create) — degrade to the
+				// leader-mail flow below so the task is never stranded.
+			}
+
 			// Leader-verified: one durable mail starts the inspection.
 			leaderName := "leader"
 			if mc.Space.Roster != nil {
@@ -502,6 +553,9 @@ func newTaskDone(mc swarm.MemberContext) pubtools.Tool {
 				RefTask: &refID,
 			}); err != nil {
 				return okf("Task #%d done → verifying, but notifying the leader failed: %v (the stale-task watchdog is the backstop).", in.TaskID, err), nil
+			}
+			if checkQueued {
+				return okf("Task #%d done → verifying; result recorded, the leader notified, and the space check is running (evidence mail follows).", in.TaskID), nil
 			}
 			return okf("Task #%d done → verifying; result recorded and the leader notified.", in.TaskID), nil
 		},

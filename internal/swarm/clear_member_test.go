@@ -38,7 +38,7 @@ func TestClearMemberSession_IdleMember(t *testing.T) {
 		}
 	}
 	today := localDay(time.Now())
-	sp.addDailyUsage("w", 500, today)
+	sp.addDailyUsage("w", "", 500, 0, 0, 0, today)
 	sp.Roster.setUsage("w", llm.Usage{InputTokens: 100, OutputTokens: 40}, 100, 500)
 
 	if err := sup.ClearMemberSession("w"); err != nil {

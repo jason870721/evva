@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/johnny1110/evva/internal/swarm"
 	"github.com/johnny1110/evva/internal/swarm/store"
 	"github.com/johnny1110/evva/pkg/event"
 )
@@ -156,11 +157,14 @@ type chatEvent struct {
 // chatKind reports whether a logged event kind is part of the conversation the
 // web console renders: exactly the kinds its reduceChat folds into visible
 // turns (text/thinking blocks, tool cards, errors) plus the turn/run
-// boundaries that close open blocks between them.
+// boundaries that close open blocks between them. blackboard_updated replays
+// too (BB) — the FE folds it into the same system line the live feed shows,
+// so a reloaded console keeps the who-rewrote-the-board trail.
 func chatKind(kind string) bool {
 	switch event.Kind(kind) {
 	case event.KindText, event.KindThinking, event.KindToolUseStart,
-		event.KindToolUseResult, event.KindError, event.KindTurnEnd, event.KindRunEnd:
+		event.KindToolUseResult, event.KindError, event.KindTurnEnd, event.KindRunEnd,
+		swarm.KindBlackboardUpdated:
 		return true
 	}
 	return false

@@ -12,6 +12,152 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Swarm verify checks (CHK-1..6) — machine evidence for task verification.**
+  One operator-authored check command per space (`settings.verify_checks:
+  {command, timeout}`; timeout default 2m, max 10m — the bash tool's norms):
+  whenever a task enters `verifying` (a worker's `task_done` or the leader's
+  `task_update_status`), the service runs it in the space workdir with the
+  bash tool's exact process discipline (`proc.Shell`/`Group`/`KillTree`,
+  bounded Wait) and lands `{command, exit, timedOut, duration, workdir,
+  16 KiB head+tail, pass}` on the task row as durable evidence (migration
+  0007), mails it to the leader and the operator, and emits a
+  `task_check_done` engine event. Per-task `verify: "checks"` (the enum slot
+  DWF reserved) gates settlement on the evidence: a green run auto-completes
+  the task and cascades its dependents with zero leader wakes — CI-gated
+  leaderless chains — while a red run stays in `verifying` and escalates
+  with the tail attached (never auto-rejects; the leader may overrule). The
+  store's writer matrix refuses a system completion whose evidence says
+  fail, `task_create` gains `check: "on"|"off"` (the one agent-held lever —
+  command text is operator trust, per the PRD §4 model), re-entry mid-run
+  kills the stale check ("latest verifying-entry wins"), and teardown drains
+  the runner before the store closes. Surfaces: `TaskInfo.checks` +
+  `checkRunning`/`checkOff` DTO fields, a PASS/FAIL/RUNNING chip + tail
+  panel on the web board card, `task_get`/`task_list` evidence summaries,
+  `checksRun`/`checksFailed`/`checksTimeout` in `/metrics`, and the team
+  protocol teaches every member the command (leaders: the policy levers).
+  Spaces without the knob are byte-identical to before. User guide (en,
+  zh-tw) §8 "Machine-checked verification"; PRD:
+  `docs/roadmap/PRD/swarm-verify-checks.md`.
+
+- **Swarm outbound notifications (NTF-1..5) — get paged by your swarm.**
+  `settings.notify: {url, format: json|slack, secret, events: [gates,
+  errors, alerts], command, rate_limit}` pushes attention-worthy moments to
+  a webhook and/or a local command (JSON on stdin, 15 s tree-killed
+  timeout), so an operator away from the console learns within seconds that
+  a member is waiting on a gate, errored, paused at its iteration limit, or
+  tripped a watchdog/breaker. System alerts are promoted from mailbox-only
+  to first-class `ops_alert` space events (`notifyOps` now emits one
+  alongside its durable mail), so the console timeline, the durable
+  chatlog, AND the notifier all see them. The per-space notifier taps the
+  publish chokepoint with the event log's exact discipline — non-blocking
+  bounded queue, single sender, one retry after 5 s then drop-and-count —
+  a dead endpoint can never slow a swarm (teardown drops the queue rather
+  than draining it). Noise control by design: gates page once per
+  (requestID) first sighting with run-terminal pruning, sources keep their
+  one-per-episode dedup, and a per-space token bucket (`rate_limit`,
+  default 12/min) caps the blast — suppressed sends surface as one
+  "N suppressed" notice on the next delivery. Payloads carry the console
+  deep-link; bodies cap at ~500 chars; the outbound secret reuses the
+  RP-15 `X-Evva-Webhook-Secret` header for symmetry. `/metrics` gains
+  `notifsSent`/`notifsDropped`/`notifsSuppressed`. User guide (en, zh-tw)
+  §8 "Getting paged by your swarm"; PRD:
+  `docs/roadmap/PRD/swarm-outbound-notifications.md`.
+
+- **Swarm cost accounting & space budget (CST-1..5) — "what did today cost,
+  and stop everything at $20".** The RP-13 meter becomes v2: every run's
+  delta is counted in all four usage classes (input / output / cache-read /
+  cache-write) and priced AT METER TIME with the model that produced it,
+  against the existing `pkg/constant.MODEL_PRICING` rate card — costs are
+  locked per delta, so mid-day model switches and future rate-card edits
+  never rewrite history; unpriced (custom/SDK) models count tokens and flag
+  the dollars as a floor rather than guessing $0. Member token caps keep
+  their exact RP-13 semantics (In+Out only — token caps bound generation
+  volume, the dollar figure bounds spend). New space-wide daily ceiling:
+  `settings.daily_budget_total_tokens` / `daily_budget_total_usd` — crossing
+  either freezes EVERY member, the leader included, with one `🧯` notice
+  naming the knob and the largest spender; rollover auto-releases (or
+  `budget_stay_frozen` pins), a manual per-member unfreeze is honored while
+  the held trip mark stops re-notice storms, and the trip survives service
+  restarts (`runtime.json` v2 usage persistence with a one-time legacy v1
+  import). Surfaces: `list_members` gains `$x.xx` (`~` = unpriced),
+  `MemberInfo` gains cache-class tokens + `costTodayUsd`/`costUnpriced`,
+  `/metrics` gains the space aggregate + ceilings + tripped flag, `/healthz`
+  gains service-wide `costTodayUsd`, and the web roster/metrics panel render
+  the figures. Estimates at list price by design — documented with the rate
+  card's provenance. User guide (en, zh-tw) §8; PRD:
+  `docs/roadmap/PRD/swarm-cost-accounting.md`.
+
+- **`evva swarm doctor` (DR-1..4) — read-only preflight.** One command
+  answers "will `evva swarm .` work here, and will the members actually
+  run?" before anything registers: manifest (the real `LoadManifest`
+  fail-fast) → member definitions (the real `Loader.Build` per dir member —
+  register's exact error text — and the persona registry's main-tier check)
+  → model pins (`ProviderOfModel`; an unknown id is a ⚠ "custom — resolves
+  at client build", honoring the SDK loose-pin contract, ✗ only under
+  `--strict`) + efforts → provider-key **presence** (never validity, never
+  echoed; Ollama = base-URL only) → `.vero` state (read-only sqlite open;
+  schema older = "will migrate" ✓, **newer-than-binary** = the ⚠ that
+  previously had no voice; corrupt `runtime.json` warns with its real
+  consequence) → the live service (`--offline` skips: healthz + version
+  skew, token readability, name collision — GET-only). The §4 contract is
+  tested with before/after tree hashes: doctor never creates, migrates,
+  writes, or registers. Deterministic exit codes for CI (`0` clean, `1` any
+  ✗, `2` = strict-promoted warnings only) and `--json` findings output
+  (experimental shape for one minor). New `internal/swarm/doctor` package +
+  `store.LatestMigration()`; user guide (en, zh-tw) §8 "Preflight"; PRD:
+  `docs/roadmap/PRD/swarm-doctor.md`.
+
+- **Swarm team blackboard (BB-1..4) — the standing "current picture."** One
+  leader-curated markdown document at `.vero/blackboard.md` (root-anchored
+  beside the ledger; temp-file + atomic rename, so readers never see a torn
+  board) injected into **every member's wake brief on every wake kind** —
+  message and timer alike — as `## Team blackboard (updated 3m ago by lead)`,
+  riding the same in-reminder channel as the RP-25 memory index. Updating
+  costs **zero wakes**: members read the new board whenever they next wake
+  for their own reasons, so standing context (goal, decisions, who-owns-what,
+  current phase) stops being broadcast storms or scrollback. Leader-only
+  `blackboard_write {content}` (whole-document replace — idempotent, and the
+  one point the size cap gates: `settings.blackboard_max_bytes`, default
+  4096, max 16384, oversize rejected naming the cap and overage);
+  every-member `blackboard_read` for mid-run freshness. Each write
+  self-audits as a `blackboard_updated` engine event (live WS, event log,
+  chatlog replay). The operator reads it on the web (board-view panel,
+  `GET /api/swarm/{id}/blackboard` with mtime freshness + writer attribution)
+  and may edit the file directly on disk — a hand edit is live at the next
+  wake and drops the stale "by <writer>" instead of mislabeling it. Empty or
+  absent board = feature dormant: wake reminders stay byte-identical to the
+  pre-BB form. Team protocol teaches all members to trust the brief's board
+  over older mail (direct task mail still wins for their own task) and the
+  leader the curation discipline (update at milestones, prune to fit, board
+  for standing context / broadcast for act-now). User guide (en, zh-tw) §7
+  "Team blackboard"; PRD: `docs/roadmap/PRD/swarm-blackboard.md`.
+
+- **Swarm TUI attach (TUI-1..7) — the terminal cockpit.** `evva swarm attach
+  <ref> [member]` opens a running space as a live Bubble Tea console — the
+  wire protocol's second client, consuming exactly the surface the web does
+  (REST snapshots, the durable `/chatlog` replay, `/pending` gates, the
+  `/ws` feed + its three interactive commands) with **zero new server
+  endpoints**. A faithful Go port of the web's reducers
+  (`internal/swarm/tui/reduce` ⇆ `web2/src/lib/events.ts` — chunk
+  coalescing, tool cards by call id, user_message merge, engine system
+  lines, phase derivation, act>warn>longest-wait attention ordering) is
+  pinned by golden fixtures so the two clients can only drift loudly.
+  Attention-ordered roster with live phase pills, per-member or interleaved
+  stream, compact task board, answerable approval/question overlays
+  (approve / always-allow / deny-with-reason; multi-select questions;
+  `/pending` hydration catches gates raised while detached; a lost race
+  echoes the `command_error` back and re-syncs), composer (`m` message,
+  `:run` leader turn, `:all` broadcast), lifecycle keys (`s/r/f/u`, `H`
+  halt-all with confirm, `q` detaches), and a reconnect loop (1s→15s
+  backoff) that re-hydrates on every reconnect and **never blanks a pane on
+  a failed fetch** (the v1.7.4 contract). `--addr`/`--token` reach a remote
+  service; non-TTY stdout refuses with the web URL; `/healthz` version skew
+  is a status-line notice. Membership/schedule/skill/memory editing stays
+  web-only by design — cockpit, not workstation. User guide (en, zh-tw) §6
+  "The terminal cockpit"; PRD: `docs/roadmap/PRD/swarm-tui-attach.md`.
+
 ## [v1.11.0-beta.4] — 2026-07-10
 
 ### Added
