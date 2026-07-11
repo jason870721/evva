@@ -402,6 +402,47 @@ pick up their tasks, report back, and the board march to **completed**.
 > out, `evva swarm .`, and follow its README. A larger 7-member team is at
 > [`examples/evva-swarm/tech-team/`](../../../examples/evva-swarm/tech-team/).
 
+### The terminal cockpit — `evva swarm attach`
+
+Living in the terminal? `evva swarm attach <ref> [member]` opens the same
+space as a live Bubble Tea console — a second client of the exact wire
+surface the web consumes (REST snapshots + the durable `/chatlog` replay +
+the `/ws` feed), so what you see matches the browser turn for turn. It is
+the **cockpit**, not the workstation: watch, read, answer, steer. Membership
+editing, schedules, skills, memory, proposals, and metrics stay web-only.
+
+```
+┌ roster ──────────┬ stream: qa ────────────────────────────┐
+│ ▸ lead   idle    │ [10:31] user → qa  task #42 …          │
+│ ● qa   ⚠ gate   │ [10:32] ⚙ qa bash go test ./…           │
+│   dev-a  run    │          ✗ exit 1 (tail…)               │
+├ tasks ───────────┤ [10:33] ✋ approval — qa wants bash     │
+│ ▶ #42 build  qa  ├─────────────────────────────────────────┤
+│ ▢ #43 docs   a   │ > message qa…               [enter=send]│
+└──────────────────┴─────────────────────────────────────────┘
+```
+
+- **Roster** — members ordered by attention (leader first, then act > warn,
+  then busy), with live phase pills and elapsed clocks. `↑/↓` select,
+  `enter` focuses that member's stream, `a` returns to the all-members view.
+- **Gates** — an approval/question raised by the focused member opens as an
+  answerable overlay (approve / **always allow** / deny-with-reason;
+  questions support multi-select); gates elsewhere show a `✋ N gate(s)`
+  beacon — `g` opens the oldest. Gates raised while you were detached appear
+  on attach (`/pending` hydration). If a reply loses the race (someone
+  answered on the web first), the error echoes back and the gate list
+  re-syncs.
+- **Composer** — `m` messages the focused/selected member (operator mail,
+  sender `user`); `:` opens command mode — `:run <prompt>` starts a leader
+  turn, `:all <body>` broadcasts.
+- **Lifecycle keys** — `s/r` suspend/resume, `f/u` freeze/unfreeze the
+  selected member, `H` halt-all (with confirm), `q` detaches — the space
+  keeps running.
+- **Reconnect-safe** — a dropped service shows `↻ reconnecting (n)…` while
+  every pane keeps its last state; on reconnect the console re-hydrates from
+  the durable chatlog (nothing blanks on a failed fetch). `--addr`/`--token`
+  reach a remote (`--allow-remote`) service.
+
 ---
 
 ## 7. How collaboration actually works (under the hood)
@@ -1047,6 +1088,7 @@ Replies: new → 202, duplicate `idempotency_key` → 200, bad/missing secret �
 | `evva swarm stop <id>` | Stop (and drop) one space. |
 | `evva swarm add <id> <member>` | Hot-load a worker (`agents/sub/<member>/`) into a space. |
 | `evva swarm vacuum <ref> [--days N] [--dry-run]` | Archive-then-delete consumed history (RP-16); dry-run previews. |
+| `evva swarm attach <ref> [member] [--addr h:p] [--token t]` | Open the terminal cockpit on a running space: attention-ordered roster, live member streams, tasks, answerable gates, composer, lifecycle keys. `q` detaches; the space keeps running. Needs a TTY (otherwise it prints the web URL). |
 | `evva swarm send <ref> <member> <text\|->` | Message a member as the operator (sender=`user` — identical semantics to the web composer): an idle member wakes on it, a busy one folds it into its current run; prints the durable message id as the receipt. `-` reads the body from stdin (script pipelines); `member` may be the role `leader`. A typo'd name comes back with the valid-recipient list (RP-27). |
 
 ### Environment variables

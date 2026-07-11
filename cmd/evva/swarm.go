@@ -9,8 +9,11 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"golang.org/x/term"
+
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
 	"github.com/johnny1110/evva/internal/swarm/doctor"
+	"github.com/johnny1110/evva/internal/swarm/tui/app"
 	"github.com/johnny1110/evva/internal/swarm/webapi"
 	"github.com/johnny1110/evva/pkg/config"
 )
@@ -39,6 +42,8 @@ func runSwarm(args []string) {
 	days, dryRun, args := extractVacuumFlags(args)
 	// doctor's flags, likewise.
 	strict, offline, jsonOut, args := extractDoctorFlags(args)
+	// attach's flags, likewise.
+	attachAddr, attachToken, args := extractAttachFlags(args)
 
 	sub := ""
 	if len(args) > 0 {
@@ -102,6 +107,15 @@ func runSwarm(args []string) {
 		}
 		swarmDoctor(dir, strict, offline, jsonOut) // exits itself (0/1/2)
 		return
+	case "attach":
+		if len(args) < 2 {
+			exitf(2, "usage: evva swarm attach <ref> [member] [--addr host:port] [--token t]")
+		}
+		member := ""
+		if len(args) > 2 {
+			member = args[2]
+		}
+		err = swarmAttach(args[1], member, attachAddr, attachToken)
 	default:
 		exitf(2, "evva swarm: unknown subcommand %q — run `evva swarm help`", sub)
 	}
@@ -135,6 +149,12 @@ Commands:
                      members actually run? Checks manifest → member definitions →
                      models/efforts → provider keys → .vero state → the service.
                      Never writes, never migrates, never registers.
+  attach <ref> [member]
+                     open the terminal cockpit on a running space: live member
+                     streams, attention-ordered roster, tasks, answerable
+                     approval/question gates, composer, lifecycle keys. [member]
+                     opens focused on that member. q detaches (the space keeps
+                     running). The web console remains the full workstation.
   help               show this help
 
 Flags:
@@ -147,6 +167,9 @@ Flags:
                      errors; exit 2 when only promoted warnings remain
   --offline          with 'doctor', skip the service probes — never dials
   --json             with 'doctor', emit findings as a JSON array (CI use)
+  --addr <h:p>       with 'attach', target a remote service (RP-15 --allow-remote)
+  --token <t>        with 'attach', override the session token (default: the
+                     local daemon's token file)
 
 <ref> is a space id OR its name (the NAME column of 'evva swarm ls').
 Start the service first with 'evva service start'.
@@ -180,6 +203,51 @@ func extractVacuumFlags(args []string) (days int, dryRun bool, rest []string) {
 		}
 	}
 	return days, dryRun, rest
+}
+
+// extractAttachFlags pulls attach's `--addr <a>` / `--token <t>` (either
+// form) out of args from any position, returning the leftovers. Defaults
+// resolve at call time (targetAddr / readToken) so a bare attach follows the
+// local daemon exactly like every other swarm verb.
+func extractAttachFlags(args []string) (addr, token string, rest []string) {
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--addr" && i+1 < len(args):
+			addr = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--addr="):
+			addr = strings.TrimPrefix(a, "--addr=")
+		case a == "--token" && i+1 < len(args):
+			token = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--token="):
+			token = strings.TrimPrefix(a, "--token=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return addr, token, rest
+}
+
+// swarmAttach opens the terminal cockpit (TUI) on a running space. It needs a
+// real terminal — piped/CI stdout gets the web console URL instead.
+func swarmAttach(ref, member, addr, token string) error {
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		return fmt.Errorf("attach needs a terminal; use the web console at http://%s/?space=%s", targetAddr(), ref)
+	}
+	if addr == "" {
+		addr = targetAddr()
+	}
+	if token == "" {
+		token = readToken()
+	}
+	version := config.Version // ldflags-injected tag on release builds
+	if version == "" {
+		version = config.DefaultAppVersion
+	}
+	return app.Run(addr, token, ref, member, version)
 }
 
 // extractDoctorFlags pulls doctor's flags out of args from any position.

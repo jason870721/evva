@@ -134,6 +134,30 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   for standing context / broadcast for act-now). User guide (en, zh-tw) §7
   "Team blackboard"; PRD: `docs/roadmap/PRD/swarm-blackboard.md`.
 
+- **Swarm TUI attach (TUI-1..7) — the terminal cockpit.** `evva swarm attach
+  <ref> [member]` opens a running space as a live Bubble Tea console — the
+  wire protocol's second client, consuming exactly the surface the web does
+  (REST snapshots, the durable `/chatlog` replay, `/pending` gates, the
+  `/ws` feed + its three interactive commands) with **zero new server
+  endpoints**. A faithful Go port of the web's reducers
+  (`internal/swarm/tui/reduce` ⇆ `web2/src/lib/events.ts` — chunk
+  coalescing, tool cards by call id, user_message merge, engine system
+  lines, phase derivation, act>warn>longest-wait attention ordering) is
+  pinned by golden fixtures so the two clients can only drift loudly.
+  Attention-ordered roster with live phase pills, per-member or interleaved
+  stream, compact task board, answerable approval/question overlays
+  (approve / always-allow / deny-with-reason; multi-select questions;
+  `/pending` hydration catches gates raised while detached; a lost race
+  echoes the `command_error` back and re-syncs), composer (`m` message,
+  `:run` leader turn, `:all` broadcast), lifecycle keys (`s/r/f/u`, `H`
+  halt-all with confirm, `q` detaches), and a reconnect loop (1s→15s
+  backoff) that re-hydrates on every reconnect and **never blanks a pane on
+  a failed fetch** (the v1.7.4 contract). `--addr`/`--token` reach a remote
+  service; non-TTY stdout refuses with the web URL; `/healthz` version skew
+  is a status-line notice. Membership/schedule/skill/memory editing stays
+  web-only by design — cockpit, not workstation. User guide (en, zh-tw) §6
+  "The terminal cockpit"; PRD: `docs/roadmap/PRD/swarm-tui-attach.md`.
+
 ## [v1.11.0-beta.4] — 2026-07-10
 
 ### Added

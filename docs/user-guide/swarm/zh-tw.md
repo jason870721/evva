@@ -373,6 +373,41 @@ Web 介面（`:8888`）針對每個 space 提供：
 `task_create`/`task_assign`，worker 接走各自的任務、回報，看板一路推進到
 **completed**。
 
+### 終端機駕駛艙 —— `evva swarm attach`
+
+住在終端機裡?`evva swarm attach <ref> [成員]` 用 Bubble Tea 把同一個 space
+開成即時終端主控台 —— 它是 Web 所消費的那套線協議的**第二個 client**
+（REST 快照 + 持久 `/chatlog` 重播 + `/ws` 即時流),你看到的內容跟瀏覽器
+逐 turn 一致。定位是**駕駛艙**,不是工作站:看、讀、答、操舵。成員編輯、
+排程、skills、記憶、提案、metrics 仍是 Web 專屬。
+
+```
+┌ roster ──────────┬ stream: qa ────────────────────────────┐
+│ ▸ lead   idle    │ [10:31] user → qa  task #42 …          │
+│ ● qa   ⚠ gate   │ [10:32] ⚙ qa bash go test ./…           │
+│   dev-a  run    │          ✗ exit 1 (tail…)               │
+├ tasks ───────────┤ [10:33] ✋ approval — qa wants bash     │
+│ ▶ #42 build  qa  ├─────────────────────────────────────────┤
+│ ▢ #43 docs   a   │ > message qa…               [enter=send]│
+└──────────────────┴─────────────────────────────────────────┘
+```
+
+- **花名冊** —— 成員按注意力排序（leader 最前,然後 act > warn,再來
+  busy),帶即時 phase 藥丸與耗時時鐘。`↑/↓` 選擇、`enter` 聚焦該成員的
+  stream、`a` 回到全員交錯視圖。
+- **Gate** —— 聚焦成員拋出的審批/提問自動彈成可作答的覆蓋層（approve /
+  **always allow** / 附理由 deny;提問支援多選);其他成員的 gate 以
+  `✋ N gate(s)` 信標提示 —— `g` 開最舊的一個。你離線期間累積的 gate 在
+  attach 時就在（`/pending` 補水)。若回覆輸給別人（有人先在 Web 上答了),
+  錯誤會回聲顯示並重新同步 gate 清單。
+- **輸入欄** —— `m` 給聚焦/選中成員發信（operator 郵件,sender `user`);
+  `:` 進命令模式 —— `:run <提示詞>` 起一輪 leader run、`:all <正文>` 廣播。
+- **生命週期鍵** —— `s/r` 暫停/恢復、`f/u` 凍結/解凍選中成員、`H` 全部
+  中止（帶確認)、`q` 離開 —— space 照常運行。
+- **斷線安全** —— 服務掉線時顯示 `↻ reconnecting (n)…`,各窗格保持最後
+  狀態;重連後從持久 chatlog 重新補水（拉取失敗絕不清空畫面)。
+  `--addr`/`--token` 可連遠端（`--allow-remote`）服務。
+
 ---
 
 ## 7. 協作到底是怎麼運作的（底層）
@@ -901,6 +936,7 @@ curl -X POST http://127.0.0.1:8888/api/swarm/<space-id>/event \
 | `evva swarm stop <id>` | 停止（並移除）一個 space。 |
 | `evva swarm add <id> <成員>` | 向 space 熱載入一個 worker（`agents/sub/<成員>/`）。 |
 | `evva swarm vacuum <ref> [--days N] [--dry-run]` | 歸檔後刪除已消費歷史（RP-16）；dry-run 先預覽。 |
+| `evva swarm attach <ref> [成員] [--addr h:p] [--token t]` | 在運行中的 space 上開終端駕駛艙:注意力排序的花名冊、成員即時 stream、任務、可作答的 gate、輸入欄、生命週期鍵。`q` 離開,space 照常運行。需要 TTY（否則印出 Web URL)。 |
 | `evva swarm send <ref> <成員> <文字\|->` | 以 operator 身份（sender=`user`，與 Web 信箱完全同語義）給成員發一條訊息：idle 成員隨即喚醒、busy 成員折進當前 run；列印持久 message id 作回執。`-` 從 stdin 讀正文（指令碼管道）；成員名可寫角色 `leader`。打錯名字會回有效成員清單（RP-27）。 |
 
 ### 環境變數
