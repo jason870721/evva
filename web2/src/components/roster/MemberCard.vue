@@ -92,6 +92,20 @@ function permTone(mode: string): 'warning' | 'info' {
     >
       ${{ member.costUnpriced ? '~' : '' }}{{ (member.costTodayUsd || 0).toFixed(2) }} today
     </div>
+    <div
+      v-if="member.worktreeBranch"
+      class="wt"
+      :title="
+        'isolated worktree on ' +
+        member.worktreeBranch +
+        ' — +n commits waiting to be merged, -n behind the base branch, dirty:n uncommitted files (a merge refuses while dirty)'
+      "
+    >
+      ⑂ {{ member.worktreeBranch
+      }}<span v-if="member.worktreeAhead" class="ahead"> +{{ member.worktreeAhead }}</span
+      ><span v-if="member.worktreeBehind" class="behind"> -{{ member.worktreeBehind }}</span
+      ><span v-if="member.worktreeDirty" class="dirty"> dirty:{{ member.worktreeDirty }}</span>
+    </div>
     <div v-if="member.cron" class="sched" :title="member.schedulePrompt">⏰ {{ describeCron(member.cron) }}</div>
 
     <div v-if="menu" class="menu" @click.stop>
@@ -126,6 +140,23 @@ function permTone(mode: string): 'warning' | 'info' {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--color-text-muted);
+}
+
+.wt {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* +n is work waiting to be merged (good), -n is drift, dirty blocks a merge. */
+.wt .ahead {
+  color: var(--color-ok, var(--color-text));
+}
+.wt .behind,
+.wt .dirty {
+  color: var(--color-warn, var(--color-text-faint));
 }
 
 .card {

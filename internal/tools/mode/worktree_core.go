@@ -313,6 +313,45 @@ func ListMemberWorktrees(ctx context.Context, rootWorkdir string) ([]WorktreeSes
 	return out, nil
 }
 
+// WorktreeStatus is a member worktree's integration state — what the roster
+// column and list_members report so drift is visible before it becomes a
+// conflict pileup.
+type WorktreeStatus struct {
+	Branch string
+	// Ahead is commits on the member's branch the base does not have (work
+	// waiting to be merged); Behind is commits on base the member lacks (how
+	// stale it is).
+	Ahead  int
+	Behind int
+	// Dirty is the count of uncommitted files in the worktree. Non-zero means
+	// a merge would refuse right now — the worker has not committed.
+	Dirty int
+}
+
+// MemberWorktreeStatus probes one member worktree against the base checkout's
+// current branch. Best-effort by design: a probe that cannot run returns an
+// error and the caller simply omits the column rather than failing the roster.
+func MemberWorktreeStatus(ctx context.Context, sess WorktreeSession) (WorktreeStatus, error) {
+	base := sess.RepoRoot
+	if base == "" {
+		base = sess.OriginalWorkdir
+	}
+	baseBranchRaw, err := runGit(ctx, base, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return WorktreeStatus{}, err
+	}
+	st := WorktreeStatus{Branch: sess.Branch}
+	ahead, behind, err := aheadBehind(ctx, base, strings.TrimSpace(baseBranchRaw), sess.Branch)
+	if err != nil {
+		return WorktreeStatus{}, err
+	}
+	st.Ahead, st.Behind = ahead, behind
+	if n, uErr := worktreeUncommitted(ctx, sess.Path); uErr == nil {
+		st.Dirty = n
+	}
+	return st, nil
+}
+
 // --- small helpers ----------------------------------------------------------
 
 // gitBranchExists reports whether refs/heads/<branch> exists in the repo.

@@ -59,6 +59,15 @@ export interface MemberInfo {
   // work completes, and the base member it was cloned from.
   ephemeral?: boolean
   spawnedFrom?: string
+  // Worktree isolation (SWT): the member's own branch, work waiting to be
+  // merged (ahead), staleness against base (behind), and uncommitted files
+  // (dirty — a merge would refuse right now). worktreeBranch is absent for a
+  // member on the shared workdir, which is every member unless the space
+  // opted in.
+  worktreeBranch?: string
+  worktreeAhead?: number
+  worktreeBehind?: number
+  worktreeDirty?: number
 }
 
 // MemberSpec — POST /api/members add-agent form (api.go:148).

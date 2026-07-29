@@ -125,6 +125,23 @@ func newListMembers(mc swarm.MemberContext) pubtools.Tool {
 						fmt.Fprintf(&b, ", $%s%.2f", mark, day.CostUSD)
 					}
 				}
+				// Worktree column (SWT-6): the branch the member edits on, how
+				// much work waits to be merged (+n), and how stale it is
+				// against base (-n) — drift made visible before it becomes a
+				// conflict pileup. "dirty" tells the leader up front that a
+				// merge would refuse because the worker has not committed.
+				if wt, ok := mc.Space.WorktreeStatusFor(m.Name); ok {
+					fmt.Fprintf(&b, " · wt %s", wt.Branch)
+					if wt.Ahead > 0 {
+						fmt.Fprintf(&b, " +%d", wt.Ahead)
+					}
+					if wt.Behind > 0 {
+						fmt.Fprintf(&b, " -%d", wt.Behind)
+					}
+					if wt.Dirty > 0 {
+						fmt.Fprintf(&b, " dirty:%d", wt.Dirty)
+					}
+				}
 				if m.WhenToUse != "" {
 					fmt.Fprintf(&b, " — %s", m.WhenToUse)
 				}

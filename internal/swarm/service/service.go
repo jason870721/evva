@@ -1106,6 +1106,12 @@ func (s *Service) Roster(id string) ([]webapi.MemberInfo, bool) {
 		day := ent.space.DayFor(v.Name)
 		mi.TokensCacheRead, mi.TokensCacheWrite = day.CacheR, day.CacheW
 		mi.CostTodayUSD, mi.CostUnpriced = day.CostUSD, day.Unpriced
+		// Worktree column (SWT-6): present only for isolated members, so a
+		// space that never opted in serializes exactly as before.
+		if wt, ok := ent.space.WorktreeStatusFor(v.Name); ok {
+			mi.WorktreeBranch, mi.WorktreeAhead = wt.Branch, wt.Ahead
+			mi.WorktreeBehind, mi.WorktreeDirty = wt.Behind, wt.Dirty
+		}
 		// Schedule lives in the space's map (RP-7 didn't put it on MemberView);
 		// surface it on the wire so the roster card can show/edit the crontab (RP-8).
 		if sch, ok := ent.space.ScheduleFor(v.Name); ok {

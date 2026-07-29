@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
+	"github.com/johnny1110/evva/internal/swarm/store"
 	"github.com/johnny1110/evva/internal/tools/mode"
 )
 
@@ -52,7 +53,21 @@ func (sp *SwarmSpace) MergeMemberWorktree(ctx context.Context, member string) (M
 		return MergeResult{}, err
 	}
 	res := MergeResult{MergeReport: report, Member: member, Branch: sess.Branch}
-	if report.NoOp || len(report.Conflicts) > 0 {
+	if len(report.Conflicts) > 0 {
+		// SWT-6: a conflict is the one merge outcome the operator should see
+		// without scraping transcripts — it means a task is bouncing back and
+		// two members touched the same ground. One durable mail, on the web.
+		_, _ = sp.Bus.Send(store.Message{
+			Sender: "system", Recipient: "user",
+			Subject: fmt.Sprintf("Merge conflict: %s → %s", sess.Branch, report.BaseBranch),
+			Body: fmt.Sprintf("%s's work conflicts with %s and was NOT applied — the merge was aborted and the "+
+				"base checkout left clean.\n\nConflicted paths:\n  - %s\n\nThe leader is bouncing the task back to "+
+				"%s to resolve in its own worktree (branch %s). No action is needed from you unless it keeps "+
+				"failing.", member, report.BaseBranch, strings.Join(report.Conflicts, "\n  - "), member, sess.Branch),
+		})
+		return res, nil
+	}
+	if report.NoOp {
 		return res, nil
 	}
 
@@ -78,6 +93,32 @@ func (sp *SwarmSpace) worktreeGroundingFor(name string, role agentdef.Role, over
 		g.TeamIsolated = true
 	}
 	return g
+}
+
+// WorktreeInfo is a member's worktree state for the roster and list_members
+// (SWT-6): which branch it works on, how much work is waiting to be merged
+// (Ahead), how stale it is against base (Behind), and whether it has
+// uncommitted files (Dirty — a merge would refuse right now).
+type WorktreeInfo struct {
+	Branch string
+	Ahead  int
+	Behind int
+	Dirty  int
+}
+
+// WorktreeStatusFor probes a member's worktree. ok is false for a member that
+// works on the shared workdir (no column to show) or when the probe fails —
+// observability must never break a roster read.
+func (sp *SwarmSpace) WorktreeStatusFor(name string) (WorktreeInfo, bool) {
+	sess, isolated := sp.memberWorktree(name)
+	if !isolated {
+		return WorktreeInfo{}, false
+	}
+	st, err := mode.MemberWorktreeStatus(sp.ctx, sess)
+	if err != nil {
+		return WorktreeInfo{Branch: sess.Branch}, true
+	}
+	return WorktreeInfo{Branch: st.Branch, Ahead: st.Ahead, Behind: st.Behind, Dirty: st.Dirty}, true
 }
 
 // forgetWorktree drops a member's worktree record. The branch on disk is NOT

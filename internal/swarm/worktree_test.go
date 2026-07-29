@@ -506,3 +506,134 @@ func TestResetWorktreesSweepsEverything(t *testing.T) {
 		t.Errorf("reset must not touch the base checkout: %v", err)
 	}
 }
+
+// --- SWT-6: observability ----------------------------------------------
+
+// The roster column is what makes drift visible before it becomes a conflict
+// pileup: branch, work waiting to merge, staleness, uncommitted files.
+func TestWorktreeStatusForReportsDrift(t *testing.T) {
+	cfg := gitStubConfig(t)
+	loaded := testLoaded()
+	loaded[2].Worktree = agentdef.WorktreeOff // worker-b stays shared
+	sp, err := NewSpace("space-status", worktreeManifest(), loaded, nil, cfg)
+	if err != nil {
+		t.Fatalf("NewSpace: %v", err)
+	}
+	defer sp.Shutdown()
+
+	// Fresh worktree: on its branch, nothing ahead, nothing behind, clean.
+	got, ok := sp.WorktreeStatusFor("worker-a")
+	if !ok {
+		t.Fatal("worker-a is isolated and must report a status")
+	}
+	if got.Branch != "worktree-swarm-worker-a" || got.Ahead != 0 || got.Behind != 0 || got.Dirty != 0 {
+		t.Errorf("fresh worktree status = %+v, want branch/0/0/0", got)
+	}
+
+	// A member on the shared workdir has no column at all.
+	if _, ok := sp.WorktreeStatusFor("worker-b"); ok {
+		t.Error("a shared-workdir member should report no worktree status")
+	}
+	if _, ok := sp.WorktreeStatusFor("leader"); ok {
+		t.Error("the leader should report no worktree status")
+	}
+
+	// Commit in the worktree → ahead. Move base → behind. Leave a file → dirty.
+	sess, _ := sp.memberWorktree("worker-a")
+	if err := os.WriteFile(filepath.Join(sess.Path, "work.txt"), []byte("done\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	gitInWorktree(t, sess.Path, "add", "work.txt")
+	gitInWorktree(t, sess.Path, "commit", "-q", "-m", "worker work")
+	if err := os.WriteFile(filepath.Join(cfg.WorkDir, "base.txt"), []byte("base moved\n"), 0o644); err != nil {
+		t.Fatalf("write base: %v", err)
+	}
+	gitInWorktree(t, cfg.WorkDir, "add", "base.txt")
+	gitInWorktree(t, cfg.WorkDir, "commit", "-q", "-m", "base work")
+	if err := os.WriteFile(filepath.Join(sess.Path, "scratch.txt"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatalf("write scratch: %v", err)
+	}
+	gitInWorktree(t, sess.Path, "add", "scratch.txt")
+
+	got, _ = sp.WorktreeStatusFor("worker-a")
+	if got.Ahead != 1 {
+		t.Errorf("Ahead = %d, want 1 (one commit waiting to merge)", got.Ahead)
+	}
+	if got.Behind != 1 {
+		t.Errorf("Behind = %d, want 1 (base moved on)", got.Behind)
+	}
+	if got.Dirty != 1 {
+		t.Errorf("Dirty = %d, want 1 (uncommitted file blocks a merge)", got.Dirty)
+	}
+}
+
+// A conflict is the one merge outcome the operator should see without
+// scraping transcripts — exactly one durable mail, naming the paths.
+func TestMergeConflictMailsOperator(t *testing.T) {
+	cfg := gitStubConfig(t)
+	sp, err := NewSpace("space-conflictmail", worktreeManifest(), testLoaded(), nil, cfg)
+	if err != nil {
+		t.Fatalf("NewSpace: %v", err)
+	}
+	defer sp.Shutdown()
+
+	sess, _ := sp.memberWorktree("worker-a")
+	if err := os.WriteFile(filepath.Join(sess.Path, "README"), []byte("worker\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	gitInWorktree(t, sess.Path, "commit", "-qam", "worker edit")
+	if err := os.WriteFile(filepath.Join(cfg.WorkDir, "README"), []byte("base\n"), 0o644); err != nil {
+		t.Fatalf("write base: %v", err)
+	}
+	gitInWorktree(t, cfg.WorkDir, "commit", "-qam", "base edit")
+
+	res, err := sp.MergeMemberWorktree(context.Background(), "worker-a")
+	if err != nil {
+		t.Fatalf("MergeMemberWorktree: %v", err)
+	}
+	if len(res.Conflicts) == 0 {
+		t.Fatal("expected a conflict")
+	}
+
+	msgs, err := sp.Store.ListMessages(50)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	var mails []string
+	for _, m := range msgs {
+		if m.Recipient == "user" && strings.Contains(m.Subject, "Merge conflict") {
+			mails = append(mails, m.Body)
+		}
+	}
+	if len(mails) != 1 {
+		t.Fatalf("want exactly 1 operator conflict mail, got %d", len(mails))
+	}
+	for _, want := range []string{"README", "worker-a", sess.Branch, "NOT applied"} {
+		if !strings.Contains(mails[0], want) {
+			t.Errorf("conflict mail missing %q:\n%s", want, mails[0])
+		}
+	}
+
+	// A clean merge is routine — it must NOT page the operator.
+	sp2Cfg := gitStubConfig(t)
+	sp2, err := NewSpace("space-cleanmail", worktreeManifest(), testLoaded(), nil, sp2Cfg)
+	if err != nil {
+		t.Fatalf("NewSpace: %v", err)
+	}
+	defer sp2.Shutdown()
+	s2, _ := sp2.memberWorktree("worker-a")
+	if err := os.WriteFile(filepath.Join(s2.Path, "ok.txt"), []byte("fine\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	gitInWorktree(t, s2.Path, "add", "ok.txt")
+	gitInWorktree(t, s2.Path, "commit", "-q", "-m", "clean work")
+	if _, err := sp2.MergeMemberWorktree(context.Background(), "worker-a"); err != nil {
+		t.Fatalf("clean merge: %v", err)
+	}
+	msgs2, _ := sp2.Store.ListMessages(50)
+	for _, m := range msgs2 {
+		if strings.Contains(m.Subject, "Merge conflict") {
+			t.Errorf("a clean merge must not mail the operator: %+v", m)
+		}
+	}
+}

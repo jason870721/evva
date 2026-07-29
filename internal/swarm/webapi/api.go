@@ -263,6 +263,16 @@ type MemberInfo struct {
 	// completes, and the base it was cloned from.
 	Ephemeral   bool   `json:"ephemeral,omitempty"`
 	SpawnedFrom string `json:"spawnedFrom,omitempty"`
+	// Worktree state (SWT): the member's own branch when it runs under
+	// worktree isolation, plus how much work waits to be merged
+	// (WorktreeAhead), how stale it is against base (WorktreeBehind), and its
+	// uncommitted file count (WorktreeDirty — non-zero means a merge would
+	// refuse right now). WorktreeBranch is empty for a member on the shared
+	// workdir, which is every member in a space that never opted in.
+	WorktreeBranch string `json:"worktreeBranch,omitempty"`
+	WorktreeAhead  int    `json:"worktreeAhead,omitempty"`
+	WorktreeBehind int    `json:"worktreeBehind,omitempty"`
+	WorktreeDirty  int    `json:"worktreeDirty,omitempty"`
 	// Cron / SchedulePrompt expose the member's recurring timer (RP-7/RP-8), read
 	// live from the space's schedule map (the schedule's owner — it is NOT on
 	// MemberView). Empty when the member has no schedule.
