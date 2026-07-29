@@ -644,6 +644,11 @@ func (s *Service) ResetSpace(ref string) (string, error) {
 	if err := agent.ResetWorkdirSessions(cfg.AppHome, workdir); err != nil {
 		s.log.Warn("swarm: reset: clear sessions", "id", id, "err", err)
 	}
+	// ... and every member worktree + branch (SWT-5). Reset is the deliberate
+	// blank-slate path, so this is the one place uncommitted work in a member's
+	// worktree is destroyed rather than preserved. Swept by repo, so worktrees
+	// orphaned by an earlier crash go too.
+	swarm.ResetWorktrees(context.Background(), workdir, s.log)
 
 	// Rebuild fresh under the same id+name (NewSpace re-opens a migrated db;
 	// Reload finds nothing to resume, so every member starts with empty context).

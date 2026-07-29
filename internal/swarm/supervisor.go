@@ -354,6 +354,10 @@ func (s *Supervisor) RemoveMember(name string) error {
 	s.sp.Roster.remove(name)
 	s.sp.Bus.Deregister(name)
 	s.sp.removeAgent(name)
+	// The member's run is cancelled by here, so its worktree is quiescent and
+	// safe to inspect (SWT-5). Clean → removed; holding work → preserved with
+	// one notice naming the branch.
+	s.releaseMemberWorktree(name)
 	// A removed member's runtime schedule override dies with it (row and
 	// tombstone alike) — a later re-add starts from the manifest, not from a
 	// cadence set against the old incarnation (RP-20).

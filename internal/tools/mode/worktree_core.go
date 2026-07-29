@@ -239,6 +239,80 @@ func RefreshWorktree(ctx context.Context, wtPath, baseBranch string) error {
 	return nil
 }
 
+// RemoveMemberWorktree tears down a member's worktree and branch (SWT-5). It
+// refuses to destroy work by default: a worktree with uncommitted changes OR
+// commits the base has not taken is PRESERVED and reported, mirroring
+// CleanupSubagentWorktree's auto-remove-if-unchanged contract. force skips that
+// guard — the ResetSpace path, where blanking the slate is the point.
+//
+// Returns (removed, summary). When removed is false, summary explains what was
+// preserved so the caller can tell the leader/operator which branch still holds
+// the work. A worktree that is already gone counts as removed.
+func RemoveMemberWorktree(ctx context.Context, sess WorktreeSession, force bool) (bool, string) {
+	if sess.Path == "" {
+		return false, "no worktree path recorded"
+	}
+	repoRoot := sess.RepoRoot
+	if repoRoot == "" {
+		root, err := gitTopLevel(ctx, sess.OriginalWorkdir)
+		if err != nil {
+			return false, "cannot resolve repo root: " + err.Error()
+		}
+		repoRoot = root
+	}
+	if _, statErr := os.Stat(sess.Path); os.IsNotExist(statErr) {
+		// Directory already gone: clear the admin entry and the branch so a
+		// later provision of the same member starts clean.
+		_, _ = runGit(ctx, repoRoot, "worktree", "prune")
+		if force {
+			_, _ = runGit(ctx, repoRoot, "branch", "-D", sess.Branch)
+		}
+		return true, "worktree directory was already gone"
+	}
+	if !force {
+		if dirty, summary := worktreeHasChanges(ctx, sess.Path); dirty {
+			return false, summary
+		}
+	}
+	if out, rmErr := runGit(ctx, repoRoot, "worktree", "remove", "--force", sess.Path); rmErr != nil {
+		return false, fmt.Sprintf("git worktree remove failed: %v: %s", rmErr, strings.TrimSpace(out))
+	}
+	// Best-effort branch delete so cleanup never half-completes.
+	_, _ = runGit(ctx, repoRoot, "branch", "-D", sess.Branch)
+	return true, "removed"
+}
+
+// ListMemberWorktrees returns the live sessions of every swarm-member worktree
+// in the repo containing rootWorkdir — those whose branch carries the
+// "swarm-" slug prefix ProvisionMemberWorktree assigns. ResetSpace uses it to
+// blank the slate without needing the space's in-memory records, so worktrees
+// orphaned by a crash are swept too.
+func ListMemberWorktrees(ctx context.Context, rootWorkdir string) ([]WorktreeSession, error) {
+	repoRoot, err := gitTopLevel(ctx, rootWorkdir)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = runGit(ctx, repoRoot, "worktree", "prune")
+	entries, err := parseWorktreeList(ctx, repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	memberPrefix := branchNameFor("swarm-")
+	var out []WorktreeSession
+	for _, e := range entries {
+		if e.isMain || !strings.HasPrefix(e.Branch, memberPrefix) {
+			continue
+		}
+		out = append(out, WorktreeSession{
+			OriginalWorkdir: rootWorkdir,
+			Path:            e.Path,
+			Branch:          e.Branch,
+			RepoRoot:        repoRoot,
+		})
+	}
+	return out, nil
+}
+
 // --- small helpers ----------------------------------------------------------
 
 // gitBranchExists reports whether refs/heads/<branch> exists in the repo.

@@ -3,6 +3,8 @@ package swarm
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -76,6 +78,56 @@ func (sp *SwarmSpace) worktreeGroundingFor(name string, role agentdef.Role, over
 		g.TeamIsolated = true
 	}
 	return g
+}
+
+// forgetWorktree drops a member's worktree record. The branch on disk is NOT
+// touched — teardown is RemoveMemberWorktree's job; this only stops the space
+// claiming a member it no longer has.
+func (sp *SwarmSpace) forgetWorktree(name string) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	delete(sp.worktrees, name)
+}
+
+// releaseMemberWorktree tears a removed member's worktree down (SWT-5), but
+// never destroys work: a worktree holding uncommitted changes or commits the
+// base has not taken is PRESERVED, and the leader plus the operator get one
+// durable notice naming the branch so the work is recoverable. Removal is the
+// accidental path — reset is the deliberate one, and only that forces.
+func (s *Supervisor) releaseMemberWorktree(name string) {
+	sess, ok := s.sp.memberWorktree(name)
+	if !ok {
+		return
+	}
+	s.sp.forgetWorktree(name)
+	if removed, summary := mode.RemoveMemberWorktree(s.sp.ctx, sess, false); !removed {
+		s.notifyOps(name, "Worktree preserved for removed member "+name,
+			fmt.Sprintf("%s left the team with unintegrated work in its worktree (%s), so the worktree was KEPT "+
+				"rather than deleted.\n\nBranch: %s\nPath: %s\n\nThe work is not lost: merge the branch (or inspect "+
+				"it) to recover it, then delete the branch and worktree by hand. Nothing will reuse them.",
+				name, summary, sess.Branch, filepath.ToSlash(sess.Path)))
+	}
+}
+
+// ResetWorktrees force-removes every swarm-member worktree and branch in the
+// repo at workdir (SWT-5). Reset means blank slate — it already wipes the
+// ledger and every transcript — so this one path deliberately destroys
+// uncommitted work; RemoveMember, the accidental path, preserves it instead.
+//
+// It sweeps by REPO rather than by a space's live records, so worktrees
+// orphaned by a crash are cleared too, and it runs after the space is torn
+// down (nothing is holding those checkouts open). Best-effort: each failure is
+// logged and the sweep continues. A non-repo workdir is a silent no-op.
+func ResetWorktrees(ctx context.Context, workdir string, log *slog.Logger) {
+	sessions, err := mode.ListMemberWorktrees(ctx, workdir)
+	if err != nil {
+		return
+	}
+	for _, sess := range sessions {
+		if removed, summary := mode.RemoveMemberWorktree(ctx, sess, true); !removed && log != nil {
+			log.Warn("swarm: reset: worktree removal failed", "branch", sess.Branch, "detail", summary)
+		}
+	}
 }
 
 // isolatedMembers lists the members currently running under worktree

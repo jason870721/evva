@@ -1,6 +1,7 @@
 package swarm
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -341,5 +342,167 @@ func TestMemoryWakeReminderPathUnderIsolation(t *testing.T) {
 	}
 	if !strings.Contains(shared, "agents/sub/worker-b/memory/MEMORY.md") {
 		t.Errorf("shared member should keep the workdir-relative path; got:\n%s", shared)
+	}
+}
+
+// --- SWT-5: lifecycle durability ---------------------------------------
+
+// gitInWorktree runs git inside a member's worktree with a test identity.
+func gitInWorktree(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+	return string(out)
+}
+
+// A worktree survives the space and reattaches with its history intact — the
+// restart / reconcile-rebuild contract.
+func TestWorktreeSurvivesSpaceRebuild(t *testing.T) {
+	cfg := gitStubConfig(t)
+	sp, err := NewSpace("space-restart", worktreeManifest(), testLoaded(), nil, cfg)
+	if err != nil {
+		t.Fatalf("NewSpace: %v", err)
+	}
+	sess, _ := sp.memberWorktree("worker-a")
+	if err := os.WriteFile(filepath.Join(sess.Path, "wip.txt"), []byte("worker work\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	gitInWorktree(t, sess.Path, "add", "wip.txt")
+	gitInWorktree(t, sess.Path, "commit", "-q", "-m", "worker commit")
+	want := strings.TrimSpace(gitInWorktree(t, sess.Path, "rev-parse", "HEAD"))
+	sp.Shutdown()
+
+	// Rebuild the space over the same workdir, as a restart would.
+	sp2, err := NewSpace("space-restart", worktreeManifest(), testLoaded(), nil, cfg)
+	if err != nil {
+		t.Fatalf("rebuild NewSpace: %v", err)
+	}
+	defer sp2.Shutdown()
+
+	again, ok := sp2.memberWorktree("worker-a")
+	if !ok {
+		t.Fatal("worker-a should reattach to its worktree after a rebuild")
+	}
+	if filepath.Clean(again.Path) != filepath.Clean(sess.Path) || again.Branch != sess.Branch {
+		t.Errorf("reattached elsewhere: %q/%q want %q/%q", again.Path, again.Branch, sess.Path, sess.Branch)
+	}
+	if got := strings.TrimSpace(gitInWorktree(t, again.Path, "rev-parse", "HEAD")); got != want {
+		t.Errorf("history lost across rebuild: HEAD %q want %q", got, want)
+	}
+	if b, err := os.ReadFile(filepath.Join(again.Path, "wip.txt")); err != nil || string(b) != "worker work\n" {
+		t.Errorf("committed work should survive: %q err %v", b, err)
+	}
+}
+
+// RemoveMember on a CLEAN worktree removes it and its branch.
+func TestRemoveMemberCleansWorktree(t *testing.T) {
+	cfg := gitStubConfig(t)
+	sp, err := NewSpace("space-rm-clean", worktreeManifest(), testLoaded(), nil, cfg)
+	if err != nil {
+		t.Fatalf("NewSpace: %v", err)
+	}
+	defer sp.Shutdown()
+	sess, _ := sp.memberWorktree("worker-a")
+	sup := NewSupervisor(sp)
+
+	if err := sup.RemoveMember("worker-a"); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+	if _, err := os.Stat(sess.Path); !os.IsNotExist(err) {
+		t.Errorf("a clean worktree should be removed with the member; stat err = %v", err)
+	}
+	if branches := gitInWorktree(t, cfg.WorkDir, "branch", "--list", sess.Branch); strings.TrimSpace(branches) != "" {
+		t.Errorf("branch %q should be deleted, still listed: %q", sess.Branch, branches)
+	}
+	if _, ok := sp.memberWorktree("worker-a"); ok {
+		t.Error("the space should forget a removed member's worktree")
+	}
+}
+
+// RemoveMember on a worktree holding work PRESERVES it and says so — removal
+// is the accidental path, so it must never destroy work.
+func TestRemoveMemberPreservesDirtyWorktree(t *testing.T) {
+	cfg := gitStubConfig(t)
+	sp, err := NewSpace("space-rm-dirty", worktreeManifest(), testLoaded(), nil, cfg)
+	if err != nil {
+		t.Fatalf("NewSpace: %v", err)
+	}
+	defer sp.Shutdown()
+	sess, _ := sp.memberWorktree("worker-a")
+	if err := os.WriteFile(filepath.Join(sess.Path, "unsaved.txt"), []byte("in flight\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	sup := NewSupervisor(sp)
+
+	if err := sup.RemoveMember("worker-a"); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+	if _, err := os.Stat(sess.Path); err != nil {
+		t.Fatalf("a worktree holding work must be preserved: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(sess.Path, "unsaved.txt")); err != nil || string(b) != "in flight\n" {
+		t.Errorf("the work itself must be untouched: %q err %v", b, err)
+	}
+
+	// Exactly one durable notice, naming the branch so the work is findable.
+	msgs, err := sp.Store.ListMessages(50)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	var preserved []string
+	for _, m := range msgs {
+		if m.Recipient == "user" && strings.Contains(m.Subject, "Worktree preserved") {
+			preserved = append(preserved, m.Body)
+		}
+	}
+	if len(preserved) != 1 {
+		t.Fatalf("want exactly 1 preserved-worktree notice, got %d", len(preserved))
+	}
+	if !strings.Contains(preserved[0], sess.Branch) {
+		t.Errorf("the notice must name the branch:\n%s", preserved[0])
+	}
+}
+
+// Reset is the deliberate blank-slate path: it force-removes every member
+// worktree and branch, uncommitted work included.
+func TestResetWorktreesSweepsEverything(t *testing.T) {
+	cfg := gitStubConfig(t)
+	sp, err := NewSpace("space-reset", worktreeManifest(), testLoaded(), nil, cfg)
+	if err != nil {
+		t.Fatalf("NewSpace: %v", err)
+	}
+	a, _ := sp.memberWorktree("worker-a")
+	b, _ := sp.memberWorktree("worker-b")
+	// Dirty one of them — reset must take it anyway.
+	if err := os.WriteFile(filepath.Join(a.Path, "unsaved.txt"), []byte("gone\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	sp.Shutdown()
+
+	ResetWorktrees(context.Background(), cfg.WorkDir, nil)
+
+	for _, sess := range []struct {
+		name string
+		path string
+		br   string
+	}{{"worker-a", a.Path, a.Branch}, {"worker-b", b.Path, b.Branch}} {
+		if _, err := os.Stat(sess.path); !os.IsNotExist(err) {
+			t.Errorf("%s worktree should be gone after reset; stat err = %v", sess.name, err)
+		}
+		if out := gitInWorktree(t, cfg.WorkDir, "branch", "--list", sess.br); strings.TrimSpace(out) != "" {
+			t.Errorf("%s branch should be deleted, still listed: %q", sess.name, out)
+		}
+	}
+	// The base checkout itself is untouched.
+	if _, err := os.Stat(filepath.Join(cfg.WorkDir, "README")); err != nil {
+		t.Errorf("reset must not touch the base checkout: %v", err)
 	}
 }
