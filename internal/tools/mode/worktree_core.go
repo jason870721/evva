@@ -107,6 +107,12 @@ func ProvisionMemberWorktree(ctx context.Context, rootWorkdir, slug string) (Wor
 	return session, nil
 }
 
+// MemberBranch returns the branch name ProvisionMemberWorktree will use for
+// slug, without touching git. Callers that must name a member's branch before
+// its worktree exists (the swarm's team protocol is rendered at registration,
+// one phase before provisioning) use this so the two can never disagree.
+func MemberBranch(slug string) string { return branchNameFor(sanitizeForSlug(slug)) }
+
 // PreflightWorktreeRepo reports whether rootWorkdir can host member worktrees
 // at all: it must be inside a git repository AND that repository must have at
 // least one commit (a worktree is created from HEAD, so an empty repo cannot

@@ -1780,6 +1780,7 @@ func (s *Service) SelectableTools() []string {
 		"schedule_set": true, "schedule_clear": true,
 		"member_spawn": true, "member_retire": true,
 		"blackboard_write": true, "blackboard_read": true,
+		"worktree_merge": true,
 	}
 	var out []string
 	for _, n := range toolset.DefaultRegistry().Names() {

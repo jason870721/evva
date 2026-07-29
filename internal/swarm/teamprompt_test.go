@@ -10,8 +10,8 @@ import (
 func TestInjectTeamProtocol_RoleSpecific(t *testing.T) {
 	persona := "# Backend Engineer\nYou build APIs."
 
-	leader := injectTeamProtocol(persona, "lead", "vero-tech-swarm", agentdef.RoleLeader, true, nil)
-	worker := injectTeamProtocol(persona, "backend-a", "vero-tech-swarm", agentdef.RoleWorker, true, nil)
+	leader := injectTeamProtocol(persona, "lead", "vero-tech-swarm", agentdef.RoleLeader, true, nil, worktreeGrounding{})
+	worker := injectTeamProtocol(persona, "backend-a", "vero-tech-swarm", agentdef.RoleWorker, true, nil, worktreeGrounding{})
 
 	// Persona leads in both (grounding + protocol are appended after it).
 	if !strings.HasPrefix(leader, persona) || !strings.HasPrefix(worker, persona) {
@@ -136,7 +136,7 @@ func TestNewSpaceInjectsProtocol(t *testing.T) {
 
 // A member that authored no persona still gets a usable, protocol-only prompt.
 func TestInjectTeamProtocol_BlankPersona(t *testing.T) {
-	out := injectTeamProtocol("", "backend-a", "vero-tech-swarm", agentdef.RoleWorker, true, nil)
+	out := injectTeamProtocol("", "backend-a", "vero-tech-swarm", agentdef.RoleWorker, true, nil, worktreeGrounding{})
 	if strings.HasPrefix(out, "\n") {
 		t.Error("blank persona should not leave leading blank lines")
 	}
@@ -149,9 +149,9 @@ func TestInjectTeamProtocol_BlankPersona(t *testing.T) {
 // maintain memory files (write/edit), names the member's own tier-correct dir,
 // and stays out of write-less members' prompts entirely.
 func TestInjectTeamProtocol_MemoryProtocol(t *testing.T) {
-	leader := injectTeamProtocol("p", "lead", "s", agentdef.RoleLeader, true, nil)
-	worker := injectTeamProtocol("p", "friday", "s", agentdef.RoleWorker, true, nil)
-	readonly := injectTeamProtocol("p", "observer", "s", agentdef.RoleWorker, false, nil)
+	leader := injectTeamProtocol("p", "lead", "s", agentdef.RoleLeader, true, nil, worktreeGrounding{})
+	worker := injectTeamProtocol("p", "friday", "s", agentdef.RoleWorker, true, nil, worktreeGrounding{})
+	readonly := injectTeamProtocol("p", "observer", "s", agentdef.RoleWorker, false, nil, worktreeGrounding{})
 
 	if !strings.Contains(leader, "## Your long-term memory") ||
 		!strings.Contains(leader, "agents/main/lead/memory") {

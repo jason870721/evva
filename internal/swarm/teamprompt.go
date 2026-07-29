@@ -32,8 +32,8 @@ import (
 // checks, when non-nil, teaches the space's verify-time check (CHK) — the
 // command is settings-fixed at construction, so the prompt stays byte-stable
 // across rebuilds (RP-5).
-func injectTeamProtocol(persona, name, space string, role agentdef.Role, canWriteMemory bool, checks *agentdef.CheckSpec) string {
-	suffix := teamProtocolSuffix(name, space, role, canWriteMemory, checks)
+func injectTeamProtocol(persona, name, space string, role agentdef.Role, canWriteMemory bool, checks *agentdef.CheckSpec, wt worktreeGrounding) string {
+	suffix := teamProtocolSuffix(name, space, role, canWriteMemory, checks, wt)
 	if p := strings.TrimRight(persona, "\n"); p != "" {
 		return p + "\n\n" + suffix
 	}
@@ -47,7 +47,7 @@ func injectTeamProtocol(persona, name, space string, role agentdef.Role, canWrit
 // prompt body (injectTeamProtocol); persona members get it as
 // AgentDefinition.PromptSuffix so it survives the internally-assembled
 // prompt path and every re-render (RP-29).
-func teamProtocolSuffix(name, space string, role agentdef.Role, canWriteMemory bool, checks *agentdef.CheckSpec) string {
+func teamProtocolSuffix(name, space string, role agentdef.Role, canWriteMemory bool, checks *agentdef.CheckSpec, wt worktreeGrounding) string {
 	var b strings.Builder
 	b.WriteString(swarmIdentity(name, space, role))
 	b.WriteString("\n\n")
@@ -63,6 +63,10 @@ func teamProtocolSuffix(name, space string, role agentdef.Role, canWriteMemory b
 	if cs := checksProtocol(role, checks); cs != "" {
 		b.WriteString("\n\n")
 		b.WriteString(cs)
+	}
+	if ws := worktreeProtocol(role, wt); ws != "" {
+		b.WriteString("\n\n")
+		b.WriteString(ws)
 	}
 	if canWriteMemory {
 		b.WriteString("\n\n")
@@ -100,6 +104,61 @@ func checksProtocol(role agentdef.Role, checks *agentdef.CheckSpec) string {
 		"- `task_create {check: \"off\"}` skips the check for tasks the command cannot judge (docs-only, discussion).\n" +
 		"- A red check never auto-rejects. You may overrule it (flaky test, known-red main) with " +
 		"`task_verify {approve: true}` — record why in the note."
+}
+
+// worktreeGrounding is a member's worktree situation at construction time
+// (SWT). Both fields are fixed for the life of the member, so the protocol
+// section they render stays byte-stable across rebuilds (RP-5).
+type worktreeGrounding struct {
+	// Branch is THIS member's own branch; "" when it works on the shared
+	// checkout. Always "" for the leader (D8).
+	Branch string
+	// TeamIsolated reports whether any member of the space runs isolated —
+	// the leader's cue to learn the integration half even though it has no
+	// worktree of its own.
+	TeamIsolated bool
+}
+
+// worktreeProtocol teaches the commit → report → verify → merge loop that
+// worktree isolation (SWT) introduces. A worker learns the discipline when IT
+// is isolated; the leader learns the integration half whenever ANY member is.
+// "" when the space runs no worktrees at all, so those prompts stay
+// byte-identical to the pre-SWT form.
+func worktreeProtocol(role agentdef.Role, wt worktreeGrounding) string {
+	if role == agentdef.RoleLeader {
+		if !wt.TeamIsolated {
+			return ""
+		}
+		return "## Integrating isolated work\n\n" +
+			"Members of this team work in their OWN git worktrees, each on its own branch. You stay on the base " +
+			"checkout — you are the only one who may merge, because merging into one shared checkout from two " +
+			"places at once corrupts it.\n\n" +
+			"Your verify order is: **inspect → `worktree_merge` → `task_verify`.**\n\n" +
+			"- `worktree_merge {member, task_id}` integrates that member's COMMITTED work onto the base branch. " +
+			"Fold its stats into your `task_verify` note.\n" +
+			"- **Nothing to integrate** means the worker never committed. Do not approve — bounce the task back " +
+			"telling it to commit.\n" +
+			"- **On conflict nothing is applied**: the merge aborts and the base branch is left clean. Reject the " +
+			"task back to `running` with the conflicted paths and this recipe: *merge the base branch into your " +
+			"own branch, resolve in your own worktree, recommit, report again.* Never resolve a member's conflict " +
+			"yourself on the base checkout.\n" +
+			"- If a merge refuses because the base checkout is dirty, the operator has uncommitted edits there — " +
+			"tell them to commit or stash; you cannot fix it from here."
+	}
+	if wt.Branch == "" {
+		return ""
+	}
+	return "## Your own worktree\n\n" +
+		"You work in your OWN git worktree on branch `" + wt.Branch + "` — not the team's shared checkout. " +
+		"Your teammates edit the same files at the same time in their own worktrees, which is exactly why yours " +
+		"is isolated: nothing you write can collide with theirs, and nothing collides with the operator's checkout.\n\n" +
+		"- **Commit before you report done.** Your work reaches the team only when the leader merges your " +
+		"branch, and only COMMITTED work merges. Uncommitted work is invisible to the leader and blocks the merge.\n" +
+		"- **Start each task by merging the base branch into your branch**, so you build on the team's current " +
+		"state instead of drifting from it.\n" +
+		"- **Resolve conflicts in YOUR worktree.** If the leader reports a conflict, merge the base branch into " +
+		"your branch, fix it here, recommit, and report again. Never touch the base checkout.\n" +
+		"- Your branch is long-lived — it is not deleted between tasks."
 }
 
 // memoryProtocol teaches a member its long-term memory discipline (RP-25): the

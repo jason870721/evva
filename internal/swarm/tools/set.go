@@ -38,6 +38,7 @@ const (
 	toolMemberRetire     = "member_retire"
 	toolBlackboardWrite  = "blackboard_write"
 	toolBlackboardRead   = "blackboard_read"
+	toolWorktreeMerge    = "worktree_merge"
 )
 
 // init classifies the swarm's coordination tools as auto-allow in
@@ -57,6 +58,12 @@ const (
 // deletes shared skills (User final arbiter), and an RP-24 deny rule on the
 // name blocks it outright in any mode. Gating it on human approval would stall
 // exactly the unattended institutionalization it exists for (EX-6).
+//
+// worktree_merge (SWT) is deliberately ABSENT from this list: it rewrites the
+// operator's base branch, and the governance-shaped argument above does not
+// extend to the user's repo history. It gates like any other write in
+// `default` mode; unattended swarms open it with the existing levers (leader
+// permission_mode: bypass, or an RP-11 allow rule).
 func init() {
 	for _, n := range []string{
 		toolSendMessage, toolListMembers, toolTaskList, toolMyTasks, toolTaskGet,
@@ -117,9 +124,12 @@ func toolNamesForRole(role agentdef.Role) []string {
 		// leader-only by the same judgment monopoly the task ledger enforces:
 		// the board is the leader's synthesized picture; workers influence it
 		// through reports and task_propose.
+		// worktree_merge is leader-only for a structural reason, not a trust
+		// one (SWT §4): the base checkout is one shared resource, and the
+		// leader's single run slot serializes merges into it by construction.
 		return append(common, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList,
 			toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline,
-			toolSkillPublish, toolMemberSpawn, toolMemberRetire, toolBlackboardWrite)
+			toolSkillPublish, toolMemberSpawn, toolMemberRetire, toolBlackboardWrite, toolWorktreeMerge)
 	}
 	// task_propose is the worker's ONLY work-inlet (RP-23): file trackable
 	// work without piercing the ledger's single-writer invariant. The leader
@@ -155,6 +165,7 @@ var factories = map[string]func(pubtools.State) (pubtools.Tool, error){
 	toolMemberRetire:     bind(newMemberRetire),
 	toolBlackboardWrite:  bind(newBlackboardWrite),
 	toolBlackboardRead:   bind(newBlackboardRead),
+	toolWorktreeMerge:    bind(newWorktreeMerge),
 }
 
 // bind adapts a MemberContext tool constructor into a pkg/toolset factory: it

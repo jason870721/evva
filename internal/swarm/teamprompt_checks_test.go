@@ -12,8 +12,8 @@ import (
 // policy levers. Without the knob the prompt carries no trace of the wave.
 func TestChecksProtocolSection(t *testing.T) {
 	spec := &agentdef.CheckSpec{Command: "go build ./... && go test ./..."}
-	leader := injectTeamProtocol("p", "lead", "s", agentdef.RoleLeader, true, spec)
-	worker := injectTeamProtocol("p", "friday", "s", agentdef.RoleWorker, true, spec)
+	leader := injectTeamProtocol("p", "lead", "s", agentdef.RoleLeader, true, spec, worktreeGrounding{})
+	worker := injectTeamProtocol("p", "friday", "s", agentdef.RoleWorker, true, spec, worktreeGrounding{})
 
 	for name, prompt := range map[string]string{"leader": leader, "worker": worker} {
 		if !strings.Contains(prompt, "## Machine checks at verify time") {
@@ -36,7 +36,7 @@ func TestChecksProtocolSection(t *testing.T) {
 	}
 
 	// checks off → no trace (the pre-CHK prompt, byte-identical).
-	off := injectTeamProtocol("p", "lead", "s", agentdef.RoleLeader, true, nil)
+	off := injectTeamProtocol("p", "lead", "s", agentdef.RoleLeader, true, nil, worktreeGrounding{})
 	if strings.Contains(off, "Machine checks") || strings.Contains(off, "verify_checks") {
 		t.Fatal("checks-off prompt mentions the feature")
 	}

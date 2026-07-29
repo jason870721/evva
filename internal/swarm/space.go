@@ -110,6 +110,12 @@ type SwarmSpace struct {
 	// works in the shared space workdir (the pre-SWT behavior). Lazily
 	// allocated in constructMember.
 	worktrees map[string]mode.WorktreeSession
+	// teamIsolated records whether this space runs ANY member worktrees —
+	// the leader's cue to learn the integration protocol even though it has
+	// no worktree of its own (D8). Fixed at NewSpace so every prompt render
+	// agrees; a member hot-added with worktree:"on" into a space that had
+	// none picks the leader's section up at the next rebuild.
+	teamIsolated bool
 
 	// budgets holds manifest member-level daily-budget overrides (RP-13);
 	// members without an entry inherit settings.DailyBudgetTokens. meter is the
@@ -219,7 +225,8 @@ func NewSpace(id string, m agentdef.Manifest, loaded []agentdef.Loaded, ts ToolS
 	// with a targeted message rather than degrading silently — a silent
 	// degrade would quietly drop an isolation property the operator asked for,
 	// and per-member `worktree: off` is the escape hatch for mixed teams.
-	if wantsWorktrees(m, loaded) {
+	sp.teamIsolated = wantsWorktrees(m, loaded)
+	if sp.teamIsolated {
 		if err := mode.PreflightWorktreeRepo(ctx, sp.Workdir); err != nil {
 			sp.Shutdown()
 			return nil, fmt.Errorf("swarm: space %q: worktree isolation is enabled but %s at %s (set worktree: \"off\" per member, or drop settings.worktree_isolation)", id, err, sp.Workdir)
@@ -293,7 +300,7 @@ func (sp *SwarmSpace) registerDef(ld *agentdef.Loaded) error {
 	// maintain memory files — i.e. carry a file-write tool.
 	canWriteMemory := slices.Contains(def.ActiveTools, tools.WRITE_FILE) ||
 		slices.Contains(def.ActiveTools, tools.EDIT_FILE)
-	def.SystemPrompt = injectTeamProtocol(def.SystemPrompt, def.Name, sp.Name, ld.Role, canWriteMemory, sp.settings.VerifyChecks)
+	def.SystemPrompt = injectTeamProtocol(def.SystemPrompt, def.Name, sp.Name, ld.Role, canWriteMemory, sp.settings.VerifyChecks, sp.worktreeGroundingFor(def.Name, ld.Role, ld.Worktree))
 	sp.mu.Lock()
 	sp.reg.Register(def)
 	sp.mu.Unlock()
@@ -346,7 +353,7 @@ func (sp *SwarmSpace) registerPersonaDef(ld *agentdef.Loaded) error {
 	canWrite := len(def.ActiveTools) == 0 ||
 		slices.Contains(def.ActiveTools, tools.WRITE_FILE) ||
 		slices.Contains(def.ActiveTools, tools.EDIT_FILE)
-	def.PromptSuffix = teamProtocolSuffix(name, sp.Name, ld.Role, canWrite, sp.settings.VerifyChecks)
+	def.PromptSuffix = teamProtocolSuffix(name, sp.Name, ld.Role, canWrite, sp.settings.VerifyChecks, sp.worktreeGroundingFor(def.Name, ld.Role, ld.Worktree))
 	sp.mu.Lock()
 	sp.reg.Register(def)
 	if sp.personaMembers == nil {

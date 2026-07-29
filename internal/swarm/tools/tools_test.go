@@ -20,7 +20,7 @@ import (
 // read-only task views plus the common send_message/list_members.
 func TestToolNamesForRole(t *testing.T) {
 	leader := toolNamesForRole(agentdef.RoleLeader)
-	wantLeader := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolBlackboardRead, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList, toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline, toolSkillPublish, toolMemberSpawn, toolMemberRetire, toolBlackboardWrite}
+	wantLeader := []string{toolSendMessage, toolListMembers, toolAlarmSet, toolAlarmClear, toolBlackboardRead, toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify, toolTaskList, toolScheduleSet, toolScheduleClear, toolProposalList, toolProposalAccept, toolProposalDecline, toolSkillPublish, toolMemberSpawn, toolMemberRetire, toolBlackboardWrite, toolWorktreeMerge}
 	if !reflect.DeepEqual(leader, wantLeader) {
 		t.Fatalf("leader tools = %v\nwant %v", leader, wantLeader)
 	}
@@ -36,15 +36,19 @@ func TestToolNamesForRole(t *testing.T) {
 	for _, n := range worker {
 		switch n {
 		case toolTaskCreate, toolTaskAssign, toolTaskUpdateStatus, toolTaskVerify,
-			toolProposalAccept, toolProposalDecline, toolSkillPublish, toolBlackboardWrite:
+			toolProposalAccept, toolProposalDecline, toolSkillPublish, toolBlackboardWrite,
+			// worktree_merge is leader-only structurally (SWT §4): the base
+			// checkout is one shared resource and the leader's single run slot
+			// is what serializes merges into it.
+			toolWorktreeMerge:
 			t.Errorf("worker must not hold write tool %q", n)
 		}
 	}
 }
 
 func TestSetForReturnsOptionPerTool(t *testing.T) {
-	if got := len(Set{}.For("leader", agentdef.RoleLeader, nil)); got != 19 {
-		t.Errorf("leader options = %d, want 19", got)
+	if got := len(Set{}.For("leader", agentdef.RoleLeader, nil)); got != 20 {
+		t.Errorf("leader options = %d, want 20", got)
 	}
 	if got := len(Set{}.For("w", agentdef.RoleWorker, nil)); got != 9 {
 		t.Errorf("worker options = %d, want 9", got)
@@ -78,6 +82,13 @@ func TestPermissionClassification(t *testing.T) {
 	// swarm coordination set, not the gate itself.
 	if b := decide("write"); b != permission.BehaviorAsk {
 		t.Errorf("write: behavior = %s, want ask (worker file writes stay gated)", b)
+	}
+	// worktree_merge is deliberately NOT auto-allowed (SWT §5.4): it rewrites
+	// the operator's base branch, which the governance-shaped argument behind
+	// the list above does not cover. Unattended swarms open it with the
+	// existing levers (leader bypass, or an RP-11 allow rule).
+	if b := decide(toolWorktreeMerge); b != permission.BehaviorAsk {
+		t.Errorf("%s: behavior = %s, want ask — merging rewrites the user's repo history", toolWorktreeMerge, b)
 	}
 }
 
