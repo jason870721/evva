@@ -7,6 +7,24 @@ import (
 	"github.com/johnny1110/evva/internal/session"
 )
 
+// sessionSlug returns the workdir slug this agent's persisted transcripts
+// live under. Normally that is the agent's own workdir, but cfg.SessionWorkdir
+// pins it elsewhere when the workdir is not the agent's identity (SWT: a swarm
+// member isolated in a git worktree keeps the space root's slug, so
+// ResetSpace / ClearMemberSession / restart-resume — which all resolve from
+// the root — keep finding its sessions). One helper so persist, list, and
+// resume can never disagree about where a transcript lives.
+func (a *Agent) sessionSlug() string {
+	dir := a.workdir
+	if a.cfg != nil && a.cfg.SessionWorkdir != "" {
+		dir = a.cfg.SessionWorkdir
+	}
+	if dir == "" {
+		return ""
+	}
+	return memdir.ProjectKey(dir)
+}
+
 // persistSession snapshots the current session state to disk under
 //
 //	<APP_HOME>/sessions/<workdir-slug>/<a.ID>.json
@@ -30,7 +48,7 @@ func (a *Agent) persistSession() {
 	if a.workdir == "" {
 		return
 	}
-	slug := memdir.ProjectKey(a.workdir)
+	slug := a.sessionSlug()
 	if slug == "" {
 		return
 	}

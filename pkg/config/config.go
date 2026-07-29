@@ -93,6 +93,14 @@ type Config struct {
 	// Workdir layout
 	WorkDir          string
 	WorkDirSkillsDir string
+	// SessionWorkdir pins the workdir whose slug names this agent's persisted
+	// session transcripts. Empty (the default) means "use WorkDir" — the only
+	// behavior before SWT. It exists for agents whose WorkDir is deliberately
+	// NOT their identity: a swarm member isolated in a git worktree still
+	// belongs to the space's root workdir, so its transcripts must stay under
+	// the root slug or reset/clear/resume (which all resolve from the root)
+	// would silently miss them.
+	SessionWorkdir string
 
 	// llm providers(from <app>-config.yml) key: provider name, value: provider APIConfig
 	LLMProviderConfig map[string]APIConfig
@@ -280,6 +288,7 @@ func (c *Config) Clone() *Config {
 		AutoCompactThreshold:    c.AutoCompactThreshold,
 		WorkDir:                 c.WorkDir,
 		WorkDirSkillsDir:        c.WorkDirSkillsDir,
+		SessionWorkdir:          c.SessionWorkdir,
 		LLMProviderConfig:       c.LLMProviderConfig,
 		DefaultProvider:         c.DefaultProvider,
 		DefaultModel:            c.DefaultModel,

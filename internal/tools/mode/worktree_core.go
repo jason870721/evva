@@ -66,6 +66,7 @@ func ProvisionMemberWorktree(ctx context.Context, rootWorkdir, slug string) (Wor
 		Path:            worktreePath,
 		Branch:          branch,
 		Slug:            flat,
+		RepoRoot:        repoRoot,
 		CreatedAt:       time.Now(),
 	}
 
@@ -104,6 +105,21 @@ func ProvisionMemberWorktree(ctx context.Context, rootWorkdir, slug string) (Wor
 		return WorktreeSession{}, fmt.Errorf("git worktree add: %v: %s", gErr, out)
 	}
 	return session, nil
+}
+
+// PreflightWorktreeRepo reports whether rootWorkdir can host member worktrees
+// at all: it must be inside a git repository AND that repository must have at
+// least one commit (a worktree is created from HEAD, so an empty repo cannot
+// host one). Callers use it to fail a swarm register up front with a targeted
+// message rather than failing member-by-member deep inside construction.
+func PreflightWorktreeRepo(ctx context.Context, rootWorkdir string) error {
+	if _, err := gitTopLevel(ctx, rootWorkdir); err != nil {
+		return errors.New("not a git repository")
+	}
+	if _, err := runGit(ctx, rootWorkdir, "rev-parse", "--verify", "HEAD"); err != nil {
+		return errors.New("the repository has no commits yet — a worktree is created from HEAD")
+	}
+	return nil
 }
 
 // MergeReport is the structured outcome of MergeBranch. The swarm's

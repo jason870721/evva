@@ -1695,7 +1695,7 @@ func (a *Agent) ListSessions() ([]ui.SessionInfo, []string) {
 	if a.IsSubagent() || a.cfg == nil || a.workdir == "" {
 		return nil, nil
 	}
-	slug := memdir.ProjectKey(a.workdir)
+	slug := a.sessionSlug()
 	if slug == "" {
 		return nil, nil
 	}
@@ -1732,7 +1732,7 @@ func (a *Agent) ResumeSession(id string) error {
 	if a.cfg == nil || a.workdir == "" {
 		return fmt.Errorf("agent: cannot resume without cfg + workdir")
 	}
-	slug := memdir.ProjectKey(a.workdir)
+	slug := a.sessionSlug()
 	if slug == "" {
 		return fmt.Errorf("agent: cannot derive workdir slug")
 	}

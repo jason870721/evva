@@ -54,6 +54,12 @@ type WorktreeSession struct {
 	// Slug is the flattened slug used to compose Path and Branch — kept
 	// for logging and the tool's confirmation message.
 	Slug string
+	// RepoRoot is the canonical repository root Path was anchored at. Set by
+	// ProvisionMemberWorktree (SWT) — the swarm needs it to map a space
+	// workdir nested inside a larger repo onto the same relative position
+	// inside the worktree. Empty on sessions from the single-agent tools,
+	// which have no such mapping to do.
+	RepoRoot string
 	// CreatedBySubagent marks worktrees the AgentTool's isolation path
 	// created (vs the user-invoked EnterWorktree tool). The post-run
 	// cleanup in spawn.go uses this to decide whether to auto-remove on

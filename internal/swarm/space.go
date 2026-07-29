@@ -15,6 +15,7 @@ import (
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
 	"github.com/johnny1110/evva/internal/swarm/bus"
 	"github.com/johnny1110/evva/internal/swarm/store"
+	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/pkg/agent"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
@@ -102,6 +103,13 @@ type SwarmSpace struct {
 	// (the RP-20 schedules lesson). Persisted into runtime.json (PermModes) and
 	// reapplied by Reload; a fresh register discards it. Lazily allocated.
 	permOverrides map[string]string
+
+	// worktrees records the live worktree session of each member running under
+	// isolation (SWT), keyed by member name. The leader's worktree_merge, the
+	// roster column, and teardown all read it. Absent entry = that member
+	// works in the shared space workdir (the pre-SWT behavior). Lazily
+	// allocated in constructMember.
+	worktrees map[string]mode.WorktreeSession
 
 	// budgets holds manifest member-level daily-budget overrides (RP-13);
 	// members without an entry inherit settings.DailyBudgetTokens. meter is the
@@ -205,6 +213,18 @@ func NewSpace(id string, m agentdef.Manifest, loaded []agentdef.Loaded, ts ToolS
 		loader:    agentdef.NewLoader(),
 	}
 	sp.Bus = bus.New(st, sp.Roster)
+
+	// Worktree isolation preflight (SWT §5.2): if ANY member resolves to "on",
+	// the space workdir must be a git repo with a HEAD. Fail the register here
+	// with a targeted message rather than degrading silently — a silent
+	// degrade would quietly drop an isolation property the operator asked for,
+	// and per-member `worktree: off` is the escape hatch for mixed teams.
+	if wantsWorktrees(m, loaded) {
+		if err := mode.PreflightWorktreeRepo(ctx, sp.Workdir); err != nil {
+			sp.Shutdown()
+			return nil, fmt.Errorf("swarm: space %q: worktree isolation is enabled but %s at %s (set worktree: \"off\" per member, or drop settings.worktree_isolation)", id, err, sp.Workdir)
+		}
+	}
 
 	// Verify-time checks (CHK): the runner lives under the space context and
 	// Shutdown drains it before the store closes. Absent knob = nil runner =
@@ -408,6 +428,35 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 		permMode = pm
 	}
 
+	// Per-member worktree isolation (SWT): give this member its own git
+	// worktree + branch so two workers editing the same repo concurrently
+	// cannot corrupt each other's work or the operator's checkout. Injected
+	// the same way the AgentTool's isolation:"worktree" does it (spawn.go) —
+	// point the member's own config clone at the worktree; no os.Chdir, the
+	// space and every other member are untouched.
+	//
+	// The leader is exempt by construction (D8): it merges members' branches
+	// onto the base checkout, so it must BE on the base checkout. LoadManifest
+	// rejects an explicit leader `worktree: on`; a space-wide setting simply
+	// does not reach here for the leader.
+	if ld.Role != agentdef.RoleLeader && agentdef.ResolveWorktree(sp.settings.WorktreeIsolation, ld.Worktree) {
+		sess, err := mode.ProvisionMemberWorktree(sp.ctx, sp.Workdir, memberWorktreeSlug(name))
+		if err != nil {
+			return fmt.Errorf("swarm: member %q: provision worktree: %w", name, err)
+		}
+		acfg.WorkDir = memberWorkdir(sess, sp.Workdir)
+		// D7: the session slug must stay the ROOT workdir's, or ResetSpace /
+		// ClearMemberSession / restart-resume — which all resolve from
+		// sp.Workdir — would silently miss this member's transcripts.
+		acfg.SessionWorkdir = sp.Workdir
+		sp.mu.Lock()
+		if sp.worktrees == nil {
+			sp.worktrees = map[string]mode.WorktreeSession{}
+		}
+		sp.worktrees[name] = sess
+		sp.mu.Unlock()
+	}
+
 	// Member-native long-term memory (RP-25): home this member's writable
 	// memory at its own <agentDir>/memory/ — created here so first boot AND
 	// hot-add both leave an empty dir ready for the model's first write. The
@@ -473,7 +522,12 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 	// load the shared files alone (the prior behavior, which this preserves when a
 	// member has no permissions.json). Warnings are non-fatal — the member starts
 	// without the grant — mirroring agent.New's own discard of Load warnings.
-	permStore, _ := permission.LoadMember(acfg.WorkDir, acfg.AppHome,
+	//
+	// D7: project rules come from sp.Workdir, NOT acfg.WorkDir. Under worktree
+	// isolation acfg.WorkDir is the member's worktree, where
+	// .evva/permissions.json is a stale committed copy (or absent) — the
+	// operator's live rules always live on the root checkout.
+	permStore, _ := permission.LoadMember(sp.Workdir, acfg.AppHome,
 		agentdef.PermissionsPath(sp.Workdir, ld.Role, name))
 
 	ag, err := agent.New(agent.Config{
@@ -736,6 +790,51 @@ func (sp *SwarmSpace) MemberSkills(member string) ([]agent.Skill, error) {
 	return out, nil
 }
 
+// wantsWorktrees reports whether any member of this space resolves to worktree
+// isolation (SWT). The leader is excluded (D8): it always stays on the base
+// checkout, so a space whose only "on" is a stale leader setting needs no repo
+// preflight.
+func wantsWorktrees(m agentdef.Manifest, loaded []agentdef.Loaded) bool {
+	for _, ld := range loaded {
+		if ld.Role != agentdef.RoleLeader && agentdef.ResolveWorktree(m.Settings.WorktreeIsolation, ld.Worktree) {
+			return true
+		}
+	}
+	return false
+}
+
+// memberWorktreeSlug is the deterministic worktree slug for a member. The
+// "swarm-" prefix keeps member worktrees distinguishable from the single-agent
+// tools' ones in `git worktree list` and is what teardown/reset key off. One
+// space per workdir is an existing invariant, so the member name is unique per
+// repo.
+func memberWorktreeSlug(member string) string { return "swarm-" + member }
+
+// memberWorkdir maps the space workdir onto a member's worktree, preserving
+// the project-relative position: when the space workdir is nested inside a
+// larger repo (workdir = <repoRoot>/services/api), the member sees the same
+// relative cwd inside its worktree rather than being dropped at the repo root.
+// A space workdir that IS the repo root maps to the worktree root.
+func memberWorkdir(sess mode.WorktreeSession, spaceWorkdir string) string {
+	if sess.RepoRoot == "" {
+		return sess.Path
+	}
+	rel, err := filepath.Rel(sess.RepoRoot, spaceWorkdir)
+	if err != nil || rel == "." || rel == "" || strings.HasPrefix(rel, "..") {
+		return sess.Path
+	}
+	return filepath.Join(sess.Path, rel)
+}
+
+// memberWorktree returns the live worktree session for a member, if it runs
+// under isolation (SWT).
+func (sp *SwarmSpace) memberWorktree(name string) (mode.WorktreeSession, bool) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	s, ok := sp.worktrees[name]
+	return s, ok
+}
+
 // memoryWakeReminderCap bounds the index text injected per wake. The solo
 // convention caps the index at ~200 lines; 16 KiB is far above any healthy
 // index and merely stops a runaway file from flooding a wake prompt.
@@ -764,11 +863,16 @@ func (sp *SwarmSpace) memoryWakeReminder(name string) string {
 	if len(idx) > memoryWakeReminderCap {
 		idx = idx[:memoryWakeReminderCap] + "\n… (index truncated — prune it)"
 	}
-	rel, err := filepath.Rel(sp.Workdir, dir)
-	if err != nil {
-		rel = dir
+	// D7: the path is workdir-relative, which only reads correctly from the
+	// space root. A member isolated in a worktree (SWT) has a different cwd,
+	// where that relative path resolves to nothing — give it the absolute one.
+	shown := dir
+	if _, isolated := sp.memberWorktree(name); !isolated {
+		if rel, err := filepath.Rel(sp.Workdir, dir); err == nil {
+			shown = rel
+		}
 	}
-	return "Your memory index (" + filepath.ToSlash(rel) + "/MEMORY.md — read a linked file before relying on it):\n" + idx
+	return "Your memory index (" + filepath.ToSlash(shown) + "/MEMORY.md — read a linked file before relying on it):\n" + idx
 }
 
 // MemoryFile is one file of a member's memory dir, served read-only to the
