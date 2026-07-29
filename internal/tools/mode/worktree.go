@@ -396,73 +396,28 @@ func (t *ExitWorktreeTool) executeMerge(ctx context.Context, ctrl WorktreeContro
 		childPath, childBranch, basePath = match.Path, match.Branch, entries[0].Path
 	}
 
-	// --- base branch + clean guards ---
-	baseBranchRaw, err := runGit(ctx, basePath, "rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil {
-		return tools.Result{IsError: true, Content: "exit_worktree: cannot resolve base branch: " + err.Error()}, nil
+	// --- merge core (shared with the swarm's worktree_merge, SWT-1) ---
+	// MergeBranch runs the guards (dirty base / unclean source), the no-op
+	// check, and the `--no-ff` merge with the abort-on-conflict contract. It
+	// deliberately does NOT tear the worktree down — the teardown below is the
+	// tool's own concern (the swarm keeps the worktree for the member's reuse).
+	report, mErr := MergeBranch(ctx, basePath, childBranch)
+	if mErr != nil {
+		return tools.Result{IsError: true, Content: "exit_worktree: " + mErr.Error()}, nil
 	}
-	baseBranch := strings.TrimSpace(baseBranchRaw)
-
-	// A dirty base would make `git merge` fail confusingly — refuse early
-	// with a clear message instead. Only tracked modifications block a merge;
-	// untracked files (notably the .evva/worktrees/ dirs that live inside the
-	// repo) do not, so ignore them here.
-	if baseStatus, sErr := runGit(ctx, basePath, "status", "--porcelain", "--untracked-files=no"); sErr != nil {
-		return tools.Result{IsError: true, Content: "exit_worktree: cannot inspect base checkout: " + sErr.Error()}, nil
-	} else if strings.TrimSpace(baseStatus) != "" {
-		return tools.Result{
-			IsError: true,
-			Content: fmt.Sprintf("exit_worktree: base branch %q has uncommitted changes at %s — commit or stash them before merging.", baseBranch, basePath),
-		}, nil
-	}
-
-	// A4: refuse an unclean source — only UNCOMMITTED work blocks a merge
-	// (committed work is exactly what we're integrating).
-	if uncommitted, uErr := worktreeUncommitted(ctx, childPath); uErr != nil {
-		return tools.Result{IsError: true, Content: "exit_worktree: cannot inspect worktree on branch " + childBranch + ": " + uErr.Error()}, nil
-	} else if uncommitted > 0 {
-		return tools.Result{
-			IsError: true,
-			Content: fmt.Sprintf("exit_worktree: worktree on branch %q has %d uncommitted change(s) — the worker must commit before its work can be merged.", childBranch, uncommitted),
-		}, nil
-	}
-
-	// A5: nothing to integrate → no-op, never errors, leaves the worktree.
-	ahead, _, err := aheadBehind(ctx, basePath, baseBranch, childBranch)
-	if err != nil {
-		return tools.Result{IsError: true, Content: "exit_worktree: cannot count commits to integrate: " + err.Error()}, nil
-	}
-	if ahead == 0 {
+	baseBranch := report.BaseBranch
+	if report.NoOp {
 		return tools.Result{
 			Content: fmt.Sprintf("No changes to integrate: branch %q has no commits beyond %q. Worktree left untouched at %s.", childBranch, baseBranch, childPath),
 		}, nil
 	}
-
-	// Capture the set of files this merge will bring in, for the report.
-	filesOut, _ := runGit(ctx, basePath, "diff", "--name-only", baseBranch+"..."+childBranch)
-	filesChanged := countNonEmptyLines(filesOut)
-
-	// --- merge (A2 / A3) ---
-	mergeOut, mergeErr := runGit(ctx, basePath, "merge", "--no-ff", "-m",
-		fmt.Sprintf("Merge %s into %s", childBranch, baseBranch), childBranch)
-	if mergeErr != nil {
-		// A3: capture conflicts, abort, leave the worktree intact. Structural,
-		// not a crash — the agent decides what to do next.
-		conflicts, _ := runGit(ctx, basePath, "diff", "--name-only", "--diff-filter=U")
-		_, _ = runGit(ctx, basePath, "merge", "--abort")
-		conflictList := strings.TrimSpace(conflicts)
-		if conflictList == "" {
-			return tools.Result{
-				IsError: true,
-				Content: fmt.Sprintf("exit_worktree: merge of %q failed (aborted, worktree intact):\n%s", childBranch, strings.TrimSpace(mergeOut)),
-			}, nil
-		}
+	if len(report.Conflicts) > 0 {
 		logger.Info("exit_worktree", "action", "merge", "branch", childBranch, "base", baseBranch, "result", "conflict")
 		return tools.Result{
 			// Not IsError: a conflict is an actionable outcome, not a tool failure.
 			Content: fmt.Sprintf(
 				"MERGE CONFLICT — aborted, nothing applied. Branch %q conflicts with %q in:\n%s\n\nThe worktree is intact at %s. Resolve by re-spawning the worker with conflict context, merging another branch first, or asking the user.",
-				childBranch, baseBranch, bulletLines(conflictList), childPath,
+				childBranch, baseBranch, bulletLines(strings.Join(report.Conflicts, "\n")), childPath,
 			),
 		}, nil
 	}
@@ -488,11 +443,11 @@ func (t *ExitWorktreeTool) executeMerge(ctx context.Context, ctrl WorktreeContro
 		ctrl.EndWorktreeSession()
 	}
 
-	logger.Info("exit_worktree", "action", "merge", "branch", childBranch, "base", baseBranch, "commits", ahead, "files", filesChanged)
+	logger.Info("exit_worktree", "action", "merge", "branch", childBranch, "base", baseBranch, "commits", report.Ahead, "files", report.FilesChanged)
 	return tools.Result{
 		Content: fmt.Sprintf(
 			"Merged %q into %q: %d commit(s), %d file(s) changed. Worktree removed: %s.%s",
-			childBranch, baseBranch, ahead, filesChanged, childPath, teardown,
+			childBranch, baseBranch, report.Ahead, report.FilesChanged, childPath, teardown,
 		),
 	}, nil
 }
