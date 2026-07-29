@@ -496,3 +496,126 @@ settings:
 		t.Error("task_stale_threshold garbage should fail to load")
 	}
 }
+
+// SWT-2: the worktree-isolation knob — space setting + per-member override,
+// member field beats settings, "" inherits, invalid values reject the whole
+// manifest at load (the permission_mode fail-fast precedent).
+func TestManifestWorktreeKnob(t *testing.T) {
+	p := writeManifest(t, `
+name: coders
+leader:
+  agent: lead
+workers:
+  - agent: backend
+  - agent: docs-writer
+    worktree: "off"
+  - agent: opt-in
+    worktree: "on"
+settings:
+  worktree_isolation: true
+`)
+	m, err := LoadManifest(p)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	if !m.Settings.WorktreeIsolation {
+		t.Error("settings.worktree_isolation should be true")
+	}
+	if m.Leader.Worktree != "" {
+		t.Errorf("leader worktree = %q, want empty", m.Leader.Worktree)
+	}
+	if m.Workers[0].Worktree != "" || m.Workers[1].Worktree != WorktreeOff || m.Workers[2].Worktree != WorktreeOn {
+		t.Errorf("worker worktrees = %q/%q/%q, want \"\"/off/on",
+			m.Workers[0].Worktree, m.Workers[1].Worktree, m.Workers[2].Worktree)
+	}
+
+	// The layering the space wiring consumes: member field beats settings.
+	for _, tc := range []struct {
+		name     string
+		override string
+		space    bool
+		want     bool
+	}{
+		{"inherit on", "", true, true},
+		{"inherit off", "", false, false},
+		{"member off beats space on", WorktreeOff, true, false},
+		{"member on beats space off", WorktreeOn, false, true},
+	} {
+		if got := ResolveWorktree(tc.space, tc.override); got != tc.want {
+			t.Errorf("ResolveWorktree(%v, %q) = %v, want %v", tc.space, tc.override, got, tc.want)
+		}
+	}
+
+	// WriteManifest must carry both levels back out.
+	out := filepath.Join(t.TempDir(), "evva-swarm.yml")
+	if err := WriteManifest(out, m); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+	m2, err := LoadManifest(out)
+	if err != nil {
+		t.Fatalf("re-LoadManifest: %v", err)
+	}
+	if !m2.Settings.WorktreeIsolation || m2.Workers[1].Worktree != WorktreeOff || m2.Workers[2].Worktree != WorktreeOn {
+		t.Errorf("round-trip lost worktree knobs: settings %v, w1 %q, w2 %q",
+			m2.Settings.WorktreeIsolation, m2.Workers[1].Worktree, m2.Workers[2].Worktree)
+	}
+}
+
+// The default (off) must emit nothing, so an untouched manifest stays
+// byte-identical to a pre-SWT one.
+func TestManifestWorktreeOmittedWhenDefault(t *testing.T) {
+	p := writeManifest(t, "name: plain\nleader:\n  agent: lead\nworkers:\n  - agent: w1\n")
+	m, err := LoadManifest(p)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	if m.Settings.WorktreeIsolation {
+		t.Error("worktree_isolation should default to false")
+	}
+	out := filepath.Join(t.TempDir(), "evva-swarm.yml")
+	if err := WriteManifest(out, m); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "worktree") {
+		t.Errorf("default should emit no worktree keys; got:\n%s", b)
+	}
+}
+
+func TestManifestWorktreeInvalid(t *testing.T) {
+	for name, yml := range map[string]string{
+		"member": "leader:\n  agent: lead\nworkers:\n  - agent: w1\n    worktree: \"true\"\n",
+		"leader": "leader:\n  agent: lead\n  worktree: yes-please\n",
+	} {
+		_, err := LoadManifest(writeManifest(t, yml))
+		if err == nil || !strings.Contains(err.Error(), "worktree") {
+			t.Errorf("%s-level invalid worktree: err = %v, want a worktree error", name, err)
+		}
+	}
+}
+
+// D8: the leader merges onto the base checkout, so it must stay on it. Only an
+// explicit opt-in is rejected — settings.worktree_isolation never reaches the
+// leader, so a space-wide `true` with no leader override must still load.
+func TestManifestLeaderWorktreeOnRejected(t *testing.T) {
+	_, err := LoadManifest(writeManifest(t, "leader:\n  agent: lead\n  worktree: \"on\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "leader.worktree") {
+		t.Fatalf("leader worktree:on should reject the manifest; err = %v", err)
+	}
+
+	m, err := LoadManifest(writeManifest(t,
+		"leader:\n  agent: lead\nworkers:\n  - agent: w1\nsettings:\n  worktree_isolation: true\n"))
+	if err != nil {
+		t.Fatalf("space-wide isolation with no leader override should load: %v", err)
+	}
+	if !m.Settings.WorktreeIsolation {
+		t.Error("space-wide isolation should survive load")
+	}
+	// An explicit leader `off` is always legal (and redundant).
+	if _, err := LoadManifest(writeManifest(t, "leader:\n  agent: lead\n  worktree: \"off\"\n")); err != nil {
+		t.Errorf("leader worktree:off should load: %v", err)
+	}
+}

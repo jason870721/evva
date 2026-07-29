@@ -38,6 +38,12 @@ type Loaded struct {
 	// evva-swarm.yml where the whole roster's stances read in one file,
 	// not in each agent's own profile.yml.
 	PermissionMode string
+	// Worktree is the member's manifest worktree-isolation override
+	// ("" = inherit settings.worktree_isolation; SWT). Manifest-only for the
+	// same reason as PermissionMode: whether a member edits in its own
+	// checkout is a team-composition decision, so the whole roster's stances
+	// read in one file. Resolve with ResolveWorktree.
+	Worktree string
 	// FromPersona marks a member synthesized from a manifest persona entry
 	// (RP-29): no disk dir was read; the space resolves the def from its
 	// persona registry at assembly time.
@@ -158,7 +164,8 @@ func (l *Loader) BuildAll(workdir string, m Manifest) ([]Loaded, []Warning, erro
 				Def:         agent.AgentDefinition{Name: mem.Agent, WhenToUse: mem.WhenToUse, Model: mem.Model},
 				FromPersona: true, Role: role, Schedule: mem.Schedule,
 				Effort: mem.Effort, PermissionMode: mem.PermissionMode,
-				Skills: skill.NewRegistry(),
+				Worktree: mem.Worktree,
+				Skills:   skill.NewRegistry(),
 			})
 			return nil
 		}
@@ -182,6 +189,7 @@ func (l *Loader) BuildAll(workdir string, m Manifest) ([]Loaded, []Warning, erro
 			one.Def.WhenToUse = mem.WhenToUse
 		}
 		one.PermissionMode = mem.PermissionMode
+		one.Worktree = mem.Worktree
 		for _, w := range one.Skills.Warnings {
 			warnings = append(warnings, Warning{Agent: one.Def.Name, Msg: w})
 		}

@@ -41,6 +41,13 @@ type Member struct {
 	// the broad stance, allow rules open holes in `default`, and deny rules
 	// bind in EVERY mode — bypass included.
 	PermissionMode string
+	// Worktree overrides the space-wide worktree-isolation stance for this
+	// member (SWT): WorktreeOn | WorktreeOff; "" = inherit
+	// Settings.WorktreeIsolation. Resolve it with ResolveWorktree — the
+	// member field beats the space setting, the RP-24 permission_mode
+	// layering. An explicit "on" is rejected for the leader (D8): the leader
+	// merges members' branches onto the base checkout and must stay on it.
+	Worktree string
 	// FromPersona marks a member that references a registry main-tier persona
 	// instead of a workdir agents/{main,sub}/<name>/ directory (RP-29). The
 	// member NAME stays in Agent for both shapes; the space resolves and
@@ -136,6 +143,36 @@ type Settings struct {
 	// omits the knob gets DefaultBlackboardMaxBytes; values above
 	// MaxBlackboardMaxBytes are rejected at load.
 	BlackboardMaxBytes int
+	// WorktreeIsolation gives every member its own git worktree + branch
+	// instead of the shared space workdir (SWT), so two workers editing the
+	// same repo concurrently cannot corrupt each other's work or the
+	// operator's checkout. The leader always stays on the base checkout (D8)
+	// — it is what integrates members' branches via worktree_merge.
+	// Per-member Worktree overrides this. Default false: a space that never
+	// opts in behaves byte-identically to before the wave.
+	WorktreeIsolation bool
+}
+
+// Member.Worktree values (SWT). "" inherits Settings.WorktreeIsolation.
+const (
+	WorktreeOn  = "on"
+	WorktreeOff = "off"
+)
+
+// ResolveWorktree resolves the effective worktree-isolation stance for one
+// member: an explicit member-level override wins, otherwise the space setting
+// applies. Mirrors the RP-24 permission_mode layering — member field beats
+// settings — so a mixed team (coders isolated, a docs writer on root) is one
+// line of manifest.
+func ResolveWorktree(spaceDefault bool, memberOverride string) bool {
+	switch strings.TrimSpace(memberOverride) {
+	case WorktreeOn:
+		return true
+	case WorktreeOff:
+		return false
+	default:
+		return spaceDefault
+	}
 }
 
 // CheckSpec is the operator-authored verify-time check (CHK): one shell
@@ -247,6 +284,7 @@ type memberYml struct {
 	Schedule       *scheduleYml `yaml:"schedule,omitempty"`
 	BudgetTokens   int          `yaml:"budget_tokens,omitempty"`
 	PermissionMode string       `yaml:"permission_mode,omitempty"` // "" = inherit settings (RP-24)
+	Worktree       string       `yaml:"worktree,omitempty"`        // "" = inherit settings (SWT)
 }
 
 // memberFromYml validates and converts one manifest member entry. ctx names
@@ -272,6 +310,10 @@ func memberFromYml(y memberYml, ctx string) (Member, error) {
 	if err != nil {
 		return Member{}, fmt.Errorf("agentdef: manifest %s permission_mode: %w", ctx, err)
 	}
+	wt, err := parseWorktreeMode(y.Worktree)
+	if err != nil {
+		return Member{}, fmt.Errorf("agentdef: manifest %s worktree: %w", ctx, err)
+	}
 	effort := strings.TrimSpace(y.Effort)
 	if effort != "" && llm.ParseEffort(effort) == 0 {
 		return Member{}, fmt.Errorf("agentdef: manifest %s: invalid effort %q (want low|medium|high|ultra)", ctx, effort)
@@ -279,7 +321,7 @@ func memberFromYml(y memberYml, ctx string) (Member, error) {
 	return Member{
 		Agent: name, FromPersona: fromPersona,
 		Model: strings.TrimSpace(y.Model), Effort: effort, WhenToUse: strings.TrimSpace(y.WhenToUse),
-		Schedule: sched, BudgetTokens: y.BudgetTokens, PermissionMode: mode,
+		Schedule: sched, BudgetTokens: y.BudgetTokens, PermissionMode: mode, Worktree: wt,
 	}, nil
 }
 
@@ -288,6 +330,7 @@ func memberToYml(m Member) memberYml {
 	y := memberYml{
 		Model: m.Model, Effort: m.Effort, WhenToUse: m.WhenToUse,
 		Schedule: toScheduleYml(m.Schedule), BudgetTokens: m.BudgetTokens, PermissionMode: m.PermissionMode,
+		Worktree: m.Worktree,
 	}
 	if m.FromPersona {
 		y.Persona = m.Agent
@@ -321,6 +364,7 @@ type manifestYml struct {
 		VerifyChecks           *checkYml  `yaml:"verify_checks,omitempty"`           // nil = checks off
 		Notify                 *notifyYml `yaml:"notify,omitempty"`                  // nil = notifications off
 		BlackboardMaxBytes     int        `yaml:"blackboard_max_bytes,omitempty"`    // 0 = default 4096, max 16384
+		WorktreeIsolation      bool       `yaml:"worktree_isolation,omitempty"`      // false = shared workdir (SWT)
 	} `yaml:"settings,omitempty"`
 }
 
@@ -484,6 +528,20 @@ func parsePermissionMode(s string) (string, error) {
 	return s, nil
 }
 
+// parseWorktreeMode reads an optional member-level worktree knob (SWT): ""
+// inherits settings.worktree_isolation, otherwise it must be "on" or "off".
+// Validated at load — the parsePermissionMode precedent — so a typo ("true",
+// "yes") rejects the manifest at register time rather than silently reading as
+// "inherit" and quietly dropping the isolation the operator asked for.
+func parseWorktreeMode(s string) (string, error) {
+	switch s = strings.TrimSpace(s); s {
+	case "", WorktreeOn, WorktreeOff:
+		return s, nil
+	default:
+		return "", fmt.Errorf("invalid worktree %q (want on|off)", s)
+	}
+}
+
 // parseScheduleYml turns an optional on-disk schedule block into a *Schedule,
 // validating the cron at load time (a bad spec fails the whole manifest, not the
 // first tick). nil block → nil schedule.
@@ -579,6 +637,7 @@ func LoadManifest(path string) (Manifest, error) {
 			VerifyChecks:           checks,
 			Notify:                 notify,
 			BlackboardMaxBytes:     boardCap,
+			WorktreeIsolation:      y.Settings.WorktreeIsolation,
 		},
 	}
 	for _, w := range y.Workers {
@@ -689,6 +748,9 @@ func WriteManifest(path string, m Manifest) error {
 	if m.Settings.BlackboardMaxBytes != DefaultBlackboardMaxBytes {
 		y.Settings.BlackboardMaxBytes = m.Settings.BlackboardMaxBytes
 	}
+	// Worktree isolation is plain omitempty: false = off = omitted, which is
+	// exactly the default. Per-member overrides ride along in memberToYml.
+	y.Settings.WorktreeIsolation = m.Settings.WorktreeIsolation
 	b, err := yaml.Marshal(y)
 	if err != nil {
 		return fmt.Errorf("agentdef: marshal manifest: %w", err)
@@ -734,6 +796,12 @@ func (m *Manifest) RemoveWorker(name string) {
 func (m Manifest) validate() error {
 	if strings.TrimSpace(m.Leader.Agent) == "" {
 		return fmt.Errorf("agentdef: manifest: leader.agent is required")
+	}
+	// D8: the leader integrates members' branches onto the base checkout, so
+	// it must BE on the base checkout. Only an explicit opt-in is an error —
+	// settings.worktree_isolation deliberately does not reach the leader.
+	if m.Leader.Worktree == WorktreeOn {
+		return fmt.Errorf(`agentdef: manifest: leader.worktree: %q is not supported — the leader merges members' work onto the base checkout and must stay on it (it can read any worktree by absolute path)`, WorktreeOn)
 	}
 	seen := map[string]bool{m.Leader.Agent: true}
 	for i, w := range m.Workers {
