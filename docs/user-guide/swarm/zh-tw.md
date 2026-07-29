@@ -179,6 +179,8 @@ settings:
   #   url: "https://hooks.slack.com/services/…"   # webhook,json 或 slack 格式
   #   command: "evva-notify"      #   和/或本機命令（JSON 走 stdin）
   # blackboard_max_bytes: 4096    # 團隊黑板大小上限（見 §7）；省略 = 4096，最大 16384
+  # worktree_isolation: true      # 每個 worker 各自一個 git worktree + 分支（見 §8）；
+                                  #   成員層級可覆寫：在成員上寫 `worktree: "on"|"off"`
 ```
 
 - 同一 space 內**成員名唯一**（不支援副本 —— 每個成員取不同名字）。
@@ -655,6 +657,64 @@ settings:
   （`2026-06-10T12:25:00Z`），確認回執會同時給出 UTC 對照，下錯時區一眼可見。
 - cron（manifest 的 `schedule` 與 leader 的 `schedule_set`）按系統本地牆鍾比對。
 
+### 隔離式 coding swarm（`worktree_isolation`）
+
+預設所有成員共用同一個工作目錄 —— 對研究或交易團隊沒問題,對 *coding* 團隊
+卻是正確性漏洞:兩個 worker 同時被指派去改同一個 repo,就會互相覆蓋,而且沒有
+任何東西記錄誰的改動勝出。打開 worktree 隔離,每個 worker 就會拿到**自己的
+git worktree、自己的分支**:
+
+```yaml
+settings:
+  worktree_isolation: true     # 預設 false
+workers:
+  - agent: backend             # 繼承:隔離
+  - agent: docs-writer
+    worktree: "off"            # 留在共用 checkout
+```
+
+成員層級的欄位勝過空間設定,所以混合編制只要一行。**leader 永遠不會拿到
+worktree** —— 它是負責合併的人,必須待在 base checkout 上
+（`leader.worktree: "on"` 會在載入時被拒絕）。
+
+- **工作發生在哪。** worker `qa` 在 `.evva/worktrees/swarm-qa/` 的
+  `worktree-swarm-qa` 分支上編輯。所有屬於*團隊狀態*的東西一律留在空間根目錄:
+  `.vero` ledger、event log、成員 memory 目錄、你的 `.evva/permissions.json`
+  規則,以及所有 transcript。移動的只有編輯面。
+- **循環。** worker commit → `task_done` → leader 檢視 →
+  `worktree_merge {member, task_id}` → `task_verify`。**只有已 commit 的工作**
+  會被合併:worker 沒 commit 就回報完成,合併會回「沒有東西可整合」,這正是
+  leader 該把任務退回而不是核可的訊號。
+- **衝突是正常結果,不是卡死的 repo。** 衝突的合併會被 **abort** —— 什麼都沒
+  套用、base 分支保持乾淨 —— 並回傳衝突路徑。leader 用這份配方把任務退回
+  `running`,worker 則**在自己的 worktree 裡**解:把 base 分支合進自己的分支、
+  在那裡修好、重新 commit、再回報。base checkout 永遠不會停在合併中途;每次
+  合併衝突你也會在 web 上收到一封信。
+- **漂移。** 合併成功後,被合併成員的分支會 fast-forward 到新的 base tip
+  （若它有未 commit 的工作則跳過並附註）。其他人在下個任務開始時自行刷新。
+  `list_members` 與 roster 卡片會顯示 `⑂ branch +ahead -behind dirty:n`,讓漂移
+  在演變成衝突堆積前就看得見。
+- **無人值守的 swarm。** `worktree_merge` 會改寫你的 base 分支,所以跟其他
+  leader 工具不同,它**不會**自動放行 —— 在 `default` 模式下會排進核可佇列。
+  要全自動就給 leader `permission_mode: bypass`,或在 leader 的
+  `permissions.json` 加一條 `worktree_merge` 的 allow 規則。
+- **前提與成本。** 空間工作目錄必須是至少有一個 commit 的 git repo;不是的話
+  註冊會**直接失敗**並說明原因,而不是默默放棄你要求的隔離（要混編非 coding
+  角色,就用成員層級的 `worktree: "off"`）。worktree 共用 repo 的 `.git`
+  物件,所以 N 個 worktree 遠比 N 個 clone 便宜 —— 但它們是真的 checkout,
+  每個隔離成員要算一份工作樹的空間。
+- **生命週期。** worktree 是持久的:`swarm stop`、服務重啟、reconcile 重建都
+  活得下來,成員會接回同一個分支且歷史完整。移除成員時,只有在 worktree 沒有
+  未整合內容時才會一併刪除 —— 否則 worktree 會被**保留**,你會收到一封指名
+  分支的信。`evva swarm reset` 是刻意的清空路徑,會強制移除全部,含未 commit
+  的工作。
+- **與 `verify_checks`（見下）搭配。** check 是在**空間工作目錄**（也就是 base
+  checkout）執行的,所以在隔離下它驗的是「已經合併進去的東西」,*不是*還躺在
+  成員 worktree 裡的分支。把 leader 的驗收順序排成 檢視 → `worktree_merge` →
+  `task_verify`,真正有意義的 check 就是合併之後那一次。每任務的
+  `verify: "checks"`（check 一綠就直接結案,發生在任何合併之前）因此比較適合
+  留給你放在共用工作目錄的成員。
+
 ### 機器驗證（`verify_checks`）
 
 對 coding swarm 來說,驗收裡真正要緊的是機械性的那部分:能不能 build、測試
@@ -986,7 +1046,8 @@ swarm 的 cron 是自寫的、刻意精簡。五個欄位——`分 時 日 月 
 
 這些會**根據角色自動注入** —— **永遠不要在 `active.yml` 裡列它們**。
 Leader：`task_create`、`task_assign`、`task_update_status`、`task_verify`、
-`task_list`、`member_spawn`、`member_retire`、`blackboard_write`。Worker：
+`task_list`、`member_spawn`、`member_retire`、`blackboard_write`、
+`worktree_merge`（只有搭配 `worktree_isolation` 才有用，見 §8）。Worker：
 `my_tasks`、`task_get`、`task_done`。兩者都有：`send_message`、`list_members`、
 `blackboard_read`。`active.yml` 裡只列成員
 需要的常規 evva 工具 —— `read`、`write`、`edit`、`bash`、`grep`、`glob`、

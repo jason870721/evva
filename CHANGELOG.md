@@ -12,6 +12,59 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Swarm worktree isolation (SWT-1..8) — safe concurrent coding swarms.**
+  Every member used to share one working directory: for a coding team that
+  is a correctness hole, since parallel task assignment is exactly what the
+  leader/worker model encourages and parallel edits to one checkout race.
+  Behind `settings.worktree_isolation: true` (default off, per-member
+  `worktree: "on"|"off"` override — member field beats settings, the RP-24
+  precedent) each opted-in member now works in its own **git worktree on its
+  own branch** (`.evva/worktrees/swarm-<member>` /
+  `worktree-swarm-<member>`), injected the way the AgentTool's
+  `isolation:"worktree"` does it — a config clone with `WorkDir` overridden,
+  no `os.Chdir`. The leader stays on the base checkout by design (D8): it is
+  what integrates, so `leader.worktree: "on"` is rejected at load.
+  The machinery is the single-agent worktree stack's, not a second
+  implementation: `internal/tools/mode` grows a reusable core
+  (`ProvisionMemberWorktree` — deterministic naming so a restart reattaches
+  instead of orphaning work; `MergeBranch` — `executeMerge`'s body minus
+  session/teardown, keeping the abort-on-conflict contract; `RefreshWorktree`;
+  `RemoveMemberWorktree`; `ListMemberWorktrees`), and `exit_worktree`'s merge
+  action becomes a thin caller so the two can only share one merge core.
+  Integration is the leader's **`worktree_merge {member, task_id?}`** — one
+  agent with one run slot, so merges into the shared base serialize by
+  construction. Clean → stats plus a fast-forward of the member's branch onto
+  the new base tip (D4); nothing committed → "nothing to integrate", the
+  tell to bounce the task instead of approving it; conflict → **aborted,
+  base left clean**, conflicted paths returned, and the leader rejects the
+  task back to `running` with the recipe (resolve in YOUR worktree, never on
+  base) — plus one durable mail to the operator. Deliberately NOT in
+  `permission.ReadOnlyOrSelfTools`: it rewrites the operator's base branch,
+  which the governance-shaped auto-allow argument behind the task tools does
+  not cover; unattended swarms use leader `permission_mode: bypass` or an
+  RP-11 allow rule.
+  Moving a member's cwd would have quietly broken three things that key off
+  `WorkDir` but are space state, so all three are pinned to the root: project
+  permission rules load from the space workdir, the memory wake reminder
+  renders its index path absolutely for an isolated member, and the new
+  `config.Config.SessionWorkdir` seam (empty = prior behavior) keeps member
+  transcripts under the ROOT workdir slug — without it `ResetSpace`,
+  `ClearMemberSession` and restart-resume all silently miss them.
+  Lifecycle: worktrees survive stop/restart/reconcile and reattach with
+  history intact; `RemoveMember` deletes one only when it holds nothing
+  unintegrated and otherwise **preserves** it with one notice naming the
+  branch; `evva swarm reset` force-removes every member worktree (the
+  deliberate blank-slate path), sweeping by repo so crash-orphaned ones go
+  too. Observability: `list_members`, `MemberInfo`
+  (`worktreeBranch`/`Ahead`/`Behind`/`Dirty`) and the web roster card show
+  branch + drift + dirty state. The team protocol teaches workers
+  commit-before-done and the conflict recipe, the leader inspect → merge →
+  verify. A space that never opts in is byte-identical to before, prompts
+  included. User guide (en, zh-tw) §8 "Isolated coding swarms"; PRD:
+  `docs/roadmap/PRD/swarm-worktree-isolation.md`.
+
 ## [v1.11.0] — 2026-07-11
 
 ### Added

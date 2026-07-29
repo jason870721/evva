@@ -1,9 +1,13 @@
 # PRD — Swarm Worktree Isolation — Implementation Plan
 
 > **Audience:** senior engineers implementing this wave.
-> **Status:** proposed.
-> **Target release:** `v1.9.0` (this wave claims the v1.9 minor per the
-> CLAUDE.md wave → minor rule; first cut ships as `v1.9.0-beta.1`).
+> **Status:** BUILT — SWT-1..8 implemented 2026-07-29 on
+> `feature/swarm-worktree-isolation`, unreleased.
+> **Target release:** `v1.12.0`. This wave originally claimed `v1.9`
+> (2026-07-02) but was never built, and `v1.11.0` shipped stable before it
+> started — so v1.9 is no longer reachable and the CLAUDE.md wave → minor
+> map re-slots it to v1.12 (the ⚠️ anomaly `docs/roadmap/overview.md` §1
+> flagged, closed by option (a): build it).
 > **Roadmap source:** swarm gap audit 2026-07-02 — "members share one
 > working directory with zero isolation" surfaced as the largest structural
 > gap for coding swarms, immediately after the single-agent worktree stack

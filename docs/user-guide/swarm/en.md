@@ -186,6 +186,8 @@ settings:
   #   url: "https://hooks.slack.com/services/…"   # webhook, json or slack format
   #   command: "evva-notify"      #   and/or a local command (JSON on stdin)
   # blackboard_max_bytes: 4096    # team-blackboard size cap (see §7); omit = 4096, max 16384
+  # worktree_isolation: true      # give each worker its own git worktree + branch (see §8);
+                                  #   per-member override: `worktree: "on"|"off"` on the member
 ```
 
 - **Member names are unique** within a space (no replicas — give each a distinct
@@ -768,6 +770,74 @@ settings:
 - Cron (the manifest's `schedule` and the leader's `schedule_set`) matches the
   system's local wall clock.
 
+### Isolated coding swarms (`worktree_isolation`)
+
+By default every member shares one working directory — fine for a research
+or trading team, a correctness hole for a *coding* team: two workers told to
+edit the same repo at the same time will clobber each other, and nothing
+records whose change won. Turn on worktree isolation and each worker gets
+its own **git worktree on its own branch**:
+
+```yaml
+settings:
+  worktree_isolation: true     # default false
+workers:
+  - agent: backend             # inherits: isolated
+  - agent: docs-writer
+    worktree: "off"            # stays on the shared checkout
+```
+
+The member field beats the space setting, so a mixed team is one line. The
+**leader never gets a worktree** — it is the one that merges, so it must sit
+on the base checkout (`leader.worktree: "on"` is rejected at load).
+
+- **Where the work happens.** Worker `qa` edits in
+  `.evva/worktrees/swarm-qa/` on branch `worktree-swarm-qa`. Everything that
+  is *team state* stays at the space root regardless: the `.vero` ledger,
+  the event log, member memory dirs, your `.evva/permissions.json` rules,
+  and every transcript. Only the editing surface moves.
+- **The loop.** Worker commits → `task_done` → leader inspects →
+  `worktree_merge {member, task_id}` → `task_verify`. Only **committed** work
+  merges: if a worker reports done without committing, the merge comes back
+  "nothing to integrate", which is the leader's tell to bounce the task
+  rather than approve it.
+- **Conflicts are a normal outcome, not a wedged repo.** A conflicting merge
+  is **aborted** — nothing applied, base branch left clean — and returns the
+  conflicted paths. The leader rejects the task back to `running` with this
+  recipe, and the worker resolves **in its own worktree**: merge the base
+  branch into your branch, fix it there, recommit, report again. The base
+  checkout is never left mid-merge, and you also get one mail on the web
+  whenever a merge conflicts.
+- **Drift.** After a successful merge the merged member's branch is
+  fast-forwarded onto the new base tip (skipped, with a note, if it has
+  uncommitted work). Everyone else refreshes at the start of their next
+  task. `list_members` and the roster card show `⑂ branch +ahead -behind
+  dirty:n` so drift is visible before it becomes a conflict pileup.
+- **Unattended swarms.** `worktree_merge` rewrites your base branch, so
+  unlike the other leader tools it is **not** auto-allowed — in `default`
+  mode it queues an approval. For a hands-off swarm give the leader
+  `permission_mode: bypass`, or add an allow rule for `worktree_merge` in
+  the leader's `permissions.json`.
+- **Requirements and cost.** The space workdir must be a git repo with at
+  least one commit; if it is not, registering **fails** with a message
+  rather than silently dropping the isolation you asked for (use
+  `worktree: "off"` per member to mix in non-coding roles). Worktrees share
+  the repo's `.git` objects, so N of them cost far less than N clones — but
+  they are real checkouts, so budget one working tree per isolated member.
+- **Lifecycle.** Worktrees are durable: they survive `swarm stop`, service
+  restarts and reconcile rebuilds, and members reattach to the same branch
+  with history intact. Removing a member deletes its worktree only when it
+  holds nothing unintegrated — otherwise the worktree is **kept** and you
+  get a mail naming the branch. `evva swarm reset` is the deliberate
+  blank-slate path and force-removes them all, uncommitted work included.
+- **With `verify_checks` (below).** Checks run in the **space workdir** —
+  the base checkout — so under isolation they validate what is already
+  merged, *not* the branch still waiting in a member's worktree. Order the
+  leader's verify as inspect → `worktree_merge` → `task_verify` and the
+  check that matters is the one after the merge. Per-task `verify: "checks"`
+  (which settles a task the moment its check goes green, before any merge)
+  is therefore best reserved for members you left on the shared workdir.
+
 ### Machine-checked verification (`verify_checks`)
 
 For a coding swarm, the verify step that matters is mechanical: does it
@@ -1142,7 +1212,8 @@ prefixes (the timezone is always system-local).
 These are added **automatically** based on the member's role — **never list them
 in `active.yml`**. Leader: `task_create`, `task_assign`, `task_update_status`,
 `task_verify`, `task_list`, `member_spawn`, `member_retire`,
-`blackboard_write`. Worker: `my_tasks`, `task_get`, `task_done`. Both:
+`blackboard_write`, `worktree_merge` (only useful with
+`worktree_isolation`, §8). Worker: `my_tasks`, `task_get`, `task_done`. Both:
 `send_message`, `list_members`, `blackboard_read`. In `active.yml`
 you list only the regular evva tools your member needs — `read`, `write`,
 `edit`, `bash`, `grep`, `glob`, `tree`, `web_fetch`, …

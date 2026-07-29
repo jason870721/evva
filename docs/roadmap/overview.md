@@ -4,7 +4,7 @@
 > just a proposal" across everything under `docs/roadmap/`. The individual PRD
 > files' own `Status:` headers drift once shipped (see §6) — **this file is
 > the source of truth going forward**, refreshed at each release.
-> **As of:** 2026-07-08, `dev`/`pre-release` @ v1.11.0-beta.3.
+> **As of:** 2026-07-29, `main` @ **v1.11.0 stable**.
 
 ---
 
@@ -12,30 +12,25 @@
 
 | Branch | Version | State |
 |---|---|---|
-| `main` (stable / GitHub "Latest") | **v1.8.4** | promoted 2026-06-26 (Windows CI hotfix) |
-| `pre-release` (beta) | **v1.11.0-beta.3** | cut 2026-07-08 — output styles. History of the v1.11.0 base: beta.1 (2026-07-07) debuted solo dynamic workflow + self-healing edits + structured output, superseding the unpromoted v1.10.0-beta.1; beta.2 (2026-07-07) was a hotfix re-cut (enable_dynamic_workflow startup deadlock, johnny1110/evva#55); not yet promoted |
-| `dev` (integration) | in sync with `pre-release` | backflow done |
+| `main` (stable / GitHub "Latest") | **v1.11.0** | promoted 2026-07-11 — the whole swarm v1.11+ candidate batch (verify checks, outbound notifications, cost accounting, doctor, blackboard, TUI attach) plus solo dynamic workflow, output styles, edit-diagnostics sync and structured output |
+| `pre-release` (beta) | **v1.11.0-beta.5** | promoted; converges at its next cut from dev |
+| `dev` (integration) | v1.11.0 + a web2 scroll fix (#65) | — |
+| `feature/swarm-worktree-isolation` | unreleased | **SWT-1..8 built 2026-07-29** — see §2 row 12 |
 
-**⚠️ v1.9 is claimed but empty.** `docs/roadmap/PRD/swarm-worktree-isolation.md`
-claimed the **v1.9** minor in `CLAUDE.md`'s wave→minor map (commit `42ac53f`,
-2026-07-02) but no `SWT-1..8` implementation ever landed. The very next cut on
-`pre-release` was `v1.8.5-beta.1` (an unrelated within-wave patch), and the one
-after that jumped straight to `v1.10.0-beta.1` for dynamic workflow — there is
-**no `v1.9.0` tag anywhere in git history**. This is almost certainly the root
-of "some PRDs are done, some aren't, hard to tell which" — the wave table
-currently overstates what shipped. Two ways to close it:
-- **(a)** build `SWT-1..8` now — it would ship under whatever minor is current
-  at that time (the CLAUDE.md row needs updating to match), or
-- **(b)** formally retire/renumber the v1.9 row as superseded.
-
-Recommend resolving this before the next `pre-release feature` cut so the wave
-table stays trustworthy.
+**✅ The v1.9 anomaly is closed.** `swarm-worktree-isolation.md` claimed the
+**v1.9** minor (commit `42ac53f`, 2026-07-02) but was never built, and no
+`v1.9.0` tag exists anywhere in git history — meanwhile `v1.10.0-beta.1` and
+then v1.11.0 shipped past it. Closed by **option (a): build it.** SWT-1..8
+landed on `feature/swarm-worktree-isolation` (2026-07-29), and because v1.9
+is no longer reachable the CLAUDE.md wave→minor map re-slots the wave to
+**v1.12**, leaving a struck-through v1.9 row so the gap in the version line
+is documented rather than mysterious.
 
 ---
 
 ## 2. Feature PRDs (`docs/roadmap/PRD/`) — 24 tracked
 
-**Tally: 10 stable · 5 in beta (awaiting promotion) · 1 claimed-but-unbuilt · 9 proposed.**
+**Tally: 21 stable · 1 built-but-unreleased (SWT, claims v1.12) · 3 proposed.**
 
 | # | PRD | Status | Shipped in | Notes |
 |---|---|---|---|---|
@@ -49,21 +44,21 @@ table stays trustworthy.
 | 8 | [checkpoint-rewind.md](PRD/checkpoint-rewind.md) | ✅ Stable | v1.8.2 (beta.2) | `/rewind`, opt-in, solo main-agent only |
 | 9 | [lsp-repo-map.md](PRD/lsp-repo-map.md) | ✅ Stable | v1.8.2 (beta.4) | opt-in, built on the shipped LSP module |
 | 10 | [parallel-fanout-reconcile.md](PRD/parallel-fanout-reconcile.md) | ✅ Stable | v1.8.2 | `exit_worktree action:"merge"` + `worktree_list` |
-| 11 | [swarm-dynamic-workflow.md](PRD/swarm-dynamic-workflow.md) | 🟡 **Beta — awaiting promotion** | v1.10.0-beta.1 | DWF-1..8: task graph auto-dispatch, `task_done`, ephemeral `member_spawn` clones |
-| 12 | [swarm-worktree-isolation.md](PRD/swarm-worktree-isolation.md) | ⚠️ **Claimed, not built** | — (v1.9 row exists, no code) | see the callout above — needs an operator call |
-| 13 | [edit-diagnostics-sync.md](PRD/edit-diagnostics-sync.md) | 🟡 **Beta — awaiting promotion** | v1.11.0-beta.1 | self-healing edit→LSP diagnostics sync; merged as johnny1110/evva#52 |
-| 14 | [output-styles.md](PRD/output-styles.md) | 🟡 **Beta — awaiting promotion** | v1.11.0-beta.3 | `/output-style` picker, built-in Explanatory/Learning + disk styles, `keep-coding-instructions`; no wave claim (within-wave) |
-| 15 | [structured-output-tool.md](PRD/structured-output-tool.md) | 🟡 **Beta — awaiting promotion** | v1.11.0-beta.1 | headless typed final answers via caller schema; merged as johnny1110/evva#54 |
-| 16 | [swarm-blackboard.md](PRD/swarm-blackboard.md) | 📝 Proposed | — | v1.11+ candidate, 2026-07-04/05 swarm design review |
-| 17 | [swarm-cost-accounting.md](PRD/swarm-cost-accounting.md) | 📝 Proposed | — | v1.11+ candidate, same review |
-| 18 | [swarm-doctor.md](PRD/swarm-doctor.md) | 📝 Proposed | — | v1.11+ candidate, same review |
-| 19 | [swarm-outbound-notifications.md](PRD/swarm-outbound-notifications.md) | 📝 Proposed | — | v1.11+ candidate, same review |
-| 20 | [swarm-tui-attach.md](PRD/swarm-tui-attach.md) | 📝 Proposed | — | v1.11+ candidate, same review |
-| 21 | [swarm-verify-checks.md](PRD/swarm-verify-checks.md) | 🟡 **Built — on dev, unreleased** | — | CHK-1..6 implemented 2026-07-10 (`feature/swarm-verify-checks`); minor unclaimed — operator assigns at wave confirmation |
+| 11 | [swarm-dynamic-workflow.md](PRD/swarm-dynamic-workflow.md) | ✅ Stable | v1.11.0 | DWF-1..8: task graph auto-dispatch, `task_done`, ephemeral `member_spawn` clones |
+| 12 | [swarm-worktree-isolation.md](PRD/swarm-worktree-isolation.md) | 🟡 **Built — on a feature branch, unreleased** | — (claims **v1.12**) | SWT-1..8, 2026-07-29: `settings.worktree_isolation`, per-member worktrees, leader `worktree_merge`, root-state pinning (`SessionWorkdir`), lifecycle + roster column. Re-slotted from the never-built v1.9 claim |
+| 13 | [edit-diagnostics-sync.md](PRD/edit-diagnostics-sync.md) | ✅ Stable | v1.11.0 | self-healing edit→LSP diagnostics sync; merged as johnny1110/evva#52 |
+| 14 | [output-styles.md](PRD/output-styles.md) | ✅ Stable | v1.11.0 | `/output-style` picker, built-in Explanatory/Learning + disk styles, `keep-coding-instructions`; no wave claim (within-wave) |
+| 15 | [structured-output-tool.md](PRD/structured-output-tool.md) | ✅ Stable | v1.11.0 | headless typed final answers via caller schema; merged as johnny1110/evva#54 |
+| 16 | [swarm-blackboard.md](PRD/swarm-blackboard.md) | ✅ Stable | v1.11.0 | v1.11+ candidate, 2026-07-04/05 swarm design review |
+| 17 | [swarm-cost-accounting.md](PRD/swarm-cost-accounting.md) | ✅ Stable | v1.11.0 | v1.11+ candidate, same review |
+| 18 | [swarm-doctor.md](PRD/swarm-doctor.md) | ✅ Stable | v1.11.0 | v1.11+ candidate, same review |
+| 19 | [swarm-outbound-notifications.md](PRD/swarm-outbound-notifications.md) | ✅ Stable | v1.11.0 | v1.11+ candidate, same review |
+| 20 | [swarm-tui-attach.md](PRD/swarm-tui-attach.md) | ✅ Stable | v1.11.0 | v1.11+ candidate, same review |
+| 21 | [swarm-verify-checks.md](PRD/swarm-verify-checks.md) | ✅ Stable | v1.11.0 | CHK-1..6 implemented 2026-07-10 (`feature/swarm-verify-checks`); minor unclaimed — operator assigns at wave confirmation |
 | 22 | [sandbox-isolation.md](PRD/sandbox-isolation.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — OS-level sandboxing for bash/fan-out/swarm clones |
 | 23 | [mcp-server-mode.md](PRD/mcp-server-mode.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — expose evva as an MCP server |
 | 24 | [agent-eval-harness.md](PRD/agent-eval-harness.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — transcript replay + regression scoring |
-| 25 | [solo-dynamic-workflow.md](PRD/solo-dynamic-workflow.md) | 🟡 **Beta — awaiting promotion** | v1.11.0-beta.1 (claimed v1.11) | SDW-1..8: DWF execution model for solo TUI — `wf_task_*` board, engine auto-dispatch of subagent workers, `enable_dynamic_workflow` flag |
+| 25 | [solo-dynamic-workflow.md](PRD/solo-dynamic-workflow.md) | ✅ Stable | v1.11.0 | SDW-1..8: DWF execution model for solo TUI — `wf_task_*` board, engine auto-dispatch of subagent workers, `enable_dynamic_workflow` flag |
 
 **Status legend:** ✅ Stable (in a promoted `vX.Y.Z` on `main`) · 🟡 Beta (built,
 in a `-beta.N` on `pre-release`, not yet promoted) · ⚠️ Anomaly (wave claimed
@@ -132,9 +127,9 @@ These are all from before the current v1.8–v1.10 window and are done — kept 
 
 Everything with no code yet, grouped by what it needs from the operator:
 
-- **Needs a decision, not just a slot:** `swarm-worktree-isolation.md` (§1 anomaly — build it or retire the v1.9 row).
-- ~~**Old, non-swarm, never slotted**~~ — **cleared.** All three old small proposals are now in beta: `edit-diagnostics-sync.md` + `structured-output-tool.md` shipped in v1.11.0-beta.1, `output-styles.md` (the last one) in v1.11.0-beta.3.
-- **Swarm v1.11+ candidates** (all from the 2026-07-04/05 design review, none claim a minor yet): `swarm-blackboard.md`, `swarm-cost-accounting.md`, `swarm-doctor.md`, `swarm-outbound-notifications.md`, `swarm-tui-attach.md`, `swarm-verify-checks.md`.
+- ~~**Needs a decision:** `swarm-worktree-isolation.md`~~ — **resolved 2026-07-29.** Built (SWT-1..8), re-slotted v1.9 → **v1.12**; awaiting a `pre-release feature` cut.
+- ~~**Old, non-swarm, never slotted**~~ — **cleared.** All three shipped stable in v1.11.0.
+- ~~**Swarm v1.11+ candidates**~~ — **cleared.** All six from the 2026-07-04/05 design review shipped stable in v1.11.0 (blackboard, cost accounting, doctor, outbound notifications, TUI attach, verify checks).
 - **New this session** (2026-07-06, researched against current industry trends — see each PRD's header for prior-art citations): `sandbox-isolation.md`, `mcp-server-mode.md`, `agent-eval-harness.md`.
 - **Un-graduated explore spikes** (no PRD at all yet, just a hypothesis): EX-2 (remote persona — graduation path now drafted as `swarm-federation.md`), EX-3 (leader takeover — graduation path now drafted as `swarm-leader-takeover.md`), EX-4 (replay/eval harness — note the new `agent-eval-harness.md` generalizes this; see its own header for the boundary), EX-5 (wake jitter).
 - **Long-range concept PRDs** (2026-07-06, 16 files — see the note under §2 and [long-range.md](long-range.md) §3 for the full sequenced list): concept-grade drafts for horizons W3–W19; each requires a live-source audit pass before build.

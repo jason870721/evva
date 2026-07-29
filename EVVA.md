@@ -90,9 +90,10 @@ Wave → minor map (append a row whenever a new wave is planned):
 | v1.7 | Windows support (WIN-1..9) — native windows binaries, Git-Bash-backed bash tool; PRD: `docs/roadmap/PRD/windows-support.md` |
 | v1.7 | Persona members (RP-29) — registry main-tier personas join a swarm as leader/worker with full identity + team protocol |
 | v1.8 | Auto-memory consolidation (dream) — a gated, fenced background agent that merges/prunes/re-indexes the global memory store when idle; PRD: `docs/roadmap/PRD/auto-dream.md` |
-| v1.9 | Swarm worktree isolation (SWT-1..8) — per-member git worktrees + leader merge-back for coding swarms; PRD: `docs/roadmap/PRD/swarm-worktree-isolation.md` |
+| ~~v1.9~~ | *(claimed 2026-07-02 for swarm worktree isolation, never built — no v1.9.0 tag exists. Re-slotted to v1.12 below; the row is kept so the gap in the version line is not a mystery.)* |
 | v1.10 | Swarm dynamic workflow (DWF-1..8) — ledger task graph (depends_on + blocked + engine auto-dispatch), worker task_done + verify policy, ephemeral fan-out members (member_spawn/auto-retire); PRD: `docs/roadmap/PRD/swarm-dynamic-workflow.md` |
 | v1.11 | Solo dynamic workflow (SDW-1..8) — the DWF execution model for the solo TUI: `wf_task_*` graph board, in-process engine auto-dispatching ephemeral subagent workers, verify policy, `enable_dynamic_workflow` /config flag (default off); PRD: `docs/roadmap/PRD/solo-dynamic-workflow.md` |
+| v1.12 | Swarm worktree isolation (SWT-1..8) — per-member git worktrees + leader `worktree_merge` back to base for coding swarms; re-slotted from the never-built v1.9 claim (v1.11.0 shipped first, so v1.9 was no longer reachable); PRD: `docs/roadmap/PRD/swarm-worktree-isolation.md` |
 
 ### The four release commands
 
