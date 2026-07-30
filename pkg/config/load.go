@@ -227,6 +227,14 @@ func Load(opts LoadOptions) (*Config, error) {
 		autoDreamMinSessions = fileCfg.AutoDreamMinSessions
 	}
 
+	// Redaction is opt-OUT: a missing key means on. This is the deliberate
+	// inversion of every other gate here — the operator who has not configured
+	// anything should still not be shipping credentials to a provider.
+	redaction := true
+	if fileCfg.Redaction != nil {
+		redaction = *fileCfg.Redaction
+	}
+
 	// Checkpoint/rewind is opt-in (default off); the per-session cap normalizes a
 	// missing or non-positive value to 50 so retention always has a floor.
 	enableCheckpoints := false
@@ -296,6 +304,9 @@ func Load(opts LoadOptions) (*Config, error) {
 		AutoDreamMinHours:       autoDreamMinHours,
 		AutoDreamMinSessions:    autoDreamMinSessions,
 		AutoDreamModel:          fileCfg.AutoDreamModel,
+		Redaction:               redaction,
+		RedactionAllow:          fileCfg.RedactionAllow,
+		RedactionDisable:        fileCfg.RedactionDisable,
 		EnableCheckpoints:       enableCheckpoints,
 		CheckpointMaxPerSession: checkpointMax,
 		EnableRepoMap:           enableRepoMap,

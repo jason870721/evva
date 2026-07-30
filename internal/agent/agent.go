@@ -29,6 +29,7 @@ import (
 	"github.com/johnny1110/evva/pkg/hooks"
 	"github.com/johnny1110/evva/pkg/llm"
 	"github.com/johnny1110/evva/pkg/permission"
+	"github.com/johnny1110/evva/pkg/redact"
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
@@ -91,6 +92,13 @@ type Agent struct {
 	// fs-tool capture sink at construction; /rewind lists and restores through
 	// it. See docs/roadmap/PRD/checkpoint-rewind.md.
 	checkpoints *checkpoint.Manager
+
+	// redactor masks credential-shaped strings in tool results before they
+	// reach the session (and therefore the provider, and therefore disk).
+	// Nil when redaction is off — *redact.Redactor is nil-safe by design.
+	// Shared with subagents so placeholders stay co-referent across a run.
+	// See docs/roadmap/PRD/secret-redaction.md.
+	redactor *redact.Redactor
 
 	// workflowEngine is the dynamic-workflow dispatcher (solo main only,
 	// non-nil iff the resolved profile mounts the wf_task_* board). Session
@@ -393,6 +401,28 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 			a.checkpoints = mgr
 			a.toolState.SetCheckpointSink(mgr)
 		}
+	}
+
+	// Secret redaction (SEC-2). One redactor per RUN, not per agent: a
+	// subagent inherits its parent's, so the same credential seen by the
+	// main agent and by a subagent masks to the same placeholder and the
+	// /redactions overlay on the main agent accounts for the whole run.
+	// Nil means "off" — every method on *Redactor tolerates a nil receiver,
+	// so there is no branch at the call site in execTool.
+	switch {
+	case a.Parent != nil:
+		a.redactor = a.Parent.redactor
+	case a.cfg.GetRedaction():
+		rd, rerr := redact.New(redact.Options{
+			Allow:   a.cfg.GetRedactionAllow(),
+			Disable: a.cfg.GetRedactionDisable(),
+		})
+		if rerr != nil {
+			// A bad pattern or an unknown rule id is an operator mistake
+			// that would otherwise leave redaction silently half-configured.
+			return nil, fmt.Errorf("agent: redaction config: %w", rerr)
+		}
+		a.redactor = rd
 	}
 
 	// Auto-load the skill registry from disk if no override was injected

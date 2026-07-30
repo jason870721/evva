@@ -391,6 +391,21 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 		content = content + "\n" + postCtx
 	}
 
+	// The egress boundary (SEC-2). This is the single point where a tool's
+	// output becomes both the llm.ToolResult that enters the session — and
+	// so the provider payload, and so the on-disk snapshot — and the event
+	// the TUI renders. Masking here means the transcript never holds the
+	// secret in the first place, which is why no separate snapshot-scrub
+	// pass exists: there is nothing left to scrub, and a scrub that ran only
+	// at persist time would desync disk from live and make resume lossy.
+	//
+	// Deliberately AFTER the hooks: a PostToolUse hook's additional context
+	// is just as capable of carrying a credential as the tool itself.
+	//
+	// a.redactor is nil when redaction is off, and Redact is nil-safe.
+	content = a.redactor.Redact(content)
+	blocks := a.redactBlocks(result.ContentBlocks)
+
 	if !a.IsSubagent() {
 		a.emit(event.KindToolUseResult, func(e *event.Event) {
 			e.ToolUseResult = &event.ToolUseResultPayload{
@@ -398,7 +413,7 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 				Content:       content,
 				IsError:       result.IsError,
 				Metadata:      result.Metadata,
-				ContentBlocks: result.ContentBlocks,
+				ContentBlocks: blocks,
 			}
 		})
 	}
@@ -407,8 +422,27 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 		ID:            call.ID,
 		Content:       content,
 		IsError:       result.IsError,
-		ContentBlocks: result.ContentBlocks,
+		ContentBlocks: blocks,
 	}, nil
+}
+
+// redactBlocks masks the text blocks of a typed tool result. Image blocks
+// pass through untouched — this package reads credential *shapes* in text,
+// and pretending to inspect pixels would be security theatre. The copy is
+// made only when redaction is on and there is something to copy, so the
+// common paths (redaction off, no blocks) stay allocation-free.
+func (a *Agent) redactBlocks(blocks []tools.ContentBlock) []tools.ContentBlock {
+	if a.redactor == nil || len(blocks) == 0 {
+		return blocks
+	}
+	out := make([]tools.ContentBlock, len(blocks))
+	copy(out, blocks)
+	for i := range out {
+		if out[i].Type == tools.ContentBlockText {
+			out[i].Text = a.redactor.Redact(out[i].Text)
+		}
+	}
+	return out
 }
 
 // toolError returns a blocked tool result without executing or consulting

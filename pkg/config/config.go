@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -175,6 +176,19 @@ type Config struct {
 	// cheap per-provider default the recall side-query uses (see MemoryRecallModel).
 	AutoDreamModel string
 
+	// Secret redaction at the LLM egress boundary. Unlike almost every other
+	// knob here this one defaults ON: it is a safety default, and an operator
+	// who has not thought about it is better served by masking than by
+	// shipping a .env dump to a provider. Redaction=false restores byte-exact
+	// passthrough. RedactionAllow holds regexes matched against candidate
+	// values that should never be masked (the repo full of documented example
+	// keys); RedactionDisable names individual rule ids to switch off. Both
+	// are validated at startup — an unknown rule id is a config error, not a
+	// silent no-op. See docs/roadmap/PRD/secret-redaction.md.
+	Redaction        bool
+	RedactionAllow   []string
+	RedactionDisable []string
+
 	// Checkpoint & rewind. When EnableCheckpoints is true (opt-in; off by default), the main
 	// agent records a checkpoint at each user-turn boundary and captures the
 	// before-image of every file its fs tools touch, so /rewind can restore the
@@ -306,6 +320,9 @@ func (c *Config) Clone() *Config {
 		AutoDreamMinHours:       c.AutoDreamMinHours,
 		AutoDreamMinSessions:    c.AutoDreamMinSessions,
 		AutoDreamModel:          c.AutoDreamModel,
+		Redaction:               c.Redaction,
+		RedactionAllow:          slices.Clone(c.RedactionAllow),
+		RedactionDisable:        slices.Clone(c.RedactionDisable),
 		EnableCheckpoints:       c.EnableCheckpoints,
 		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
 		EnableRepoMap:           c.EnableRepoMap,
@@ -419,6 +436,41 @@ func (c *Config) SetEnableAutoMemory(v bool) error {
 	c.EnableAutoMemory = v
 	c.mu.Unlock()
 	return c.SaveFile()
+}
+
+// GetRedaction returns the egress-redaction flag under the read lock. Read by
+// agent.New to decide whether to build a redactor at all — "off" is
+// represented by a nil *redact.Redactor rather than by a live one that does
+// nothing.
+func (c *Config) GetRedaction() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Redaction
+}
+
+// SetRedaction toggles egress redaction and persists. Takes effect on the next
+// agent boot: the redactor is built at construction, and its placeholder map
+// is session-scoped, so swapping it mid-run would strand every placeholder
+// already in the transcript.
+func (c *Config) SetRedaction(v bool) error {
+	c.mu.Lock()
+	c.Redaction = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetRedactionAllow returns a copy of the allowlist patterns.
+func (c *Config) GetRedactionAllow() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return slices.Clone(c.RedactionAllow)
+}
+
+// GetRedactionDisable returns a copy of the disabled rule ids.
+func (c *Config) GetRedactionDisable() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return slices.Clone(c.RedactionDisable)
 }
 
 // GetEnableCheckpoints returns the checkpoint/rewind flag under the read lock.
@@ -976,6 +1028,7 @@ func (c *Config) SaveFile() error {
 	enableAutoMem := c.EnableAutoMemory
 	enableMemRecall := c.EnableMemoryRecall
 	enableAutoDream := c.EnableAutoDream
+	redaction := c.Redaction
 	enableCheckpoints := c.EnableCheckpoints
 	enableRepoMap := c.EnableRepoMap
 	enableLSPDiagnosticsOnEdit := c.LSPDiagnosticsOnEdit
@@ -1007,6 +1060,9 @@ func (c *Config) SaveFile() error {
 		AutoDreamMinHours:       c.AutoDreamMinHours,
 		AutoDreamMinSessions:    c.AutoDreamMinSessions,
 		AutoDreamModel:          c.AutoDreamModel,
+		Redaction:               &redaction,
+		RedactionAllow:          slices.Clone(c.RedactionAllow),
+		RedactionDisable:        slices.Clone(c.RedactionDisable),
 		EnableCheckpoints:       &enableCheckpoints,
 		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
 		EnableRepoMap:           &enableRepoMap,

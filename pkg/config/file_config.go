@@ -72,6 +72,18 @@ type FileConfig struct {
 	AutoDreamMinSessions int    `yaml:"auto_dream_min_sessions,omitempty"`
 	AutoDreamModel       string `yaml:"auto_dream_model,omitempty"`
 
+	// Redaction gates secret masking at the LLM egress boundary. Default TRUE —
+	// the one opt-OUT knob in this file, because it is a safety default and the
+	// operator who never read this line is the one it exists for. Pointer so a
+	// missing key preserves that default. RedactionAllow holds regexes for
+	// values that must never be masked; RedactionDisable names rule ids to
+	// switch off ("high-entropy" disables the entropy fallback). Both are
+	// validated at agent construction — a bad regex or an unknown rule id is a
+	// startup error.
+	Redaction        *bool    `yaml:"redaction,omitempty"`
+	RedactionAllow   []string `yaml:"redaction_allow,omitempty"`
+	RedactionDisable []string `yaml:"redaction_disable,omitempty"`
+
 	// EnableCheckpoints gates checkpoint/rewind. Default false — opt-in, since an
 	// enabled session writes per-turn before-images under .evva/checkpoints. Set
 	// true to record them so /rewind can restore code/conversation. Pointer so a
