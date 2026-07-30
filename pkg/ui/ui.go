@@ -287,6 +287,26 @@ type Controller interface {
 	// cross a compaction boundary (CheckpointInfo.ChatRestoreOK was false). The
 	// UI re-renders from Messages() after a chat/both restore.
 	RestoreCheckpoint(id, mode string) (string, error)
+
+	// Redactions returns the secrets masked out of tool results this run,
+	// in first-seen order, for the /redactions overlay. Returns nil when
+	// redaction is off.
+	//
+	// The RedactionInfo values carry the ORIGINAL secrets. They exist so
+	// the operator can see what was masked and why — a false positive is
+	// otherwise undiagnosable — and must be rendered UI-side only. Writing
+	// one back into the transcript would hand the model the value the whole
+	// wave exists to withhold.
+	Redactions() []RedactionInfo
+}
+
+// RedactionInfo is one masked secret, as shown in the /redactions overlay.
+type RedactionInfo struct {
+	Placeholder string // the token substituted into the transcript
+	RuleID      string // which rule claimed it ("github-token")
+	Why         string // that rule's human explanation
+	Value       string // the original. Never render without an explicit reveal.
+	Count       int    // times this value was masked this run
 }
 
 // SessionInfo is one row in the /resume picker. Lightweight by design —

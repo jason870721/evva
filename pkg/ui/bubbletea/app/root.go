@@ -907,6 +907,16 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.state.SetHint("no controller attached")
 		}
 		return a, nil
+	case "/redactions":
+		a.input.Reset()
+		a.slash.Reset()
+		if o := overlays.NewRedactions(a.controller); o != nil {
+			a.focus.Push(o)
+			a.relayout()
+		} else {
+			a.state.SetHint("no controller attached")
+		}
+		return a, nil
 	case "/update":
 		a.input.Reset()
 		a.slash.Reset()
