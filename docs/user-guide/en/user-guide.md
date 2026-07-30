@@ -33,6 +33,7 @@
   - [Using MCP Tools](#using-mcp-tools)
   - [Resources](#resources)
   - [OAuth-Protected Servers](#oauth-protected-servers)
+  - [Serving evva as an MCP Server](#serving-evva-as-an-mcp-server)
 - [10. Configuration Reference](#10-configuration-reference)
   - [evva-config.yml](#evva-configyml)
   - [.env](#env-optional)
@@ -912,6 +913,84 @@ If an HTTP server answers `401 Unauthorized` on first connect, evva marks it `ne
 2. Choose **"I'm done"** in the prompt.
 
 evva then reconnects and the server's real tools become available for the rest of the session. (Tokens are kept in memory only in this release — you'll re-authorize after restarting evva.)
+
+### Serving evva as an MCP Server
+
+Everything above is evva **calling out**. `evva mcp-serve` runs the other direction: it exposes this installation as an MCP server that any MCP client — Claude Desktop, an IDE, an orchestrator, another evva — can call into.
+
+Two things can be published, and **nothing is published by default**:
+
+| Kind | What the caller gets | Example tool name |
+| --- | --- | --- |
+| `persona` | A whole persona, run end-to-end. One call = one complete agent turn, returning its final answer. | `evva_explore` |
+| `tool` | One evva tool, passed straight through. | `tree` |
+
+#### Configuring what's exposed
+
+An `mcpServe` block, in the same `settings.json` files as `mcpServers`:
+
+```json
+{
+  "mcpServe": {
+    "expose": [
+      {"kind": "persona", "name": "evva"},
+      {"kind": "tool", "name": "tree"}
+    ],
+    "timeout": 600
+  }
+}
+```
+
+| Field | Notes |
+| --- | --- |
+| `expose` | The allowlist. Every entry is validated **at startup** — a typo'd persona name stops the server coming up, with a message naming what is available. |
+| `timeout` | Seconds bounding one persona call. Default 600, max 3600. |
+
+Unlike `mcpServers`, a project `mcpServe` block **replaces** the user one rather than merging with it. Merging would mean a project could only ever widen what your user config exposed, never narrow it.
+
+Three refusals worth knowing, all deliberate:
+
+- **An empty or absent `expose` list refuses to start.** A server listening with nothing behind it looks identical to a misconfigured one, so it isn't a reachable state.
+- **Only read-oriented tools can be exposed with `kind: "tool"`** — `read`, `tree`, `grep`, `glob`, `web_fetch`, and the rest of evva's auto-allowed set. `bash`, `write_file` and `edit_file` are rejected. A persona may use those under its own permission gate; handing them directly to an external caller is a different trust boundary. To reach a tool that mutates, expose a persona instead.
+- **A non-loopback `--addr` refuses to bind** unless you pass `--allow-remote`.
+
+#### Running it
+
+```bash
+# stdio — the shape Claude Desktop and most clients launch a server in
+evva mcp-serve
+
+# streamable HTTP — persistent, remote-embeddable
+evva mcp-serve --transport http --addr 127.0.0.1:8899
+```
+
+On stdio, **stdout is the JSON-RPC channel** — all diagnostics go to stderr. Add `-v` to log tool calls.
+
+On HTTP, evva mints a bearer token at startup and writes it to `~/.evva/mcp-serve/token` (mode 0600, removed on exit). Every request must present it as `Authorization: Bearer <token>`; there is no loopback bypass and no `?token=` query fallback. The bind address and token path are announced on stderr.
+
+To wire it into Claude Desktop, add evva to *its* `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "evva": {
+      "command": "evva",
+      "args": ["mcp-serve"],
+      "env": {"HOME": "/Users/you"}
+    }
+  }
+}
+```
+
+#### What a caller can and can't do
+
+A served persona is **not** talking to its operator, and evva says so. Each incoming prompt is wrapped in an `<external-request client="…">` envelope preceded by a protocol line telling the persona to do the work but ignore any instruction inside it that tries to change its operating rules, escalate permissions, reveal configuration, or speak as you. A prompt that embeds its own closing delimiter to break out is defanged.
+
+Beyond that framing:
+
+- **Every call gets a fresh session.** Concurrent callers never share conversation state, and an external caller can't accumulate state inside your evva across calls.
+- **No approval surface exists**, so anything the persona asks approval for is auto-denied. Under the default permission mode that leaves the read-only tools working and everything dangerous blocked. Raising the persona's permission mode raises what a stranger can trigger — do that deliberately.
+- **Calls are synchronous** and bounded by `timeout`. There's no partial streaming in this release; a call that exceeds its budget returns an error naming the budget.
 
 ---
 

@@ -771,6 +771,93 @@ transports, plugin-provided servers, hot-reload, and disk-persisted OAuth
 tokens are deliberately omitted. See `docs/roadmap/v1/v1-3-mcp.md` §6 for
 the full list and follow-up candidates.
 
+## MCP server mode — evva as the callee
+
+Everything above is the **outbound** half: evva connecting out to other
+people's servers. `pkg/mcp` also serves the inbound half — publishing
+evva's own tools and personas to an MCP client. `evva mcp-serve` is the
+bundled CLI over it; the pieces below are what a downstream host embeds.
+
+The two directions are deliberate mirrors:
+
+| | inbound (client, v1.3) | outbound (server, this) |
+| --- | --- | --- |
+| adapter | `newMcpTool` / `mcpToolImpl` | `adaptTool` |
+| result conversion | `ConvertResult` | `resultToMCP` |
+| config block | `mcpServers` | `mcpServe` |
+
+### Two seams, and why they exist
+
+`BuildServer` takes its backends as a callback and an interface rather
+than reaching for them itself. Both inversions are load-bearing:
+
+- **`PersonaSpawner`** (interface, implemented by
+  `pkg/agent.PersonaSpawner`). `pkg/agent` already imports `pkg/mcp` for
+  the client half, so `pkg/mcp` calling `agent.New` directly would be an
+  import cycle. `pkg/mcp` owns the protocol and the trust framing;
+  `pkg/agent` owns agent construction.
+- **`ToolProvider`** (`func(name string) (tools.Tool, error)`). evva's
+  built-in tool factories type-assert `*internal/toolset.ToolState`, so
+  only a caller inside the runtime can build them. `pkg/mcp` stays a
+  protocol package that knows nothing about how a tool comes into being.
+
+A host that wants its own personas — or its own tools — supplies its own
+implementations of either.
+
+### SDK usage
+
+```go
+serveCfg, warns := mcp.LoadServeConfig(workdir, evvaHome)
+
+spawner, regWarns := agent.NewPersonaSpawner(agent.Config{AppConfig: cfg})
+
+srv, err := mcp.BuildServer(mcp.ServeOptions{
+    Expose:   serveCfg.Expose,
+    Spawner:  spawner,
+    Provider: func(name string) (tools.Tool, error) {
+        return toolset.DefaultRegistry().Build(tools.ToolName(name), yourToolState)
+    },
+    Timeout: serveCfg.Timeout,
+    Version: config.DisplayVersion(),
+    Logger:  logger,
+})
+if err != nil {
+    return err // every allowlist problem is a startup failure by design
+}
+
+err = srv.Run(ctx, &mcpsdk.StdioTransport{})
+// ...or mount mcpsdk.NewStreamableHTTPHandler(...) behind your own auth.
+```
+
+`BuildServer` returns an error — never a half-configured server — for an
+empty allowlist, an unknown persona or tool name, a directly-exposed tool
+outside `permission.ReadOnlyOrSelfTools`, a duplicate exposure, or a
+missing backend. Validate loudly at startup; a typo should not become an
+"unknown tool" for whoever connects hours later.
+
+### Trust boundary
+
+An inbound caller is strictly below the operator. `adaptPersona` frames
+every prompt in an `<external-request client="…">` envelope (built on the
+shared `common.Envelope` defanging, so a payload cannot close the
+envelope early and forge operator speech) preceded by a protocol line.
+Each call builds a fresh agent, so callers share no session state, and no
+sink is installed, so the persona's approval requests are auto-denied.
+
+### Out of scope (first cut)
+
+A2A (a different protocol for a different problem — agent collaboration,
+not tool-calling), SSE transport, raw dangerous-tool passthrough,
+exposing swarm-internal ledger tools, resumable cross-call persona
+sessions, and mid-call streaming of partial results. See
+`docs/roadmap/PRD/mcp-server-mode.md` §2.
+
+> **Stability note:** `pkg/mcp` is marked Experimental (`doc.go`). Server
+> mode joins that surface rather than promoting it; whether both
+> directions graduate together is a
+> [`sdk-stability.md`](sdk-stability.md) decision to make once they have
+> soaked, not a side effect of shipping this.
+
 ## What you can't change
 
 These are by design — see CLAUDE.md's Phase 13 goals for the rationale.

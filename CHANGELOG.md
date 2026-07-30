@@ -14,6 +14,65 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **MCP server mode (MCP-1..5) — evva as a callable MCP server.** evva has
+  shipped a solid MCP *client* since v1.3.0 and has never gone the other
+  direction. `evva mcp-serve` now exposes a running installation to any MCP
+  client — Claude Desktop, an IDE, an orchestrator, another evva — over
+  **stdio** (`--transport stdio`, the "launch me as a subprocess" shape) or
+  **streamable HTTP** (`--transport http --addr`). Zero new dependencies: the
+  vendored `modelcontextprotocol/go-sdk` has shipped a complete server
+  implementation all along that evva simply never called.
+  Two things can be published, **nothing by default**: a **whole persona**
+  invoked end-to-end (`evva_<persona>(prompt)` runs a full headless agent loop
+  and returns its final answer — the higher-value case, since a persona
+  carries evva's prompt, tools, memory and permission stance), or a **single
+  tool** as a thin passthrough. The `mcpServe` block in `settings.json` is the
+  structural inverse of `mcpServers`; a project block *replaces* the user one
+  rather than merging, because merging would let a project only ever widen
+  what the user config exposed, never narrow it.
+  The adapters are deliberate mirrors of the client half that already shipped
+  and passed review — `adaptTool`/`resultToMCP` against
+  `newMcpTool`/`ConvertResult` — passing evva's hand-written JSON Schema
+  through verbatim so an external caller sees exactly the contract the local
+  model does, and reporting tool failures in-band (`IsError`) rather than as
+  protocol errors that would read as a broken server.
+  Posture, all startup-enforced: an **empty allowlist refuses to start** (a
+  server listening with nothing behind it is indistinguishable from a
+  misconfigured one); **names validate at startup**, so a typo'd persona stops
+  the process with a message naming what is available instead of surfacing as
+  "unknown tool" hours later; and **only read-oriented tools**
+  (`permission.ReadOnlyOrSelfTools`) may be exposed directly — a persona may
+  use `bash` under its own permission gate, but handing an external caller a
+  raw `bash` is a different trust boundary and is out of scope for v1.
+  Trust framing is new rather than borrowed: RP-21's `<untrusted-content>`
+  means "inert material, nobody is speaking to you", which would make a task
+  request useless, while treating it as operator speech would make it
+  dangerous. Inbound prompts are sealed in `<external-request client="…">`
+  with a protocol line on every call, over a shared defanging primitive
+  (`common.Envelope`, extracted from the RP-21 wrapper) so a payload cannot
+  close the envelope early and forge operator speech. Every call builds a
+  **fresh agent**, so concurrent callers share no session and an external
+  caller cannot accumulate state inside the operator's evva; no sink is
+  installed, so approvals auto-deny — under the default permission mode that
+  leaves reads working and everything dangerous blocked.
+  HTTP auth follows RP-15 (token minted at startup into a 0600
+  `<AppHome>/mcp-serve/token`, non-loopback bind refused without
+  `--allow-remote`) with two deliberate departures: **no loopback-trust
+  bypass** — that exists in the swarm webapi so a browser can bootstrap, and
+  an unauthenticated local endpoint that runs whole agent turns is a bigger
+  prize than a read-mostly dashboard — and **no `?token=` query fallback**,
+  which would only put the token in proxy logs and shell history.
+  Two seams keep the layering honest: `PersonaSpawner` (interface in
+  `pkg/mcp`, implemented in `pkg/agent`) because `pkg/agent` already imports
+  `pkg/mcp` and the reverse edge would be an import cycle, and `ToolProvider`
+  (a callback) because the built-in tool factories type-assert the runtime's
+  internal `ToolState`. Downstream hosts can substitute either.
+  Guides: user-guide §9 "Serving evva as an MCP Server" (en + zh-tw) and
+  `docs/contributing/extending.md` "MCP server mode — evva as the callee".
+  `pkg/mcp` stays Experimental; whether both directions graduate together is
+  a `sdk-stability.md` decision to make after they soak, not a side effect of
+  shipping this.
+
 - **Swarm worktree isolation (SWT-1..8) — safe concurrent coding swarms.**
   Every member used to share one working directory: for a coding team that
   is a correctness hole, since parallel task assignment is exactly what the

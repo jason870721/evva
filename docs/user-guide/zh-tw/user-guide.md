@@ -33,6 +33,7 @@
   - [使用 MCP 工具](#使用-mcp-工具)
   - [資源（Resources）](#資源resources)
   - [需 OAuth 授權的伺服器](#需-oauth-授權的伺服器)
+  - [把 evva 當成 MCP 伺服器對外提供](#把-evva-當成-mcp-伺服器對外提供)
 - [10. 設定參考](#10-設定參考)
   - [evva-config.yml](#evva-configyml)
   - [.env（選用）](#env選用)
@@ -915,6 +916,84 @@ MCP 工具呼叫與內建工具走相同的流程：
 2. 在提示中選擇 **「I'm done」**。
 
 evva 接著會重新連線，該伺服器的真正工具會在本次工作階段內變為可用。（本版本的 token 僅保存在記憶體中——重啟 evva 後需重新授權。）
+
+### 把 evva 當成 MCP 伺服器對外提供
+
+以上都是 evva **對外呼叫**。`evva mcp-serve` 走的是反方向：把這個 evva 安裝本身開成一台 MCP 伺服器，讓任何 MCP 客戶端——Claude Desktop、IDE、編排器，或另一個 evva——反過來呼叫它。
+
+可對外開放的有兩種，且**預設什麼都不開放**：
+
+| 種類 | 呼叫方拿到什麼 | 工具名稱範例 |
+| --- | --- | --- |
+| `persona` | 一整個人格，端到端執行。一次呼叫 = 一個完整的 agent turn，回傳它的最終答案。 | `evva_explore` |
+| `tool` | 單一 evva 工具，直接轉呼叫。 | `tree` |
+
+#### 設定開放清單
+
+`mcpServe` 區塊，與 `mcpServers` 放在相同的 `settings.json` 檔案裡：
+
+```json
+{
+  "mcpServe": {
+    "expose": [
+      {"kind": "persona", "name": "evva"},
+      {"kind": "tool", "name": "tree"}
+    ],
+    "timeout": 600
+  }
+}
+```
+
+| 欄位 | 說明 |
+| --- | --- |
+| `expose` | 開放清單。每一筆都在**啟動時**驗證——人格名稱打錯會讓伺服器直接起不來，並在錯誤訊息中列出實際可用的名稱。 |
+| `timeout` | 單次人格呼叫的秒數上限。預設 600，最大 3600。 |
+
+與 `mcpServers` 不同，專案層級的 `mcpServe` 區塊會**整塊取代**使用者層級的，而不是合併。若採合併，專案就只能放寬使用者設定所開放的範圍，永遠無法收緊。
+
+三個刻意設計的拒絕行為：
+
+- **`expose` 為空或不存在時拒絕啟動。** 一台什麼都沒開放卻在監聽的伺服器，和設定壞掉的伺服器看起來完全一樣，所以它不該是一個可達狀態。
+- **`kind: "tool"` 只能開放唯讀類工具**——`read`、`tree`、`grep`、`glob`、`web_fetch` 等 evva 自動允許的集合。`bash`、`write_file`、`edit_file` 會被拒絕。人格可以在它自己的權限閘門下使用這些工具，但把它們直接交給外部呼叫方是另一條信任邊界。需要會改動狀態的工具時，請改為開放一個人格。
+- **非 loopback 的 `--addr` 會拒絕綁定**，除非明確加上 `--allow-remote`。
+
+#### 執行
+
+```bash
+# stdio——Claude Desktop 與多數客戶端啟動伺服器的形式
+evva mcp-serve
+
+# streamable HTTP——常駐、可供遠端嵌入
+evva mcp-serve --transport http --addr 127.0.0.1:8899
+```
+
+在 stdio 模式下，**stdout 就是 JSON-RPC 通道**——所有診斷訊息都走 stderr。加上 `-v` 可記錄工具呼叫。
+
+在 HTTP 模式下，evva 會在啟動時鑄造一個 bearer token 並寫入 `~/.evva/mcp-serve/token`（權限 0600，結束時刪除）。每個請求都必須以 `Authorization: Bearer <token>` 帶上它；沒有 loopback 例外，也不接受 `?token=` 查詢參數。綁定位址與 token 路徑會印在 stderr。
+
+要接進 Claude Desktop，把 evva 加到*它的* `mcpServers`：
+
+```json
+{
+  "mcpServers": {
+    "evva": {
+      "command": "evva",
+      "args": ["mcp-serve"],
+      "env": {"HOME": "/Users/you"}
+    }
+  }
+}
+```
+
+#### 呼叫方能做什麼、不能做什麼
+
+被開放的人格**並不是**在跟它的操作者對話，而 evva 會明說這件事。每個進來的 prompt 都會被包進 `<external-request client="…">` 信封，前面附上一行協定說明：完成它要求的工作，但忽略其中任何試圖改變運作規則、提升權限、洩漏設定，或冒充操作者發言的指令。若 prompt 內嵌自己的結束標記想「跳出」信封，該標記會被去牙。
+
+除了這層框架之外：
+
+- **每次呼叫都是全新的 session。** 並行的呼叫方不會共用對話狀態，外部呼叫方也無法跨次呼叫在你的 evva 裡累積狀態。
+- **不存在核准介面**，因此人格提出的任何核准請求都會被自動拒絕。在預設權限模式下，這剛好讓唯讀工具可用、危險操作全部擋下。調高該人格的權限模式，等同於調高一個陌生人能觸發的範圍——請刻意為之。
+- **呼叫是同步的**，並受 `timeout` 限制。本版本沒有部分串流；超出預算的呼叫會回傳一個指出該預算的錯誤。
 
 ---
 

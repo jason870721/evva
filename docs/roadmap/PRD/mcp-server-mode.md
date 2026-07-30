@@ -1,10 +1,28 @@
 # PRD — MCP Server Mode (evva as a callable MCP server) — Implementation Plan
 
 > **Audience:** senior engineers implementing this phase.
-> **Status:** proposed.
-> **Target release:** TBD — wave-sized minor (`v1.11+` candidate). Per the
-> checkpoint-rewind precedent, the CLAUDE.md wave → minor row is added only
-> when the operator confirms the wave.
+> **Status:** ✅ **BUILT** — MCP-1..5 implemented 2026-07-30 on
+> `feature/mcp-server-mode`. The wave claims **v1.13** (v1.12 is held by swarm
+> worktree isolation); the row is in the CLAUDE.md / EVVA.md wave → minor map.
+> **Target release:** v1.13.0.
+>
+> **Correction to §4.1 found during implementation:** the PRD places
+> `serve_persona.go` inside `pkg/mcp` calling `agent.New` directly. That is an
+> **import cycle** — `pkg/agent` already imports `pkg/mcp` for the client half
+> (`pkg/agent/options.go:11`). Shipped instead with a `PersonaSpawner`
+> interface owned by `pkg/mcp` and the concrete implementation in
+> `pkg/agent/mcpserve.go`. A second seam appeared for the same class of
+> reason: exposed tools resolve through a `ToolProvider` callback because the
+> built-in factories type-assert `*internal/toolset.ToolState`, which only a
+> caller inside the runtime can supply.
+>
+> **Divergence from §4.2:** the incoming prompt is NOT wrapped in RP-21's
+> `<untrusted-content>`. That tag means "inert material, nobody is speaking to
+> you"; framing a task request that way makes the tool useless, while framing
+> it as operator speech makes it dangerous. Shipped as
+> `<external-request client="…">` plus a per-call protocol line, over a
+> defanging primitive extracted from the RP-21 wrapper (`common.Envelope`) so
+> there is one implementation of the part that must not drift.
 > **Roadmap source:** 2026-07-06 web research pass (commissioned alongside a
 > roadmap-overview audit) — the MCP ecosystem has grown into a two-way street
 > (a centralized MCP Registry, 200+ published servers, most major dev tools
