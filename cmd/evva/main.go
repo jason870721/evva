@@ -76,6 +76,9 @@ func main() {
 		case "swarm":
 			runSwarm(os.Args[2:])
 			return
+		case "mcp-serve":
+			runMCPServe(os.Args[2:])
+			return
 		}
 	}
 
