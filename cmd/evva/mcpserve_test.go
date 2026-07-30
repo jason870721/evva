@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -192,6 +194,117 @@ func TestMCPServeRejectsUnknownTransport(t *testing.T) {
 		t.Fatalf("want a failure, got:\n%s", out)
 	}
 	if !strings.Contains(string(out), "unknown --transport") {
+		t.Errorf("output = %q", out)
+	}
+}
+
+// TestMCPServeHTTPSubprocess is MCP-4's acceptance path end to end: the real
+// binary, the real HTTP transport, the real minted token, driven by a real MCP
+// client. Port 0 lets the OS pick, and the bind address is read back from the
+// process's own stderr announcement.
+func TestMCPServeHTTPSubprocess(t *testing.T) {
+	bin := evvaBinary(t)
+	env, workdir := mcpServeEnv(t, `{"mcpServe":{"expose":[{"kind":"tool","name":"tree"}]}}`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, bin, "mcp-serve", "--transport", "http", "--addr", "127.0.0.1:0")
+	cmd.Env = env
+	cmd.Dir = workdir
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	// The server announces its real bind address and token path on stderr.
+	//
+	// The condition is checked BEFORE scanning, not after: the server goes
+	// quiet once it is listening, so a trailing Scan() would block until the
+	// process died and silently consume the whole test deadline.
+	var endpoint, tokenPath string
+	sc := bufio.NewScanner(stderr)
+	for endpoint == "" || tokenPath == "" {
+		if !sc.Scan() {
+			break
+		}
+		line := sc.Text()
+		t.Logf("server: %s", line)
+		if _, rest, ok := strings.Cut(line, "serving on "); ok {
+			endpoint = strings.TrimSpace(rest)
+		}
+		if _, rest, ok := strings.Cut(line, "token written to "); ok {
+			tokenPath = strings.TrimSpace(rest)
+		}
+	}
+	if endpoint == "" || tokenPath == "" {
+		t.Fatalf("server did not announce its endpoint/token (endpoint=%q token=%q)", endpoint, tokenPath)
+	}
+	go func() {
+		for sc.Scan() { // drain, so the pipe never blocks the server
+		}
+		_ = sc.Err() // the pipe closing when we kill the process is expected
+	}()
+
+	tokenBytes, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatalf("read minted token: %v", err)
+	}
+	token := strings.TrimSpace(string(tokenBytes))
+	if token == "" {
+		t.Fatal("minted token file is empty")
+	}
+
+	// Unauthenticated first: the endpoint must not serve a stranger. This gets
+	// its own short budget — the SDK client retries a rejected handshake, so
+	// sharing the outer deadline would let the probe consume it all.
+	probeCtx, probeCancel := context.WithTimeout(ctx, 5*time.Second)
+	_, unauthErr := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "probe", Version: "t"}, nil).
+		Connect(probeCtx, &mcpsdk.StreamableClientTransport{Endpoint: endpoint}, nil)
+	probeCancel()
+	if unauthErr == nil {
+		t.Error("connected to the HTTP transport without a token")
+	}
+
+	sess, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "probe", Version: "t"}, nil).
+		Connect(ctx, &mcpsdk.StreamableClientTransport{
+			Endpoint:   endpoint,
+			HTTPClient: &http.Client{Transport: bearerRoundTripper{token: token}},
+		}, nil)
+	if err != nil {
+		t.Fatalf("connect with the minted token: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+
+	list, err := sess.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Tools) != 1 || list.Tools[0].Name != "tree" {
+		t.Errorf("tools = %+v, want exactly [tree]", list.Tools)
+	}
+}
+
+// TestMCPServeHTTPRefusesRemoteBind proves the gate holds in the real binary,
+// not just in the unit test of the helper.
+func TestMCPServeHTTPRefusesRemoteBind(t *testing.T) {
+	bin := evvaBinary(t)
+	env, workdir := mcpServeEnv(t, `{"mcpServe":{"expose":[{"kind":"tool","name":"tree"}]}}`)
+	cmd := exec.Command(bin, "mcp-serve", "--transport", "http", "--addr", "0.0.0.0:0")
+	cmd.Env = env
+	cmd.Dir = workdir
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("bound a non-loopback address without --allow-remote:\n%s", out)
+	}
+	if !strings.Contains(string(out), "--allow-remote") {
 		t.Errorf("output = %q", out)
 	}
 }

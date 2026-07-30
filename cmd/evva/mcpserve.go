@@ -27,7 +27,7 @@ import (
 // stdio server IS the foreground process (its parent launched it precisely to
 // own its lifetime), so there is nothing to daemonize.
 
-// runMCPServe dispatches `evva mcp-serve [--transport stdio]`.
+// runMCPServe dispatches `evva mcp-serve [--transport stdio|http] [--addr …]`.
 //
 // Exposure is governed entirely by the "mcpServe" block in settings.json —
 // nothing is exposed by default, and an unknown tool or persona name in the
@@ -39,7 +39,9 @@ import (
 func runMCPServe(args []string) {
 	fs := flag.NewFlagSet("mcp-serve", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	transport := fs.String("transport", "stdio", "transport to serve on: stdio")
+	transport := fs.String("transport", "stdio", "transport to serve on: stdio|http")
+	addr := fs.String("addr", defaultMCPServeAddr, "http transport: address to bind")
+	allowRemote := fs.Bool("allow-remote", false, "http transport: permit a non-loopback bind")
 	verbose := fs.Bool("v", false, "log tool calls to stderr")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
@@ -92,8 +94,12 @@ func runMCPServe(args []string) {
 		if err := srv.Run(ctx, &mcpsdk.StdioTransport{}); err != nil && ctx.Err() == nil {
 			exitf(1, "evva mcp-serve: %v", err)
 		}
+	case "http":
+		if err := serveMCPHTTP(ctx, srv, *addr, *allowRemote, cfg.AppHome); err != nil {
+			exitf(1, "evva mcp-serve: %v", err)
+		}
 	default:
-		exitf(2, "evva mcp-serve: unknown --transport %q (want stdio)", *transport)
+		exitf(2, "evva mcp-serve: unknown --transport %q (want stdio or http)", *transport)
 	}
 }
 
