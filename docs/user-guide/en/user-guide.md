@@ -21,6 +21,7 @@
   - [Worktrees (`enter_worktree` / `exit_worktree`)](#worktrees-enter_worktree--exit_worktree)
   - [Approval Prompts](#approval-prompts)
   - [Permission Rules](#permission-rules)
+  - [Secret Redaction — what may *leave*](#secret-redaction--what-may-leave)
 - [7. Sub-agents and Personas](#7-sub-agents-and-personas)
   - [Dynamic workflow (opt-in)](#dynamic-workflow-opt-in--a-task-graph-the-engine-executes)
 - [8. Hooks](#8-hooks)
@@ -97,6 +98,7 @@ Available commands:
 | `/compact` | compact the transcript — pick micro or full |
 | `/resume` | resume a previous session from this workdir |
 | `/rewind` | undo a prior turn — restore code, conversation, or both |
+| `/redactions` | secrets masked out of tool results this session — press `r` to reveal |
 | `/clear` | start a new session — fresh history/usage/todos; the old session stays in `/resume` |
 | `/exit`, `/quit` | quit |
 
@@ -684,6 +686,61 @@ Format:
 
 Source priority within each behavior (deny/ask/allow) is `session > project > user`, so a session "allow for this session" beats a user-scope rule but never beats a deny.
 
+### Secret Redaction — what may *leave*
+
+Permissions decide **what may run**. Redaction decides **what may leave**. They are different axes and neither substitutes for the other: an allowed `read` of `config/production.yml` is a perfectly legitimate tool call whose *result* you may still not want shipped to a model provider.
+
+Everything a tool returns is appended to the conversation and sent to whichever provider the session uses, then written to the session snapshot on disk. Redaction scans that output for credential shapes first and replaces matches with a placeholder:
+
+```
+$ bash: cat .env
+AWS_ACCESS_KEY_ID=[REDACTED:aws-access-key:9c31]
+GITHUB_TOKEN=[REDACTED:github-token:4f2a]
+DATABASE_URL=postgres://app:[REDACTED:url-credentials:7b0e]@db.internal:5432/prod
+LOG_LEVEL=info
+```
+
+Note what survives: the variable names, the host, the port, the database, and every non-secret line. The model can still do its job — it simply never learns the values.
+
+**Placeholders are stable.** The same secret always produces the same token, so the model can still reason about "this key appears in both files" without ever seeing it. Two different keys get two different tokens. The four hex digits are a non-reversible fingerprint of the value, not a prefix of it.
+
+**On by default.** This is the one setting in evva that is opt-*out*. Turn it off with `redaction: false`, which restores byte-exact passthrough.
+
+**What is caught:**
+
+| | |
+| --- | --- |
+| Cloud | AWS access + secret keys, Google API keys, GCP service-account key ids |
+| Forges | GitHub PATs (classic + fine-grained), GitLab tokens |
+| SaaS | Slack tokens and webhook URLs, Stripe keys, OpenAI / Anthropic keys, npm tokens |
+| Structural | PEM private-key blocks, JWTs, passwords embedded in URLs |
+| Generic | the value of any variable whose *name* declares it secret (`*_SECRET`, `*_PASSWORD`, `*_TOKEN`, `*_API_KEY`, `*_ACCESS_KEY`, `*_PRIVATE_KEY`, `*CREDENTIAL*`) |
+| Entropy | high-randomness values in an assignment or quoted string — the fallback for credentials with no published shape |
+
+**What is not**, stated plainly because a security feature that oversells itself is worse than none:
+
+- **Operator input is never redacted.** What *you* type or paste is yours; masking it would break "help me rotate this key" and would only look like protection, since you can always paste it again.
+- **Hex-encoded secrets** slip past the entropy fallback by design. Its threshold deliberately sits above what hex can reach so that lockfile hashes, git SHAs and UUIDs are structurally immune — a redactor that mangles ordinary work gets switched off, and then it protects nothing. Such values are usually still caught by *name* via the generic rule.
+- **Secrets that look like ordinary prose** are not detectable by format or entropy and are not caught.
+- **Image bytes are not inspected.** This reads text.
+- It **reduces exposure; it does not eliminate it.** A seatbelt, not a vault.
+
+**`/redactions`** shows what was masked this session — the placeholder, which rule claimed it, and the value's length. Press `r` to reveal the real values. That panel is UI-only; revealing never puts the value back into the conversation. Use it when a rule fires on something that was not a secret, so you know what to allowlist.
+
+Redaction covers sub-agents and swarm members too — they run the same agent loop, and because placeholders are content-derived the same credential gets the same token everywhere it is seen.
+
+Tuning:
+
+```yaml
+redaction: true               # opt-out; false = byte-exact passthrough
+redaction_allow:              # regexes; a matching value is never masked
+  - "^AKIAIOSFODNN7EXAMPLE$"  # the documented example key in our fixtures
+redaction_disable:            # rule ids to switch off entirely
+  - high-entropy              # keep the format rules, drop the entropy fallback
+```
+
+`redaction_allow` and `redaction_disable` are YAML-only (`/config` edits the on/off toggle). A bad regex or an unknown rule id fails at startup rather than silently disarming a rule — the error lists the valid ids.
+
 ---
 
 ## 7. Sub-agents and Personas
@@ -1021,6 +1078,12 @@ default_profile: evva
 
 # Permission stance at startup. Cycle at runtime with Shift+Tab; -permission-mode CLI flag overrides.
 permission_mode: default     # default | accept_edits | plan | bypass
+
+# Secret redaction at the LLM egress boundary — see "Secret Redaction" in §6.
+# The one opt-OUT setting in this file: absent means ON.
+redaction: true              # false = byte-exact passthrough of tool results
+redaction_allow: []          # regexes; a matching value is never masked
+redaction_disable: []        # rule ids to switch off (e.g. "high-entropy")
 
 # Web tooling
 fetch_max_bytes: 100000

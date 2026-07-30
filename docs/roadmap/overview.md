@@ -14,14 +14,17 @@
 |---|---|---|
 | `main` (stable / GitHub "Latest") | **v1.11.0** | promoted 2026-07-11 — the whole swarm v1.11+ candidate batch (verify checks, outbound notifications, cost accounting, doctor, blackboard, TUI attach) plus solo dynamic workflow, output styles, edit-diagnostics sync and structured output |
 | `pre-release` (beta) | **v1.11.0-beta.5** | promoted; converges at its next cut from dev |
-| `dev` (integration) | = `main` | converged at the SWT backflow |
-| `feature/mcp-server-mode` | unreleased | **MCP-1..5 built 2026-07-30** — see §2 row 23 |
+| `dev` (integration) | unreleased | `main` + **MCP-1..5** (v1.13), merged 2026-07-30 at `d756c90` |
+| `feature/secret-redaction` | unreleased | **SEC-1..6 built 2026-07-30** — see §2 row 26 |
 
-**⚠️ `main` is ahead of its own tag.** SWT-1..8 was merged straight to `main`
-(operator's call, 2026-07-29) without a tag, so `main` carries an open
-`## [Unreleased]` CHANGELOG section while `version.go` still reads `v1.11.0`
-and the newest tag is still `v1.11.0`. The wave takes **v1.12.0** whenever it
-is tagged; MCP server mode takes **v1.13.0**.
+**⚠️ `main` is ahead of its own tag, and `dev` is ahead of `main`.** SWT-1..8
+was merged straight to `main` (operator's call, 2026-07-29) without a tag, so
+`main` carries an open `## [Unreleased]` CHANGELOG section while
+`version.go` still reads `v1.11.0` and the newest tag is still `v1.11.0`.
+Three unreleased waves are now stacked: SWT takes **v1.12.0**, MCP server
+mode **v1.13.0**, secret redaction **v1.14.0**. A single `pre-release
+feature` cut from `dev` would ship them together and, per the base-version
+decision in `CLAUDE.md`, take the newest never-shipped wave's minor.
 
 **✅ The v1.9 anomaly is closed.** `swarm-worktree-isolation.md` claimed the
 **v1.9** minor (commit `42ac53f`, 2026-07-02) but was never built, and no
@@ -34,9 +37,9 @@ is documented rather than mysterious.
 
 ---
 
-## 2. Feature PRDs (`docs/roadmap/PRD/`) — 24 tracked
+## 2. Feature PRDs (`docs/roadmap/PRD/`) — 26 tracked
 
-**Tally: 21 stable · 2 built-but-unreleased (SWT → v1.12, MCP server mode → v1.13) · 2 proposed.**
+**Tally: 21 stable · 3 built-but-unreleased (SWT → v1.12, MCP server mode → v1.13, secret redaction → v1.14) · 1 proposed.**
 
 | # | PRD | Status | Shipped in | Notes |
 |---|---|---|---|---|
@@ -65,6 +68,7 @@ is documented rather than mysterious.
 | 23 | [mcp-server-mode.md](PRD/mcp-server-mode.md) | 🟡 **Built — on a feature branch, unreleased** | — (claims **v1.13**) | MCP-1..5, 2026-07-30: `evva mcp-serve` over stdio / streamable HTTP, `mcpServe` allowlist (startup-validated, read-only tools only), whole-persona invocation with `<external-request>` trust framing, RP-15-style bearer auth. Two PRD corrections recorded in its header: the persona adapter's placement was an import cycle, and the RP-21 envelope was the wrong framing |
 | 24 | [agent-eval-harness.md](PRD/agent-eval-harness.md) | 📝 Proposed — **new** | — | added 2026-07-06 (this session) — transcript replay + regression scoring |
 | 25 | [solo-dynamic-workflow.md](PRD/solo-dynamic-workflow.md) | ✅ Stable | v1.11.0 | SDW-1..8: DWF execution model for solo TUI — `wf_task_*` board, engine auto-dispatch of subagent workers, `enable_dynamic_workflow` flag |
+| 26 | [secret-redaction.md](PRD/secret-redaction.md) | 🟡 **Built — on a feature branch, unreleased** | — (claims **v1.14**) | SEC-1..6, 2026-07-30: `pkg/redact` credential detector + stable content-derived placeholders, masking at the `execTool` choke point (covers provider payload, snapshot and TUI in one insertion), `/redactions` panel, `redaction` config defaulting **ON** — evva's only opt-OUT gate. First long-range **concept draft** to go through the audit pass; five corrections recorded in its header, incl. SEC-4 collapsing into SEC-2 and operator input being scoped out. Half of W3 — its sibling SBX stays blocked on a container runtime |
 
 **Status legend:** ✅ Stable (in a promoted `vX.Y.Z` on `main`) · 🟡 Beta (built,
 in a `-beta.N` on `pre-release`, not yet promoted) · ⚠️ Anomaly (wave claimed
@@ -88,7 +92,11 @@ duplicated as rows here until they claim waves):
 
 All carry `Status: long-range concept draft` — **not audited against live
 source**; per the concept → build gate in long-range §8, each needs an
-audit pass before implementation. Full sequencing lives in long-range §3
+audit pass before implementation. `secret-redaction.md` is the first to
+go through that gate (2026-07-30) and is a useful calibration of what the
+pass costs: five design corrections, one of which deleted a whole work
+item (SEC-4) and one of which deleted a requirement that no longer
+applied to the code. Full sequencing lives in long-range §3
 (backbone) and §3b (batch 2).
 
 ---
@@ -134,10 +142,11 @@ These are all from before the current v1.8–v1.10 window and are done — kept 
 Everything with no code yet, grouped by what it needs from the operator:
 
 - ~~**Needs a decision:** `swarm-worktree-isolation.md`~~ — **resolved 2026-07-29.** Built (SWT-1..8), re-slotted v1.9 → **v1.12**, merged to `main` untagged; awaiting a tag.
-- ~~**`mcp-server-mode.md`**~~ — **resolved 2026-07-30.** Built (MCP-1..5) on `feature/mcp-server-mode`, claims **v1.13**; awaiting a merge + cut.
+- ~~**`mcp-server-mode.md`**~~ — **resolved 2026-07-30.** Built (MCP-1..5), merged to `dev` at `d756c90`, claims **v1.13**; awaiting a cut.
+- ~~**`secret-redaction.md`**~~ — **resolved 2026-07-30.** Built (SEC-1..6) on `feature/secret-redaction`, claims **v1.14**. First long-range concept PRD to clear the audit gate.
 - ~~**Old, non-swarm, never slotted**~~ — **cleared.** All three shipped stable in v1.11.0.
 - ~~**Swarm v1.11+ candidates**~~ — **cleared.** All six from the 2026-07-04/05 design review shipped stable in v1.11.0 (blackboard, cost accounting, doctor, outbound notifications, TUI attach, verify checks).
-- **Still proposed, no code** (written 2026-07-06 against current industry trends — see each PRD's header for prior-art citations): `sandbox-isolation.md`, `agent-eval-harness.md`. Note that `sandbox-isolation.md`'s rollout (§8) needs a working `docker`/`podman` on the machine that builds it — its acceptance criteria cannot be met without one.
+- **Still proposed, no code** (written 2026-07-06 against current industry trends — see each PRD's header for prior-art citations): `agent-eval-harness.md`. `sandbox-isolation.md` is **blocked, not merely unstarted**: its rollout (§8) needs a working `docker`/`podman` on the build machine and there is none, so its acceptance criteria cannot be met here. That is why the W3 "Safety" wave shipped half — SEC built, SBX not.
 - **Un-graduated explore spikes** (no PRD at all yet, just a hypothesis): EX-2 (remote persona — graduation path now drafted as `swarm-federation.md`), EX-3 (leader takeover — graduation path now drafted as `swarm-leader-takeover.md`), EX-4 (replay/eval harness — note the new `agent-eval-harness.md` generalizes this; see its own header for the boundary), EX-5 (wake jitter).
 - **Long-range concept PRDs** (2026-07-06, 16 files — see the note under §2 and [long-range.md](long-range.md) §3 for the full sequenced list): concept-grade drafts for horizons W3–W19; each requires a live-source audit pass before build.
 

@@ -14,6 +14,55 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Secret redaction at the LLM egress boundary (SEC-1..6).** Everything a
+  tool returned — `cat .env`, a `read` of a production config, a `printenv`
+  dump — used to travel verbatim to whichever of five providers the session
+  used, and then to disk in the session snapshot. There was no layer that
+  said what may *leave*. There is now: `pkg/redact` recognises credential
+  shapes and replaces them with a placeholder before the result becomes a
+  message.
+  The property the design is built around is that **placeholders are
+  stable** — the same secret always masks to the same token within a run, so
+  the model can still reason about "this key appears in both files" without
+  ever learning the value. A uniform `[REDACTED]` would destroy that
+  inference; a fresh id per occurrence would invent a distinction that isn't
+  there.
+  Eighteen format rules (AWS, GCP, GitHub, GitLab, Slack, Stripe,
+  OpenAI/Anthropic, npm, PEM blocks, JWTs, URL-embedded passwords, and the
+  generic "variable whose *name* declares it secret") plus a deliberately
+  narrow Shannon-entropy fallback for credentials with no published shape.
+  That fallback's threshold sits **above what hex can reach**, which is what
+  makes lockfile hashes, git SHAs and UUIDs structurally immune rather than
+  accidentally spared — hex-encoded secrets slip past as the acknowledged
+  cost, because a redactor that mangles ordinary work gets switched off and
+  then protects nothing.
+  It hooks in at **one seam**: `execTool`, the single place a tool's output
+  becomes both the `llm.ToolResult` that enters the session and the
+  `KindToolUseResult` event the TUI renders. So egress and display are
+  covered together, every future tool inherits it, and — because masking
+  happens *before* the append — session snapshots are clean for free and
+  resume round-trips exactly what the model saw, with no second scrub pass
+  to desync disk from live. Sub-agents and swarm members are covered by
+  construction.
+  **On by default**, the one opt-*out* gate in `evva-config.yml`:
+  `redaction: false` restores byte-exact passthrough, `redaction_allow`
+  exempts values by regex, and `redaction_disable` switches off individual
+  rules. Both lists are validated at startup, so a typo fails the boot
+  instead of silently disarming a rule.
+  **`/redactions`** shows the operator what was masked and why, with values
+  hidden behind `r` — a shoulder-surfing guard, not a security boundary, and
+  UI-only so revealing never puts the value back in the conversation.
+  Scope stated rather than left implicit: operator-typed input is **not**
+  masked (a deliberate act with a human watching; masking it would break
+  credential-rotation flows and only look like protection), image bytes are
+  not inspected, and secrets shaped like ordinary prose are not caught. It
+  reduces exposure; it does not eliminate it.
+  Cost: eighteen `\b`-anchored patterns are ~1.6ms *each* on a 100KB tool
+  result, so the naive table would have added 41ms to every tool call.
+  Literal prefilters behind a single case-folded bigram pass, plus a
+  hand-rolled entropy scan, bring the clean path to **221µs** — the PRD
+  budgeted 1ms. PRD: `docs/roadmap/PRD/secret-redaction.md`.
+
 - **MCP server mode (MCP-1..5) — evva as a callable MCP server.** evva has
   shipped a solid MCP *client* since v1.3.0 and has never gone the other
   direction. `evva mcp-serve` now exposes a running installation to any MCP

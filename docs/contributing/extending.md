@@ -304,6 +304,54 @@ a sink installed and no custom broker, the agent emits
 parks a goroutine). For trusted/headless runs, `agent.WithHeadlessBypass()`
 or `PermissionMode: "bypass"` auto-allows everything.
 
+### Secret redaction — the egress boundary
+
+`pkg/permission` decides what may *run*. `pkg/redact` decides what may
+*leave*. Different axes: an allowed `read` of a production config is a
+legitimate call whose result you may still not want in a provider payload.
+
+Every tool result passes through a redactor before it becomes an
+`llm.Message`, so nothing an embedder adds needs to opt in — a tool you
+register with `WithCustomTool` inherits masking for free. The insertion
+point is `execTool`, the single seam where a `tools.Result` becomes both
+the message and the UI event.
+
+Hosts get it from config, and it defaults **on**:
+
+```go
+cfg.Redaction = false                                  // byte-exact passthrough
+cfg.RedactionAllow = []string{`^AKIAIOSFODNN7EXAMPLE$`} // never mask these
+cfg.RedactionDisable = []string{"high-entropy"}         // drop one rule
+```
+
+Bad patterns and unknown rule ids fail `agent.New` rather than silently
+disarming a rule.
+
+The package is usable standalone — it has no evva dependencies and its
+`*Redactor` is nil-safe, so "off" is representable as a nil field rather
+than a branch at every call site:
+
+```go
+r, err := redact.New(redact.Options{})   // nil Rules → redact.BuiltinRules()
+masked := r.Redact(toolOutput)           // stable placeholders
+for _, f := range r.Findings() {         // raw values — operator-facing only
+    log.Printf("%s ← %s (%s)", f.Placeholder, f.RuleID, f.Why)
+}
+```
+
+Two properties worth knowing before building on it. **Placeholders are
+content-derived** (`fnv32a` of the value), so the same secret yields the
+same token in every agent, session and process without any shared state —
+which is how sub-agents and swarm members co-reference one credential.
+And `Findings()` carries the **originals**; it exists for the operator's
+own screen (`/redactions`), and writing one back into a transcript would
+hand the model the value the whole layer exists to withhold.
+
+Extending the rule table is the expected way this improves: append a
+`redact.Rule` with its literal prefilter (`Needs` / `NeedsOne`, without
+which the pattern costs ~1.6ms per 100KB of tool result) and pass it via
+`Options.Rules`.
+
 ### Custom skills (Skill SDK)
 
 A **skill** is a Markdown instruction document the model can invoke

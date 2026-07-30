@@ -1,12 +1,71 @@
-# PRD — Secret Redaction at the LLM Egress Boundary — Concept Draft
+# PRD — Secret Redaction at the LLM Egress Boundary
 
 > **Audience:** senior engineers implementing this wave.
-> **Status:** proposed — **long-range concept draft** (design-complete, NOT
-> audited against live source; run the audit pass and pin file:line
-> references before implementation).
-> **Target release:** TBD — tentative slot **W3 / v1.13** per
-> [../long-range.md](../long-range.md); the CLAUDE.md wave → minor row is
-> added only when the operator confirms the wave.
+> **Status:** ✅ **BUILT** — SEC-1..6 implemented 2026-07-30 on
+> `feature/secret-redaction`. The audit pass required by the concept → build
+> gate ([../long-range.md](../long-range.md) §1 step 2) was run at
+> `dev@d756c90`; the five corrections it produced are recorded below and the
+> body of this document is left as written so the delta stays legible.
+> **Target release:** claims **v1.14** (the wave → minor row is in
+> `CLAUDE.md` / `EVVA.md`). The tentative **W3 / v1.13** slot was taken by
+> MCP server mode before this wave was picked up. W3's other half —
+> `sandbox-isolation.md` (SBX-1..7) — remains unbuilt: its acceptance
+> criteria (§8 of that PRD) need a working `docker`/`podman`, and there is
+> none on the build machine.
+>
+> ### Audit-pass corrections
+>
+> 1. **The choke point is `execTool`** (`internal/agent/state_machine.go`),
+>    which §4 left for the audit to find. It is better than the design
+>    assumed: it is the single place a `tools.Result` becomes *both* the
+>    `llm.ToolResult` that enters the session (→ provider → snapshot) *and*
+>    the `KindToolUseResult` event the TUI renders. One insertion covers
+>    egress and display, and it sits after the PostToolUse hooks so a hook's
+>    additional context is masked too.
+> 2. **"Chunk-overlap handling for streamed bash output" (SEC-2) is moot.**
+>    `BashTool.Execute` returns one whole `tools.Result`
+>    (`pkg/tools/shell/bash.go:224`); background daemons buffer into
+>    `capOutput` and are read whole via `Output()`. No chunked egress path
+>    exists for a match to be split across.
+> 3. **SEC-4 collapses into SEC-2.** Because redaction runs *before* the
+>    session append, the session only ever holds placeholders — snapshots
+>    are clean for free and `ResumeSession` round-trips exactly what the
+>    model saw. The separate persist-time scrub the PRD sketched would have
+>    been strictly worse: it desyncs disk from live and makes resume lossy.
+>    SEC-4 shipped as an assertion, not a mechanism.
+> 4. **Operator input is out of scope.** §4 has the choke point covering
+>    "tool results / user pastes". Only tool results are masked. Pasting a
+>    credential is a deliberate act with a human watching; masking it breaks
+>    credential-rotation flows and offers only the appearance of protection,
+>    since the operator can paste it again. Documented as a stated limit.
+> 5. **Reveal is `/redactions`, not a per-span keybinding.** §4's dimmed
+>    spans with a reveal binding need span-position tracking through the
+>    transcript renderer. An overlay (the `/cost` pattern) answers the same
+>    question — what was masked, by which rule, and the real value on
+>    demand — for a fraction of the surface, and renders UI-only so
+>    revealing never re-enters the session. The status-line counter was
+>    dropped: the `[REDACTED:…]` token appears inline in the tool result
+>    itself, which tells the operator more than a count, and exactly where
+>    it matters.
+>
+> **Open questions (§7), as resolved:** (1) a placeholder written back into
+> a file is **not** blocked — no write-side guard shipped, since the
+> placeholder is visibly not a credential and blocking would add a failure
+> mode to every edit for a case that announces itself. (2) No one-shot
+> `scrub` command for historical sessions; correction 3 means new sessions
+> are clean, and rewriting old transcripts in place is a separate,
+> destructive operation deserving its own design. (3) Swarm namespace:
+> **moot, and better than either option** — placeholders are derived from
+> the value itself (`fnv32a`), so every member, sub-agent and session
+> already co-references the same secret with the same token, with no shared
+> state at all.
+>
+> **Performance note, since the PRD budgeted it (SEC-1 accept: <1ms on
+> 100KB):** the rule table as designed costs ~1.6ms *per rule* on a 100KB
+> result — 41ms for the set, on every tool call — because `\b`-anchored
+> patterns have no literal prefix for RE2 to anchor on. Shipped at
+> **221µs** via per-rule literal prefilters gated by one case-folded bigram
+> pass, plus a hand-rolled entropy scan replacing its regex.
 > **Roadmap source:** 2026-07-06 long-range planning pass. Every major agent
 > vendor shipped some egress guard in 2025–26 (Claude Code redacts obvious
 > key shapes in transcripts; enterprise agent platforms treat DLP-at-egress

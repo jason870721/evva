@@ -21,6 +21,7 @@
   - [工作樹（`enter_worktree` / `exit_worktree`)](#工作樹enter_worktree--exit_worktree)
   - [核准提示](#核准提示)
   - [權限規則](#權限規則)
+  - [密鑰遮蔽 — 什麼可以「離開」](#密鑰遮蔽secret-redaction-什麼可以離開)
 - [7. 子代理與人格](#7-子代理與人格)
   - [動態工作流（選用）](#動態工作流選用-由引擎執行的任務圖)
 - [8. Hooks 鉤子](#8-hooks-鉤子)
@@ -104,6 +105,7 @@
 | `/compact` | 壓縮對話紀錄 — 可選 micro 或 full |
 | `/resume` | 還原此工作目錄下先前的工作階段 |
 | `/rewind` | 回復先前的回合 — 還原程式碼、對話，或兩者 |
+| `/redactions` | 本次工作階段中被遮蔽的密鑰 — 按 `r` 顯示原值 |
 | `/clear` | 開啟新工作階段 — 清空歷史/用量/待辦；舊階段仍可由 `/resume` 還原 |
 | `/exit`、`/quit` | 離開 |
 
@@ -687,6 +689,61 @@ permission_mode: default     # default | accept_edits | plan | bypass
 
 各行為（deny/ask/allow）內的來源優先順序為 `session > project > user`，因此工作階段的「允許此工作階段」會覆蓋使用者範圍規則，但永遠不會覆蓋 deny。
 
+### 密鑰遮蔽（Secret Redaction）— 什麼可以「離開」
+
+權限決定**什麼可以執行**，遮蔽決定**什麼可以離開**。兩者是不同的軸線，也無法互相取代：讀取 `config/production.yml` 可能是完全正當的工具呼叫，但你未必希望它的**結果**被送到模型供應商。
+
+工具回傳的所有內容都會被附加到對話中、送往該工作階段所使用的供應商，並寫入磁碟上的工作階段快照。遮蔽會先掃描這些輸出中的密鑰特徵，並以佔位符取代：
+
+```
+$ bash: cat .env
+AWS_ACCESS_KEY_ID=[REDACTED:aws-access-key:9c31]
+GITHUB_TOKEN=[REDACTED:github-token:4f2a]
+DATABASE_URL=postgres://app:[REDACTED:url-credentials:7b0e]@db.internal:5432/prod
+LOG_LEVEL=info
+```
+
+請注意保留下來的部分：變數名稱、主機、連接埠、資料庫名稱，以及所有非密鑰的行。模型仍然能完成工作——它只是永遠不會知道那些值。
+
+**佔位符是穩定的。** 同一個密鑰永遠產生同一個 token，因此模型仍可推理「這把金鑰同時出現在兩個檔案裡」，卻從未看過它。兩把不同的金鑰會得到兩個不同的 token。那四位十六進位數是該值的**不可逆**指紋，而非它的前綴。
+
+**預設開啟。** 這是 evva 中唯一預設「選擇退出（opt-out）」的設定。以 `redaction: false` 關閉，將回復逐位元組原樣傳遞。
+
+**會被攔截的：**
+
+| | |
+| --- | --- |
+| 雲端 | AWS access/secret key、Google API key、GCP 服務帳戶金鑰 id |
+| 程式碼託管 | GitHub PAT（傳統與細粒度）、GitLab token |
+| SaaS | Slack token 與 webhook URL、Stripe key、OpenAI / Anthropic key、npm token |
+| 結構化格式 | PEM 私鑰區塊、JWT、內嵌於 URL 的密碼 |
+| 通用規則 | **名稱**本身即宣告為機密的變數其值（`*_SECRET`、`*_PASSWORD`、`*_TOKEN`、`*_API_KEY`、`*_ACCESS_KEY`、`*_PRIVATE_KEY`、`*CREDENTIAL*`） |
+| 熵值 | 位於賦值或引號字串中的高隨機性值——這是針對沒有公開格式的密鑰所設的後備網 |
+
+**不會被攔截的**——之所以明說，是因為一個誇大自身能力的安全功能比沒有更糟：
+
+- **操作者輸入永不遮蔽。** 你自己輸入或貼上的內容是你的；遮蔽它會破壞「幫我輪替這把金鑰」這類流程，而且只是看起來像保護——你隨時可以再貼一次。
+- **十六進位編碼的密鑰**會刻意穿過熵值後備網。其門檻刻意設在十六進位所能達到的上限之上，讓 lockfile 雜湊、git SHA 與 UUID 在結構上免疫——一個會弄壞日常工作的遮蔽器會被關掉，然後它就什麼都保護不了。這類值通常仍會被通用的**名稱**規則攔截。
+- **看起來像一般文字的密鑰**無法用格式或熵值偵測，不會被攔截。
+- **不檢查影像位元組。** 這個機制讀的是文字。
+- 它**降低暴露，而非消除暴露**。是安全帶，不是保險庫。
+
+**`/redactions`** 顯示本次工作階段被遮蔽的內容——佔位符、命中的規則、以及該值的長度。按 `r` 顯示真實值。該面板僅在 UI 端呈現，顯示原值永遠不會把它放回對話中。當某條規則誤判了非密鑰的內容時，用它來確認該把什麼加入允許清單。
+
+遮蔽同樣涵蓋子代理與 swarm 成員——它們跑的是同一套代理迴圈，而且因為佔位符由內容推導而來，同一個密鑰在任何地方被看到都會得到同一個 token。
+
+調整方式：
+
+```yaml
+redaction: true               # 預設開啟；false = 逐位元組原樣傳遞
+redaction_allow:              # 正規表示式；匹配到的值永不遮蔽
+  - "^AKIAIOSFODNN7EXAMPLE$"  # 測試資料中已公開的範例金鑰
+redaction_disable:            # 要完全關閉的規則 id
+  - high-entropy              # 保留格式規則，關掉熵值後備網
+```
+
+`redaction_allow` 與 `redaction_disable` 僅能透過 YAML 設定（`/config` 只提供開關）。錯誤的正規表示式或不存在的規則 id 會在啟動時直接失敗，而不會靜默地停用某條規則——錯誤訊息會列出有效的 id。
+
 ---
 
 ## 7. 子代理與人格
@@ -1024,6 +1081,12 @@ default_profile: evva
 
 # Permission stance at startup. Cycle at runtime with Shift+Tab; -permission-mode CLI flag overrides.
 permission_mode: default     # default | accept_edits | plan | bypass
+
+# 密鑰遮蔽（LLM 出口邊界）— 見 §6「密鑰遮蔽」。
+# 本檔案中唯一預設「開啟」的設定：缺少此鍵即為開啟。
+redaction: true              # false = 工具結果逐位元組原樣傳遞
+redaction_allow: []          # 正規表示式；匹配到的值永不遮蔽
+redaction_disable: []        # 要關閉的規則 id（例如 "high-entropy"）
 
 # Web tooling
 fetch_max_bytes: 100000
