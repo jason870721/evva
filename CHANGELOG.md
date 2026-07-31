@@ -12,6 +12,8 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.14.0-beta.1] — 2026-07-31
+
 ### Added
 
 - **Secret redaction at the LLM egress boundary (SEC-1..6).** Everything a
@@ -172,6 +174,13 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   verify. A space that never opts in is byte-identical to before, prompts
   included. User guide (en, zh-tw) §8 "Isolated coding swarms"; PRD:
   `docs/roadmap/PRD/swarm-worktree-isolation.md`.
+
+### Fixed
+
+- **Swarm web board: the Completed and Proposals tabs never scrolled** (#65).
+  Both lanes rendered their full list into a panel body that was never part
+  of the height chain, so anything past the fold was unreachable. `EvPanel`'s
+  body now flexes into the container height, restoring overflow scrolling.
 
 ## [v1.11.0] — 2026-07-11
 
@@ -2417,7 +2426,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.14.0-beta.1...HEAD
+[v1.14.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.11.0...v1.14.0-beta.1
 [v1.11.0]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.4...v1.11.0
 [v1.11.0-beta.5]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.4...v1.11.0-beta.5
 [v1.11.0-beta.4]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.2...v1.11.0-beta.4
