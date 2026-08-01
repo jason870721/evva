@@ -12,7 +12,7 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
-## [v1.14.0-beta.1] — 2026-07-31
+## [v1.14.0] — 2026-08-01
 
 ### Added
 
@@ -2426,8 +2426,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.14.0-beta.1...HEAD
-[v1.14.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.11.0...v1.14.0-beta.1
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.14.0...HEAD
+[v1.14.0]: https://github.com/johnny1110/evva/compare/v1.11.0...v1.14.0
 [v1.11.0]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.4...v1.11.0
 [v1.11.0-beta.5]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.4...v1.11.0-beta.5
 [v1.11.0-beta.4]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.2...v1.11.0-beta.4
