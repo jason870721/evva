@@ -9,9 +9,11 @@
 > **Target release:** claims **v1.14** (the wave → minor row is in
 > `CLAUDE.md` / `EVVA.md`). The tentative **W3 / v1.13** slot was taken by
 > MCP server mode before this wave was picked up. W3's other half —
-> `sandbox-isolation.md` (SBX-1..7) — remains unbuilt: its acceptance
-> criteria (§8 of that PRD) need a working `docker`/`podman`, and there is
-> none on the build machine.
+> `sandbox-isolation.md` (SBX-1..7) — was unbuilt at the time of writing
+> because its acceptance criteria (§8 of that PRD) need a working
+> `docker`/`podman` and the build machine had none. **Resolved 2026-08-01:**
+> Docker 28.1.1 was available, SBX-1..7 was built under **v1.15**, and W3
+> "Safety" is complete.
 >
 > ### Audit-pass corrections
 >

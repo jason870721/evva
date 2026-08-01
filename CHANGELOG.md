@@ -12,6 +12,55 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Sandboxed execution (SBX-1..7).** Every `bash` call evva has ever made —
+  main agent, sub-agent, swarm member — was a direct subprocess on the host.
+  There was a timeout and a kill-tree, but no filesystem jail and no network
+  boundary: `cd /` worked, and `curl | sh` installed onto the operator's
+  actual machine. `isolation: "sandbox"` adds the missing tier. It is a strict
+  superset of `isolation: "worktree"`: the same git worktree, plus a container
+  that bind-mounts it at `/workspace`, with shell commands routed through
+  `docker exec` / `podman exec` instead of a host subprocess.
+
+  The split that makes this coherent is that **only `bash` moves**. The
+  `edit`/`write` tools keep writing to the worktree on the host, and the
+  container sees those writes through the mount — so the agent still observes
+  its own build output, and the operator can still read the results normally.
+  What is out of reach is everything *else*: `~/.ssh`, sibling repositories,
+  anything above the worktree, and — with `sandbox_network: "none"` — the
+  network. Worktree isolation protects the rest of the repo from a session;
+  this protects the rest of the host from it. They are different axes, and
+  `"sandbox"` turns on both.
+
+  Image selection reuses `.devcontainer/devcontainer.json` rather than
+  inventing config, falling back to an explicit `sandbox_image`. With neither,
+  a sandboxed spawn **fails** — there is deliberately no path that quietly
+  runs unsandboxed after the caller asked for isolation, since that would
+  remove the boundary at precisely the moment someone had reason to want it.
+
+  In a swarm, sandboxing is a manifest field (`settings.sandbox` +
+  per-member `sandbox: on|off`, resolved by `ResolveSandbox`) rather than a
+  `member_spawn` parameter. That follows the idiom SWT established one minor
+  earlier, and it means the ephemeral clones `member_spawn` creates inherit
+  their base's trust level instead of defaulting to the least isolated
+  option. The leader is exempt for the same reason it is exempt from
+  worktrees: it must stay on the base checkout to merge everyone else's work.
+
+  New knobs: `sandbox_runtime` (`""` off | `docker` | `podman`),
+  `sandbox_image`, `sandbox_network` (`allow` | `none`) — all opt-in, all
+  validated at startup. Zero new Go dependencies: this shells out to whatever
+  runtime is on `PATH`, the same way evva already shells out to `git`.
+  `worktree_list` and `list_members` mark container-backed sessions, and
+  background commands get a distinct `sandboxed_bash` daemon kind.
+  See `docs/roadmap/PRD/sandbox-isolation.md`.
+
+  This closes the **W3 "Safety"** wave, whose other half (secret redaction)
+  shipped in v1.14.0. The wave had been half-built because SBX's acceptance
+  criteria need a working container runtime and the build machine had none;
+  that is no longer true, and the criteria are now met against real
+  containers.
+
 ## [v1.14.0] — 2026-08-01
 
 ### Added

@@ -8,6 +8,7 @@ import (
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/internal/tools/ux"
 	"github.com/johnny1110/evva/pkg/mcp"
+	"github.com/johnny1110/evva/pkg/sandbox"
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/alarm"
@@ -75,7 +76,15 @@ func init() {
 	// sync-only behaviour.
 	r.MustRegister(tools.BASH, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
-		return shell.NewBashWithHost(ts.Workdir(), ts), nil
+		wd := ts.Workdir()
+		// SBX-2: consult the sandbox registry per call rather than capturing
+		// the container here. The tool is built during agent construction; the
+		// container is provisioned by the spawner or the swarm's member
+		// constructor afterwards, so a construction-time read would always see
+		// nil. Lookup is workdir-keyed and returns nil for every unsandboxed
+		// session, which is the default.
+		return shell.NewBashWithHost(wd, ts).
+			WithSandbox(func() *sandbox.Container { return sandbox.Default.Lookup(wd) }), nil
 	})
 	r.MustRegister(tools.GREP, func(tools.State) (tools.Tool, error) { return shell.Grep, nil })
 	r.MustRegister(tools.TREE, func(tools.State) (tools.Tool, error) { return shell.Tree, nil })

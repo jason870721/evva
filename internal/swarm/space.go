@@ -110,6 +110,14 @@ type SwarmSpace struct {
 	// works in the shared space workdir (the pre-SWT behavior). Lazily
 	// allocated in constructMember.
 	worktrees map[string]mode.WorktreeSession
+	// sandboxes holds the release func for each member running inside a
+	// container (SBX), keyed by member name. Calling it stops the container
+	// and unbinds it from the sandbox registry. Absent entry = that member's
+	// bash runs on the host (the default). Lazily allocated in
+	// constructMember; always torn down alongside the member's worktree, and
+	// always BEFORE it, since the worktree is the container's bind-mount
+	// source.
+	sandboxes map[string]func()
 	// teamIsolated records whether this space runs ANY member worktrees —
 	// the leader's cue to learn the integration protocol even though it has
 	// no worktree of its own (D8). Fixed at NewSpace so every prompt render
@@ -446,7 +454,15 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 	// onto the base checkout, so it must BE on the base checkout. LoadManifest
 	// rejects an explicit leader `worktree: on`; a space-wide setting simply
 	// does not reach here for the leader.
-	if ld.Role != agentdef.RoleLeader && agentdef.ResolveWorktree(sp.settings.WorktreeIsolation, ld.Worktree) {
+	//
+	// Sandboxing (SBX) rides the same gate one level up: it IMPLIES a worktree,
+	// because the container bind-mounts the member's own checkout. A member
+	// asking for a sandbox therefore gets a worktree whether or not the
+	// worktree knob says so — "sandboxed but sharing the space checkout" would
+	// mount the operator's live workdir into a container, the opposite of what
+	// asking for isolation means.
+	sandboxed := ld.Role != agentdef.RoleLeader && agentdef.ResolveSandbox(sp.settings.Sandbox, ld.Sandbox)
+	if ld.Role != agentdef.RoleLeader && (sandboxed || agentdef.ResolveWorktree(sp.settings.WorktreeIsolation, ld.Worktree)) {
 		sess, err := mode.ProvisionMemberWorktree(sp.ctx, sp.Workdir, memberWorktreeSlug(name))
 		if err != nil {
 			return fmt.Errorf("swarm: member %q: provision worktree: %w", name, err)
@@ -462,6 +478,26 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 		}
 		sp.worktrees[name] = sess
 		sp.mu.Unlock()
+
+		if sandboxed {
+			// Refuse loudly rather than construct an unsandboxed member: an
+			// ephemeral clone that self-retires with no operator review is
+			// exactly the case where a silent downgrade would go unnoticed.
+			// The worktree is rolled back so a failed construction leaves
+			// nothing behind.
+			release, err := sp.startMemberSandbox(sess, name)
+			if err != nil {
+				mode.RemoveMemberWorktree(sp.ctx, sess, true)
+				sp.forgetWorktree(name)
+				return fmt.Errorf("swarm: member %q: %w", name, err)
+			}
+			sp.mu.Lock()
+			if sp.sandboxes == nil {
+				sp.sandboxes = map[string]func(){}
+			}
+			sp.sandboxes[name] = release
+			sp.mu.Unlock()
+		}
 	}
 
 	// Member-native long-term memory (RP-25): home this member's writable

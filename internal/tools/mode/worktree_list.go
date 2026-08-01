@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/johnny1110/evva/pkg/permission"
+	"github.com/johnny1110/evva/pkg/sandbox"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 )
@@ -28,6 +29,7 @@ One row per managed worktree:
 - ` + "`ahead`" + ` / ` + "`behind`" + ` — commits the branch is ahead of / behind the base
 - ` + "`dirty`" + ` — present when the worktree has uncommitted changes (commit before merging)
 - ` + "`owner`" + ` — the subagent daemon still writing this worktree, if any (running ⇒ not finished yet)
+- ` + "`sandbox`" + ` — present when this worktree's shell commands run inside a container rather than on the host (` + "`isolation: \"sandbox\"`" + `), naming the runtime, container and image
 
 Read-only. Lists nothing (not an error) when there are no managed worktrees.`
 
@@ -111,9 +113,16 @@ func (t *WorktreeListTool) Execute(ctx context.Context, logger *slog.Logger, _ j
 			}
 			owner = fmt.Sprintf(" owner=%s(%s)", s.ID, state)
 		}
+		// SBX-6: mark worktrees whose shell runs inside a container, so the
+		// distinction between the two isolation tiers is legible here rather
+		// than only in config.
+		sandboxFlag := ""
+		if c := sandbox.Default.Lookup(e.Path); c != nil {
+			sandboxFlag = " sandbox=" + c.Describe()
+		}
 		rows = append(rows, fmt.Sprintf(
-			"- %s [branch=%s base=%s ahead=%d behind=%d%s]%s",
-			e.Path, e.Branch, baseBranch, ahead, behind, dirtyFlag, owner,
+			"- %s [branch=%s base=%s ahead=%d behind=%d%s]%s%s",
+			e.Path, e.Branch, baseBranch, ahead, behind, dirtyFlag, owner, sandboxFlag,
 		))
 	}
 	if len(rows) == 0 {

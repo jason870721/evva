@@ -133,6 +133,23 @@ func (s *Supervisor) Start(ctx context.Context) {
 	go func() { defer s.wg.Done(); s.timerTick(ctx) }()
 	go func() { defer s.wg.Done(); s.rescanTick(ctx) }()
 
+	// SBX: stop every member container when the space goes down. Worktrees
+	// deliberately survive a shutdown (they may hold unmerged work), but a
+	// container holds no work — it is pure runtime — so leaving one running
+	// past the process that owns it is a leak. `--rm` covers the crash case;
+	// this covers the orderly one. Joined to wg so Wait() does not return
+	// while containers are still being removed.
+	if len(s.sp.sandboxedMembers()) > 0 {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			<-ctx.Done()
+			for _, name := range s.sp.sandboxedMembers() {
+				s.sp.releaseMemberSandbox(name)
+			}
+		}()
+	}
+
 	// Re-arm durable one-shot alarms from a prior run: future ones get fresh
 	// timers; any that came due while the process was down fire now as durable
 	// bus mail, which the target drains when its loop runs. Safe at start

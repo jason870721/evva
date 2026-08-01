@@ -48,6 +48,12 @@ type Member struct {
 	// layering. An explicit "on" is rejected for the leader (D8): the leader
 	// merges members' branches onto the base checkout and must stay on it.
 	Worktree string
+	// Sandbox overrides the space-wide sandbox stance for this member (SBX):
+	// SandboxOn | SandboxOff; "" = inherit Settings.Sandbox. Resolve it with
+	// ResolveSandbox. Sandboxing implies worktree isolation — the container
+	// bind-mounts the member's own worktree — so an "on" here turns both on,
+	// and the leader is exempt for the same D8 reason.
+	Sandbox string
 	// FromPersona marks a member that references a registry main-tier persona
 	// instead of a workdir agents/{main,sub}/<name>/ directory (RP-29). The
 	// member NAME stays in Agent for both shapes; the space resolves and
@@ -151,12 +157,27 @@ type Settings struct {
 	// Per-member Worktree overrides this. Default false: a space that never
 	// opts in behaves byte-identically to before the wave.
 	WorktreeIsolation bool
+	// Sandbox runs every member's bash inside a container bind-mounting that
+	// member's worktree (SBX), so an unattended worker cannot reach the rest
+	// of the host filesystem or — with config sandbox_network:"none" — the
+	// network. This is a different axis from WorktreeIsolation: that one keeps
+	// members' edits apart, this one keeps members' processes off the host.
+	// Sandboxing implies worktree isolation, since the worktree is what gets
+	// mounted. Per-member Sandbox overrides this; the leader is exempt (D8).
+	// Default false.
+	Sandbox bool
 }
 
 // Member.Worktree values (SWT). "" inherits Settings.WorktreeIsolation.
 const (
 	WorktreeOn  = "on"
 	WorktreeOff = "off"
+)
+
+// Member.Sandbox values (SBX). "" inherits Settings.Sandbox.
+const (
+	SandboxOn  = "on"
+	SandboxOff = "off"
 )
 
 // ResolveWorktree resolves the effective worktree-isolation stance for one
@@ -169,6 +190,25 @@ func ResolveWorktree(spaceDefault bool, memberOverride string) bool {
 	case WorktreeOn:
 		return true
 	case WorktreeOff:
+		return false
+	default:
+		return spaceDefault
+	}
+}
+
+// ResolveSandbox resolves the effective sandbox stance for one member, with
+// the same member-beats-settings layering as ResolveWorktree.
+//
+// Callers must treat a true result as implying worktree isolation regardless
+// of what ResolveWorktree says: the container mounts the member's own
+// worktree, so "sandboxed but sharing the space checkout" is not a coherent
+// configuration — it would bind-mount the operator's live workdir into a
+// container, which is the opposite of what asking for a sandbox means.
+func ResolveSandbox(spaceDefault bool, memberOverride string) bool {
+	switch strings.TrimSpace(memberOverride) {
+	case SandboxOn:
+		return true
+	case SandboxOff:
 		return false
 	default:
 		return spaceDefault
@@ -285,6 +325,7 @@ type memberYml struct {
 	BudgetTokens   int          `yaml:"budget_tokens,omitempty"`
 	PermissionMode string       `yaml:"permission_mode,omitempty"` // "" = inherit settings (RP-24)
 	Worktree       string       `yaml:"worktree,omitempty"`        // "" = inherit settings (SWT)
+	Sandbox        string       `yaml:"sandbox,omitempty"`         // "" = inherit settings (SBX)
 }
 
 // memberFromYml validates and converts one manifest member entry. ctx names
@@ -314,6 +355,10 @@ func memberFromYml(y memberYml, ctx string) (Member, error) {
 	if err != nil {
 		return Member{}, fmt.Errorf("agentdef: manifest %s worktree: %w", ctx, err)
 	}
+	sb, err := parseSandboxMode(y.Sandbox)
+	if err != nil {
+		return Member{}, fmt.Errorf("agentdef: manifest %s sandbox: %w", ctx, err)
+	}
 	effort := strings.TrimSpace(y.Effort)
 	if effort != "" && llm.ParseEffort(effort) == 0 {
 		return Member{}, fmt.Errorf("agentdef: manifest %s: invalid effort %q (want low|medium|high|ultra)", ctx, effort)
@@ -321,7 +366,7 @@ func memberFromYml(y memberYml, ctx string) (Member, error) {
 	return Member{
 		Agent: name, FromPersona: fromPersona,
 		Model: strings.TrimSpace(y.Model), Effort: effort, WhenToUse: strings.TrimSpace(y.WhenToUse),
-		Schedule: sched, BudgetTokens: y.BudgetTokens, PermissionMode: mode, Worktree: wt,
+		Schedule: sched, BudgetTokens: y.BudgetTokens, PermissionMode: mode, Worktree: wt, Sandbox: sb,
 	}, nil
 }
 
@@ -331,6 +376,7 @@ func memberToYml(m Member) memberYml {
 		Model: m.Model, Effort: m.Effort, WhenToUse: m.WhenToUse,
 		Schedule: toScheduleYml(m.Schedule), BudgetTokens: m.BudgetTokens, PermissionMode: m.PermissionMode,
 		Worktree: m.Worktree,
+		Sandbox:  m.Sandbox,
 	}
 	if m.FromPersona {
 		y.Persona = m.Agent
@@ -365,6 +411,7 @@ type manifestYml struct {
 		Notify                 *notifyYml `yaml:"notify,omitempty"`                  // nil = notifications off
 		BlackboardMaxBytes     int        `yaml:"blackboard_max_bytes,omitempty"`    // 0 = default 4096, max 16384
 		WorktreeIsolation      bool       `yaml:"worktree_isolation,omitempty"`      // false = shared workdir (SWT)
+		Sandbox                bool       `yaml:"sandbox,omitempty"`                 // false = host execution (SBX)
 	} `yaml:"settings,omitempty"`
 }
 
@@ -542,6 +589,17 @@ func parseWorktreeMode(s string) (string, error) {
 	}
 }
 
+// parseSandboxMode reads an optional member-level sandbox knob (SBX), the
+// worktree knob's twin.
+func parseSandboxMode(s string) (string, error) {
+	switch s = strings.TrimSpace(s); s {
+	case "", SandboxOn, SandboxOff:
+		return s, nil
+	default:
+		return "", fmt.Errorf("invalid sandbox %q (want on|off)", s)
+	}
+}
+
 // parseScheduleYml turns an optional on-disk schedule block into a *Schedule,
 // validating the cron at load time (a bad spec fails the whole manifest, not the
 // first tick). nil block → nil schedule.
@@ -638,6 +696,7 @@ func LoadManifest(path string) (Manifest, error) {
 			Notify:                 notify,
 			BlackboardMaxBytes:     boardCap,
 			WorktreeIsolation:      y.Settings.WorktreeIsolation,
+			Sandbox:                y.Settings.Sandbox,
 		},
 	}
 	for _, w := range y.Workers {
@@ -751,6 +810,7 @@ func WriteManifest(path string, m Manifest) error {
 	// Worktree isolation is plain omitempty: false = off = omitted, which is
 	// exactly the default. Per-member overrides ride along in memberToYml.
 	y.Settings.WorktreeIsolation = m.Settings.WorktreeIsolation
+	y.Settings.Sandbox = m.Settings.Sandbox
 	b, err := yaml.Marshal(y)
 	if err != nil {
 		return fmt.Errorf("agentdef: marshal manifest: %w", err)
@@ -802,6 +862,13 @@ func (m Manifest) validate() error {
 	// settings.worktree_isolation deliberately does not reach the leader.
 	if m.Leader.Worktree == WorktreeOn {
 		return fmt.Errorf(`agentdef: manifest: leader.worktree: %q is not supported — the leader merges members' work onto the base checkout and must stay on it (it can read any worktree by absolute path)`, WorktreeOn)
+	}
+	// Same D8 exemption for sandboxing: it implies a worktree, so allowing it
+	// on the leader would smuggle in exactly the isolation the guard above
+	// forbids — and a containerized leader could not run the git merges that
+	// are its whole job.
+	if m.Leader.Sandbox == SandboxOn {
+		return fmt.Errorf(`agentdef: manifest: leader.sandbox: %q is not supported — sandboxing implies a worktree, and the leader must stay on the base checkout to merge members' work`, SandboxOn)
 	}
 	seen := map[string]bool{m.Leader.Agent: true}
 	for i, w := range m.Workers {

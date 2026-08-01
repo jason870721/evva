@@ -13,6 +13,7 @@ import (
 	"github.com/johnny1110/evva/pkg/constant"
 	"github.com/johnny1110/evva/pkg/event"
 	"github.com/johnny1110/evva/pkg/llm"
+	"github.com/johnny1110/evva/pkg/sandbox"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 )
@@ -80,7 +81,8 @@ func (a *Agent) spawnSubagent(ctx context.Context, req meta.SpawnRequest, hooks 
 	// construction. No os.Chdir — the parent stays in its own workdir.
 	childCfg := a.cfg
 	var isolationSession *mode.WorktreeSession
-	if req.Isolation == "worktree" {
+	var releaseSandbox func()
+	if req.Isolation == "worktree" || req.Isolation == "sandbox" {
 		sess, werr := mode.CreateForSubagent(ctx, a.Workdir(), req.Name)
 		if werr != nil {
 			return "", fmt.Errorf("spawn: provision isolation worktree: %w", werr)
@@ -89,6 +91,21 @@ func (a *Agent) spawnSubagent(ctx context.Context, req meta.SpawnRequest, hooks 
 		cfgClone.WorkDir = sess.Path
 		childCfg = cfgClone
 		isolationSession = &sess
+
+		// SBX-4: "sandbox" is a strict superset of "worktree" — same git-tree
+		// isolation, plus an OS boundary around the child's bash calls. A
+		// failure here aborts the spawn and tears the worktree back down:
+		// silently continuing would hand the caller an unsandboxed child while
+		// they believe they asked for isolation, which is the one degradation
+		// this feature must never perform.
+		if req.Isolation == "sandbox" {
+			release, serr := startSandbox(ctx, a.cfg, sess.Path, req.Name)
+			if serr != nil {
+				mode.CleanupSubagentWorktree(ctx, sess, true)
+				return "", fmt.Errorf("spawn: %w", serr)
+			}
+			releaseSandbox = release
+		}
 	}
 
 	childSink := event.BubbleUp{Parent: a.Sink(), ParentID: a.ID}
@@ -108,6 +125,9 @@ func (a *Agent) spawnSubagent(ctx context.Context, req meta.SpawnRequest, hooks 
 		WithMcpManager(a.toolState.McpManager()), // share the parent's live MCP sessions (no re-connect)
 	)
 	if err != nil {
+		if releaseSandbox != nil {
+			releaseSandbox()
+		}
 		if isolationSession != nil {
 			mode.CleanupSubagentWorktree(ctx, *isolationSession, true)
 		}
@@ -133,6 +153,9 @@ func (a *Agent) spawnSubagent(ctx context.Context, req meta.SpawnRequest, hooks 
 	if hooks.preRun != nil {
 		if err := hooks.preRun(ad.ID()); err != nil {
 			state.Evict(ad.ID())
+			if releaseSandbox != nil {
+				releaseSandbox()
+			}
 			if isolationSession != nil {
 				mode.CleanupSubagentWorktree(ctx, *isolationSession, true)
 			}
@@ -147,7 +170,7 @@ func (a *Agent) spawnSubagent(ctx context.Context, req meta.SpawnRequest, hooks 
 		// daemon_stop on this id cleanly cancels the child.
 		go func() {
 			resp, runErr := child.Run(childCtx, req.Prompt)
-			resp = finalizeIsolation(ctx, isolationSession, resp, a)
+			resp = finalizeIsolation(ctx, isolationSession, releaseSandbox, resp, a)
 			if runErr != nil {
 				if errors.Is(runErr, ErrIterLimit) {
 					ad.Crush("[subagent paused at iteration limit]", runErr, daemon.StatusFailed)
@@ -173,7 +196,7 @@ func (a *Agent) spawnSubagent(ctx context.Context, req meta.SpawnRequest, hooks 
 	// transition is visible to daemon_list during the run, and Evict
 	// here cleans it up before the next iter.
 	resp, runErr := child.Run(childCtx, req.Prompt)
-	resp = finalizeIsolation(ctx, isolationSession, resp, a)
+	resp = finalizeIsolation(ctx, isolationSession, releaseSandbox, resp, a)
 
 	defer state.Evict(ad.ID())
 	if runErr != nil {
@@ -189,14 +212,40 @@ func (a *Agent) spawnSubagent(ctx context.Context, req meta.SpawnRequest, hooks 
 	return resp, nil
 }
 
-// finalizeIsolation runs the post-subagent worktree cleanup. If the
-// child made no changes the worktree is auto-removed; otherwise it's
-// left on disk and its path + branch are appended to the result so the
-// parent can surface them to the user.
+// startSandbox provisions the OS-level isolation tier for a subagent whose
+// worktree is already checked out at path.
+//
+// Refusing loudly is the contract: if the operator asked for
+// isolation:"sandbox" and there is no runtime configured, no runtime on PATH,
+// or no image to run, the spawn fails. Every alternative — warn and continue,
+// fall back to worktree-only — hands back a child with less isolation than
+// was requested, at the exact moment the caller had reason to want more.
+func startSandbox(ctx context.Context, cfg *config.Config, path, name string) (func(), error) {
+	runtime := cfg.GetSandboxRuntime()
+	if runtime == "" {
+		return nil, errors.New(`isolation:"sandbox" needs a container runtime — set sandbox_runtime to "docker" or "podman" in config, or use isolation:"worktree" for git-tree isolation only`)
+	}
+	_, release, err := sandbox.Provision(ctx, runtime, cfg.GetSandboxImage(), cfg.GetSandboxNetwork(), path, name)
+	if err != nil {
+		return nil, err
+	}
+	return release, nil
+}
+
+// finalizeIsolation runs the post-subagent isolation teardown. The container
+// (if any) goes first: the worktree is its bind-mount source, and removing a
+// directory out from under a live mount is the kind of platform-dependent
+// failure that is much easier to avoid than to debug. Then, if the child made
+// no changes the worktree is auto-removed; otherwise it's left on disk and its
+// path + branch are appended to the result so the parent can surface them to
+// the user.
 //
 // Safe to call with sess == nil (the no-isolation path) — returns the
 // input resp unchanged.
-func finalizeIsolation(ctx context.Context, sess *mode.WorktreeSession, resp string, a *Agent) string {
+func finalizeIsolation(ctx context.Context, sess *mode.WorktreeSession, releaseSandbox func(), resp string, a *Agent) string {
+	if releaseSandbox != nil {
+		releaseSandbox()
+	}
 	if sess == nil {
 		return resp
 	}

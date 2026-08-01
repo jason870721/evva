@@ -11,6 +11,7 @@ import (
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
 	"github.com/johnny1110/evva/internal/swarm/store"
 	"github.com/johnny1110/evva/internal/tools/mode"
+	"github.com/johnny1110/evva/pkg/sandbox"
 )
 
 // MergeResult is the outcome of integrating one member's branch onto the base
@@ -130,12 +131,70 @@ func (sp *SwarmSpace) forgetWorktree(name string) {
 	delete(sp.worktrees, name)
 }
 
+// startMemberSandbox provisions the container backing one sandboxed member
+// (SBX-5), mounting the member's whole worktree so paths resolve the same
+// inside and out.
+//
+// The mount is sess.Path — the worktree root — not acfg.WorkDir, which for a
+// space nested inside a larger repo is a subdirectory of it. Mounting the root
+// and letting GuestPath map the member's workdir onto its position inside is
+// what keeps a nested space's relative paths intact.
+func (sp *SwarmSpace) startMemberSandbox(sess mode.WorktreeSession, name string) (func(), error) {
+	runtime := sp.cfg.GetSandboxRuntime()
+	if runtime == "" {
+		return nil, fmt.Errorf(`sandbox requested but no container runtime configured — set sandbox_runtime to "docker" or "podman", or drop sandbox:"on" for %s`, name)
+	}
+	_, release, err := sandbox.Provision(sp.ctx, runtime,
+		sp.cfg.GetSandboxImage(), sp.cfg.GetSandboxNetwork(), sess.Path, "swarm-"+name)
+	if err != nil {
+		return nil, err
+	}
+	return release, nil
+}
+
+// releaseMemberSandbox stops a member's container and forgets it. Ordered
+// before worktree teardown by every caller: the worktree is the bind-mount
+// source, and deleting a directory a container still holds mounted is a
+// platform-dependent failure not worth courting.
+func (sp *SwarmSpace) releaseMemberSandbox(name string) {
+	sp.mu.Lock()
+	release, ok := sp.sandboxes[name]
+	delete(sp.sandboxes, name)
+	sp.mu.Unlock()
+	if ok && release != nil {
+		release()
+	}
+}
+
+// sandboxedMembers lists the members currently backed by a container.
+func (sp *SwarmSpace) sandboxedMembers() []string {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	out := make([]string, 0, len(sp.sandboxes))
+	for name := range sp.sandboxes {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// MemberSandboxed reports whether a member's bash runs inside a container.
+// Observability only (SBX-6) — the roster column and worktree_list read it.
+func (sp *SwarmSpace) MemberSandboxed(name string) bool {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	_, ok := sp.sandboxes[name]
+	return ok
+}
+
 // releaseMemberWorktree tears a removed member's worktree down (SWT-5), but
 // never destroys work: a worktree holding uncommitted changes or commits the
 // base has not taken is PRESERVED, and the leader plus the operator get one
 // durable notice naming the branch so the work is recoverable. Removal is the
 // accidental path — reset is the deliberate one, and only that forces.
 func (s *Supervisor) releaseMemberWorktree(name string) {
+	// Container first: it bind-mounts the worktree we are about to remove.
+	s.sp.releaseMemberSandbox(name)
 	sess, ok := s.sp.memberWorktree(name)
 	if !ok {
 		return

@@ -189,6 +189,22 @@ type Config struct {
 	RedactionAllow   []string
 	RedactionDisable []string
 
+	// Sandboxed execution (SBX). SandboxRuntime names the container runtime
+	// backing isolation:"sandbox" — "" (off, the default), "docker" or
+	// "podman". Note this is a DIFFERENT axis from the permission gate, which
+	// evva's older vocabulary also calls "sandbox" (see the dead
+	// dangerouslyDisableSandbox bash parameter): this one is OS-level
+	// process/filesystem/network isolation, orthogonal to whether an action
+	// needed approval. SandboxImage overrides image selection, which
+	// otherwise reads .devcontainer/devcontainer.json; with neither, a
+	// sandboxed session refuses to start rather than silently running
+	// unsandboxed. SandboxNetwork is "allow" (default — most build/test flows
+	// need a package registry) or "none".
+	// See docs/roadmap/PRD/sandbox-isolation.md.
+	SandboxRuntime string
+	SandboxImage   string
+	SandboxNetwork string
+
 	// Checkpoint & rewind. When EnableCheckpoints is true (opt-in; off by default), the main
 	// agent records a checkpoint at each user-turn boundary and captures the
 	// before-image of every file its fs tools touch, so /rewind can restore the
@@ -323,6 +339,9 @@ func (c *Config) Clone() *Config {
 		Redaction:               c.Redaction,
 		RedactionAllow:          slices.Clone(c.RedactionAllow),
 		RedactionDisable:        slices.Clone(c.RedactionDisable),
+		SandboxRuntime:          c.SandboxRuntime,
+		SandboxImage:            c.SandboxImage,
+		SandboxNetwork:          c.SandboxNetwork,
 		EnableCheckpoints:       c.EnableCheckpoints,
 		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
 		EnableRepoMap:           c.EnableRepoMap,
@@ -471,6 +490,30 @@ func (c *Config) GetRedactionDisable() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return slices.Clone(c.RedactionDisable)
+}
+
+// GetSandboxRuntime returns the container runtime backing isolation:"sandbox"
+// ("" when sandboxing is off). Read at sandbox-session start, not per bash
+// call — the container outlives individual commands.
+func (c *Config) GetSandboxRuntime() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.SandboxRuntime
+}
+
+// GetSandboxImage returns the explicit image override ("" = resolve from
+// .devcontainer/devcontainer.json instead).
+func (c *Config) GetSandboxImage() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.SandboxImage
+}
+
+// GetSandboxNetwork returns "allow" or "none".
+func (c *Config) GetSandboxNetwork() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.SandboxNetwork
 }
 
 // GetEnableCheckpoints returns the checkpoint/rewind flag under the read lock.
@@ -1063,6 +1106,9 @@ func (c *Config) SaveFile() error {
 		Redaction:               &redaction,
 		RedactionAllow:          slices.Clone(c.RedactionAllow),
 		RedactionDisable:        slices.Clone(c.RedactionDisable),
+		SandboxRuntime:          c.SandboxRuntime,
+		SandboxImage:            c.SandboxImage,
+		SandboxNetwork:          c.SandboxNetwork,
 		EnableCheckpoints:       &enableCheckpoints,
 		CheckpointMaxPerSession: c.CheckpointMaxPerSession,
 		EnableRepoMap:           &enableRepoMap,

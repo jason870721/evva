@@ -84,6 +84,15 @@ type FileConfig struct {
 	RedactionAllow   []string `yaml:"redaction_allow,omitempty"`
 	RedactionDisable []string `yaml:"redaction_disable,omitempty"`
 
+	// Sandboxed execution (SBX). All three are plain strings whose zero value
+	// IS the default, so omitempty round-trips correctly without the *bool
+	// dance the opt-in booleans above need. sandbox_runtime: "" = off,
+	// "docker" or "podman". sandbox_image overrides devcontainer.json image
+	// resolution. sandbox_network: "" / "allow" = networked, "none" = isolated.
+	SandboxRuntime string `yaml:"sandbox_runtime,omitempty"`
+	SandboxImage   string `yaml:"sandbox_image,omitempty"`
+	SandboxNetwork string `yaml:"sandbox_network,omitempty"`
+
 	// EnableCheckpoints gates checkpoint/rewind. Default false — opt-in, since an
 	// enabled session writes per-turn before-images under .evva/checkpoints. Set
 	// true to record them so /rewind can restore code/conversation. Pointer so a

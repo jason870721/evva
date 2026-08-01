@@ -64,6 +64,7 @@ Usage notes:
 - ` + "`level: 2`" + ` costs more — only request it when the task genuinely needs deeper reasoning (subtle bug hunts, architectural calls). Routine searches stay at level 1.
 - Subagents cannot spawn subagents — the hierarchy is exactly one layer deep.
 - With ` + "`isolation: \"worktree\"`" + `, the subagent runs inside a fresh git worktree created at ` + "`<repo>/.evva/worktrees/`" + `. The worktree is auto-removed if the subagent makes no changes; otherwise the path and branch are returned in the result so the user can inspect or merge.
+- With ` + "`isolation: \"sandbox\"`" + `, the subagent gets that same worktree AND runs its bash commands inside a container, so it cannot touch the rest of the host filesystem or (when configured) the network. Use it for work on untrusted input or unreviewed install steps. Requires a configured container runtime; the spawn fails rather than silently running unsandboxed.
 
 ## Writing the prompt
 
@@ -120,7 +121,7 @@ func (t *AgentTool) Schema() json.RawMessage {
 			"subagent_type":{"type":"string","enum":%s,"description":"Which preset profile to use. Defaults to general-purpose. \"explore\" is read-only and good for codebase inspection."},
 			"level":{"type":"integer","enum":[1,2],"default":1,"description":"Model tier within the parent's provider. 1=general, 2=thinking Defaults to 1. Use 2 only when the task genuinely needs deeper reasoning."},
 			"async_mode":{"type":"boolean","default":false,"description":"Let the subagent run in the background; the spawner returns an ack immediately and the eventual summary is injected into the parent's next turn."},
-			"isolation":{"type":"string","enum":["worktree"],"description":"Filesystem-isolation strategy. \"worktree\" runs the subagent in a fresh git worktree under <repo>/.evva/worktrees/ on its own branch; the worktree is auto-removed when the subagent makes no changes, otherwise the path and branch are returned in the result."}
+			"isolation":{"type":"string","enum":["worktree","sandbox"],"description":"Isolation strategy. \"worktree\" runs the subagent in a fresh git worktree under <repo>/.evva/worktrees/ on its own branch; the worktree is auto-removed when the subagent makes no changes, otherwise the path and branch are returned in the result. \"sandbox\" adds OS-level isolation on top: the same worktree, but bash runs inside a container so the rest of the host is out of reach. Requires a configured container runtime."}
 		}
 	}`, enumJSON))
 }
@@ -175,8 +176,8 @@ func (t *AgentTool) Execute(ctx context.Context, logger *slog.Logger, input json
 	logger.Info("subagent.spawn", "kind", kind, "name", in.Name, "async", in.AsyncMode, "level", in.Level)
 
 	isolation := strings.ToLower(strings.TrimSpace(in.Isolation))
-	if isolation != "" && isolation != "worktree" {
-		return tools.Result{IsError: true, Content: fmt.Sprintf(`agent: unsupported isolation %q (want "worktree" or omit)`, in.Isolation)}, nil
+	if isolation != "" && isolation != "worktree" && isolation != "sandbox" {
+		return tools.Result{IsError: true, Content: fmt.Sprintf(`agent: unsupported isolation %q (want "worktree", "sandbox", or omit)`, in.Isolation)}, nil
 	}
 
 	out, err := spawner.Spawn(ctx, SpawnRequest{

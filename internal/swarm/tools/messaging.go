@@ -141,6 +141,12 @@ func newListMembers(mc swarm.MemberContext) pubtools.Tool {
 					if wt.Dirty > 0 {
 						fmt.Fprintf(&b, " dirty:%d", wt.Dirty)
 					}
+					// SBX-6: the leader should know which workers are boxed in
+					// — it changes what it can reasonably delegate to them
+					// (no host tooling, and no network when so configured).
+					if mc.Space.MemberSandboxed(m.Name) {
+						b.WriteString(" sandboxed")
+					}
 				}
 				if m.WhenToUse != "" {
 					fmt.Fprintf(&b, " — %s", m.WhenToUse)

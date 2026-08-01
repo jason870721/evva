@@ -22,6 +22,7 @@
   - [Approval Prompts](#approval-prompts)
   - [Permission Rules](#permission-rules)
   - [Secret Redaction — what may *leave*](#secret-redaction--what-may-leave)
+  - [Sandboxed Execution — where a command *runs*](#sandboxed-execution--where-a-command-runs)
 - [7. Sub-agents and Personas](#7-sub-agents-and-personas)
   - [Dynamic workflow (opt-in)](#dynamic-workflow-opt-in--a-task-graph-the-engine-executes)
 - [8. Hooks](#8-hooks)
@@ -741,6 +742,45 @@ redaction_disable:            # rule ids to switch off entirely
 
 `redaction_allow` and `redaction_disable` are YAML-only (`/config` edits the on/off toggle). A bad regex or an unknown rule id fails at startup rather than silently disarming a rule — the error lists the valid ids.
 
+### Sandboxed Execution — where a command *runs*
+
+Permissions decide what may run; redaction decides what may leave. Sandboxing decides **where it runs**. A third axis, and again not a substitute for the other two: an approved `bash` call is still an approved `bash` call — sandboxing only changes whether it executes on your machine or inside a container.
+
+By default every `bash` call — main agent, sub-agent, swarm member — is a direct subprocess on the host. It has a timeout and a kill-tree, but no filesystem jail and no network boundary; `cd /` works, and `curl | sh` installs onto your actual machine.
+
+Turn on a container runtime and a sub-agent can be spawned with `isolation: "sandbox"` instead:
+
+```yaml
+sandbox_runtime: docker       # "" (off, default) | docker | podman
+sandbox_image: alpine:3.20    # optional; otherwise .devcontainer/devcontainer.json
+sandbox_network: allow        # allow (default) | none
+```
+
+**What you get.** A sandboxed session is a worktree session *plus* a container that bind-mounts that worktree at `/workspace`. Edits still land on the host — the `edit`/`write` tools are unchanged, so you can read the results normally — but shell commands run inside the box. The rest of your filesystem (`~/.ssh`, sibling repos, everything above the worktree) is simply not present, and with `sandbox_network: none` there is no network at all.
+
+**What you do not get.** The worktree itself is fully readable and writable from inside — by design, since the agent needs to see its own build output. Sandboxing protects *the host from the session*; worktree isolation protects *the rest of the repo from the session*. They are complementary, and `"sandbox"` turns on both.
+
+**Image selection** reuses a convention you probably already have: if the repo has a `.devcontainer/devcontainer.json`, its `image` is used. Otherwise set `sandbox_image`. With neither, a sandboxed spawn **fails loudly** — evva never quietly falls back to running unsandboxed, because that would remove the isolation at exactly the moment you asked for it. (A devcontainer that builds from a Dockerfile rather than naming an image is not handled; point `sandbox_image` at a prebuilt image.)
+
+One container is started per session and reused for every command in it, so you pay container startup once, not per call. The first run may also pull the image. Containers are removed when the session ends, on success or abort.
+
+In a swarm, sandboxing is a manifest decision rather than a per-call one — a worker's trust level belongs with the roster, and it is inherited correctly by the ephemeral clones `member_spawn` creates:
+
+```yaml
+settings:
+  sandbox: true         # every worker boxed by default
+workers:
+  - agent: coder        # inherits settings.sandbox
+  - agent: docs-writer
+    sandbox: "off"      # this one stays on the host
+```
+
+The leader is always exempt: sandboxing implies a worktree, and the leader must stay on the base checkout to merge everyone else's branches.
+
+`worktree_list` marks which worktrees are container-backed, and `list_members` marks sandboxed members, so the boundary is visible without reading config.
+
+> **Naming note.** The `bash` tool has an old `dangerouslyDisableSandbox` parameter. It is an accepted no-op and refers to the *permission gate*, not this feature — evva's older vocabulary used "sandbox" for approval. The two are unrelated axes.
+
 ---
 
 ## 7. Sub-agents and Personas
@@ -1084,6 +1124,12 @@ permission_mode: default     # default | accept_edits | plan | bypass
 redaction: true              # false = byte-exact passthrough of tool results
 redaction_allow: []          # regexes; a matching value is never masked
 redaction_disable: []        # rule ids to switch off (e.g. "high-entropy")
+
+# Sandboxed execution — see "Sandboxed Execution" in §6. Opt-in: empty runtime
+# means every bash call runs directly on the host, as it always has.
+sandbox_runtime: ""          # "" (off) | docker | podman
+sandbox_image: ""            # empty = read .devcontainer/devcontainer.json; neither = refuse to sandbox
+sandbox_network: allow       # allow | none (no network inside the container)
 
 # Web tooling
 fetch_max_bytes: 100000

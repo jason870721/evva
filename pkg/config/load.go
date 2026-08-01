@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -235,6 +236,27 @@ func Load(opts LoadOptions) (*Config, error) {
 		redaction = *fileCfg.Redaction
 	}
 
+	// Sandboxing is opt-in (default off) and validated here rather than at
+	// session start: a typo'd runtime should be a startup error, not a
+	// surprise the first time a subagent asks for isolation:"sandbox". The
+	// runtime binary's presence on PATH is NOT checked here — that is a
+	// session-start concern (§4.3's refuse-loudly rule), since a config can
+	// legitimately be written on a machine that will run it later.
+	sandboxRuntime := strings.ToLower(strings.TrimSpace(fileCfg.SandboxRuntime))
+	switch sandboxRuntime {
+	case "", "docker", "podman":
+	default:
+		return nil, fmt.Errorf("config: sandbox_runtime must be \"docker\" or \"podman\" (got %q); omit it to disable sandboxing", fileCfg.SandboxRuntime)
+	}
+	sandboxNetwork := strings.ToLower(strings.TrimSpace(fileCfg.SandboxNetwork))
+	switch sandboxNetwork {
+	case "":
+		sandboxNetwork = "allow"
+	case "allow", "none":
+	default:
+		return nil, fmt.Errorf("config: sandbox_network must be \"allow\" or \"none\" (got %q)", fileCfg.SandboxNetwork)
+	}
+
 	// Checkpoint/rewind is opt-in (default off); the per-session cap normalizes a
 	// missing or non-positive value to 50 so retention always has a floor.
 	enableCheckpoints := false
@@ -307,6 +329,9 @@ func Load(opts LoadOptions) (*Config, error) {
 		Redaction:               redaction,
 		RedactionAllow:          fileCfg.RedactionAllow,
 		RedactionDisable:        fileCfg.RedactionDisable,
+		SandboxRuntime:          sandboxRuntime,
+		SandboxImage:            strings.TrimSpace(fileCfg.SandboxImage),
+		SandboxNetwork:          sandboxNetwork,
 		EnableCheckpoints:       enableCheckpoints,
 		CheckpointMaxPerSession: checkpointMax,
 		EnableRepoMap:           enableRepoMap,

@@ -30,14 +30,25 @@ type SpawnRequest struct {
 
 	AsyncMode bool // default = false
 
-	// Isolation selects a filesystem-isolation strategy for the spawned
-	// subagent. Empty (the default) inherits the parent's workdir.
+	// Isolation selects an isolation strategy for the spawned subagent.
+	// Empty (the default) inherits the parent's workdir.
+	//
 	// "worktree" provisions a git worktree under
 	// `<repo>/.evva/worktrees/<slug>/` on a fresh branch and configures
 	// the child to run there — its filesystem mutations stay off the
 	// host workdir. The post-spawn cleanup auto-removes the worktree
 	// when the child made no changes; otherwise the path and branch
 	// are surfaced back to the parent so the user can inspect.
+	//
+	// "sandbox" (SBX) is a strict superset: the same worktree, plus an
+	// OS-level boundary — the child's bash calls run inside a container
+	// bind-mounting that worktree, so the rest of the host filesystem and
+	// (with sandbox_network:"none") the network are out of reach. Note
+	// this second tier is genuinely a different axis from "worktree": one
+	// keeps the child's edits off the shared checkout, the other keeps the
+	// child's *processes* off the host. Requires a configured container
+	// runtime; a spawn that asks for it and cannot get it fails rather
+	// than quietly downgrading.
 	Isolation string
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/johnny1110/evva/pkg/common/proc"
+	"github.com/johnny1110/evva/pkg/sandbox"
 	"github.com/johnny1110/evva/pkg/tools/daemon"
 )
 
@@ -50,6 +51,11 @@ type bashDaemon struct {
 	agentID     string
 	startedAt   time.Time
 	workdir     string
+	// container is this daemon's sandbox, or nil to run on the host.
+	// Resolved once at construction rather than per call: unlike the
+	// synchronous tool, a daemon is created at the moment the command is
+	// issued, so there is nothing to late-bind.
+	container *sandbox.Container
 
 	// Guarded by mu.
 	status   daemon.DaemonStatus
@@ -72,22 +78,54 @@ func newBashDaemon(
 	parentCtx context.Context,
 	state *daemon.DaemonState,
 	workdir, command, description, agentID string,
+	container *sandbox.Container,
 	logger *slog.Logger,
 ) *bashDaemon {
 	ctx, cancel := context.WithCancel(parentCtx)
+	// SBX-6: a sandboxed background command takes a distinct daemon kind so
+	// its id prefix and every listing that renders one say plainly that this
+	// process is not running on the host.
+	kind := daemon.KindLocalBash
+	if container != nil {
+		kind = daemon.KindSandboxedBash
+	}
 	return &bashDaemon{
-		id:          daemon.GenerateID(daemon.KindLocalBash),
+		id:          daemon.GenerateID(kind),
 		command:     command,
 		description: description,
 		agentID:     agentID,
 		startedAt:   time.Now(),
 		workdir:     workdir,
+		container:   container,
 		status:      daemon.StatusRunning,
 		ctx:         ctx,
 		cancel:      cancel, // cancel func
 		state:       state,
 		logger:      logger,
 	}
+}
+
+// buildCmd assembles the process this daemon drives, routing through the
+// session's container when there is one. Mirrors BashTool.command; the two
+// stay deliberately parallel so a change to sandbox routing is one shape
+// applied twice rather than two divergent implementations.
+func (d *bashDaemon) buildCmd(shell string) (*exec.Cmd, error) {
+	if d.container == nil {
+		cmd := exec.CommandContext(d.ctx, shell, "-c", d.command)
+		cmd.Dir = d.workdir
+		return cmd, nil
+	}
+	guestDir := ""
+	if d.workdir != "" {
+		mapped, ok := d.container.GuestPath(d.workdir)
+		if !ok {
+			return nil, fmt.Errorf("sandboxed session workdir %s is outside the container mount %s", d.workdir, d.container.HostRoot)
+		}
+		guestDir = mapped
+	}
+	cmd := exec.CommandContext(d.ctx, d.container.Runtime, d.container.ExecArgs(guestDir, shell, d.command)...)
+	cmd.Dir = d.container.HostRoot
+	return cmd, nil
 }
 
 // ID returns the daemon's wire-stable id.
@@ -155,8 +193,14 @@ func (d *bashDaemon) run() {
 	}
 
 	w := &lockedWriter{buf: &d.output, mu: &d.mu}
-	cmd := exec.CommandContext(d.ctx, shell, "-c", d.command)
-	cmd.Dir = d.workdir
+	// Sandbox routing (SBX-2), identical in shape to the synchronous path:
+	// only the command line changes; the kill-tree and WaitDelay teardown
+	// below governs the exec subprocess exactly as it governed a direct shell.
+	cmd, sbErr := d.buildCmd(shell)
+	if sbErr != nil {
+		d.finishSpawnFailure(sbErr)
+		return
+	}
 	cmd.Stdout = w
 	cmd.Stderr = w
 	proc.Group(cmd)

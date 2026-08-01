@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/johnny1110/evva/pkg/common/proc"
+	"github.com/johnny1110/evva/pkg/sandbox"
 	"github.com/johnny1110/evva/pkg/tools"
 )
 
@@ -54,6 +55,13 @@ const (
 type BashTool struct {
 	workdir string
 	host    DaemonHost
+	// sandbox is the late-bound lookup for OS-level isolation (SBX). Nil, or
+	// a lookup returning nil, means the command runs directly on the host —
+	// the default. Resolved per call rather than captured at construction
+	// because the container is provisioned after the tool exists, following
+	// the worktree controller's late-binding precedent rather than the
+	// checkpoint sink's construction-time capture.
+	sandbox func() *sandbox.Container
 }
 
 // NewBash constructs a BashTool bound to workdir. An empty workdir means
@@ -70,6 +78,54 @@ func NewBash(workdir string) *BashTool { return &BashTool{workdir: workdir} }
 // builtins factory. The host supplies the DaemonState + RootCtx + AgentID
 // the bash daemon needs; without it run_in_background is rejected with a
 // clear message.
+// WithSandbox installs the late-bound container lookup used to route commands
+// into a sandboxed session. Chained-option shape so the existing constructors
+// keep their signatures and every non-sandboxed caller is unaffected.
+func (t *BashTool) WithSandbox(lookup func() *sandbox.Container) *BashTool {
+	t.sandbox = lookup
+	return t
+}
+
+// container resolves this call's sandbox, or nil when the session runs on the
+// host.
+func (t *BashTool) container() *sandbox.Container {
+	if t.sandbox == nil {
+		return nil
+	}
+	return t.sandbox()
+}
+
+// command builds the exec.Cmd for one shell invocation, routing through the
+// session's container when there is one.
+//
+// The guest-path mapping is the part that is easy to get wrong: cmd.Dir is a
+// host path and means nothing to `exec`, so a sandboxed call has to translate
+// its workdir onto the mount and pass it as `-w`. A workdir outside the mount
+// is a hard error rather than a silent fallback to the mount root — running
+// somewhere other than where the agent believes it is would corrupt results
+// far more quietly than a failed command does.
+func (t *BashTool) command(ctx context.Context, shell, command string) (*exec.Cmd, error) {
+	c := t.container()
+	if c == nil {
+		cmd := exec.CommandContext(ctx, shell, "-c", command)
+		cmd.Dir = t.workdir
+		return cmd, nil
+	}
+	guestDir := ""
+	if t.workdir != "" {
+		mapped, ok := c.GuestPath(t.workdir)
+		if !ok {
+			return nil, fmt.Errorf("bash: sandboxed session workdir %s is outside the container mount %s — refusing to run", t.workdir, c.HostRoot)
+		}
+		guestDir = mapped
+	}
+	cmd := exec.CommandContext(ctx, c.Runtime, c.ExecArgs(guestDir, shell, command)...)
+	// The docker/podman CLI itself still runs on the host; anchor it somewhere
+	// valid so a deleted workdir cannot break the client process.
+	cmd.Dir = c.HostRoot
+	return cmd, nil
+}
+
 func NewBashWithHost(workdir string, host DaemonHost) *BashTool {
 	return &BashTool{workdir: workdir, host: host}
 }
@@ -167,8 +223,16 @@ func (t *BashTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cctx, shell, "-c", in.Command)
-	cmd.Dir = t.workdir
+	// Sandbox routing (SBX-2): when this session is backed by a container, the
+	// same command runs as `<runtime> exec` instead of a direct subprocess.
+	// Everything downstream — timeout, process group, kill tree, WaitDelay,
+	// output capture — is deliberately untouched: an exec is itself just a
+	// subprocess, so the existing teardown machinery already owns it
+	// correctly.
+	cmd, sbErr := t.command(cctx, shell, in.Command)
+	if sbErr != nil {
+		return tools.Result{IsError: true, Content: sbErr.Error()}, nil
+	}
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -239,6 +303,7 @@ func (t *BashTool) runBackground(logger *slog.Logger, in bashInput) (tools.Resul
 		in.Command,
 		in.Description,
 		t.host.AgentID(),
+		t.container(),
 		logger,
 	)
 	state.Register(d)

@@ -44,6 +44,9 @@ type Loaded struct {
 	// checkout is a team-composition decision, so the whole roster's stances
 	// read in one file. Resolve with ResolveWorktree.
 	Worktree string
+	// Sandbox is the member's manifest sandbox override (SBX), the worktree
+	// knob's twin. Resolve with ResolveSandbox.
+	Sandbox string
 	// FromPersona marks a member synthesized from a manifest persona entry
 	// (RP-29): no disk dir was read; the space resolves the def from its
 	// persona registry at assembly time.
@@ -165,6 +168,7 @@ func (l *Loader) BuildAll(workdir string, m Manifest) ([]Loaded, []Warning, erro
 				FromPersona: true, Role: role, Schedule: mem.Schedule,
 				Effort: mem.Effort, PermissionMode: mem.PermissionMode,
 				Worktree: mem.Worktree,
+				Sandbox:  mem.Sandbox,
 				Skills:   skill.NewRegistry(),
 			})
 			return nil
@@ -190,6 +194,7 @@ func (l *Loader) BuildAll(workdir string, m Manifest) ([]Loaded, []Warning, erro
 		}
 		one.PermissionMode = mem.PermissionMode
 		one.Worktree = mem.Worktree
+		one.Sandbox = mem.Sandbox
 		for _, w := range one.Skills.Warnings {
 			warnings = append(warnings, Warning{Agent: one.Def.Name, Msg: w})
 		}

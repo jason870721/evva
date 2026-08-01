@@ -53,7 +53,7 @@ func TestFinalizeIsolation_CleanExitRemovesWorktree(t *testing.T) {
 	}
 
 	a := &Agent{logger: slog.Default()}
-	resp := finalizeIsolation(ctx, &sess, "child summary", a)
+	resp := finalizeIsolation(ctx, &sess, nil, "child summary", a)
 
 	if resp != "child summary" {
 		t.Errorf("clean-exit resp should be unchanged; got %q", resp)
@@ -76,7 +76,7 @@ func TestFinalizeIsolation_DirtyExitPreservesAndReports(t *testing.T) {
 	}
 
 	a := &Agent{logger: slog.Default()}
-	resp := finalizeIsolation(ctx, &sess, "child summary", a)
+	resp := finalizeIsolation(ctx, &sess, nil, "child summary", a)
 
 	if !strings.Contains(resp, "child summary") {
 		t.Errorf("resp must preserve child summary; got %q", resp)
@@ -97,7 +97,7 @@ func TestFinalizeIsolation_DirtyExitPreservesAndReports(t *testing.T) {
 
 func TestFinalizeIsolation_NilSessionIsNoop(t *testing.T) {
 	a := &Agent{logger: slog.Default()}
-	resp := finalizeIsolation(context.Background(), nil, "untouched", a)
+	resp := finalizeIsolation(context.Background(), nil, nil, "untouched", a)
 	if resp != "untouched" {
 		t.Errorf("nil session should pass resp through; got %q", resp)
 	}

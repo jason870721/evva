@@ -23,10 +23,15 @@ type DaemonKind string
 
 const (
 	// Implemented today.
-	KindLocalBash  DaemonKind = "local_bash"
-	KindLocalAgent DaemonKind = "local_agent"
-	KindMonitor    DaemonKind = "monitor"
-	KindLSP        DaemonKind = "lsp"
+	KindLocalBash DaemonKind = "local_bash"
+	// KindSandboxedBash is a background shell command running inside a
+	// container rather than on the host (SBX). Distinct from KindLocalBash so
+	// an operator reading a daemon listing can tell at a glance which
+	// processes crossed the isolation boundary.
+	KindSandboxedBash DaemonKind = "sandboxed_bash"
+	KindLocalAgent    DaemonKind = "local_agent"
+	KindMonitor       DaemonKind = "monitor"
+	KindLSP           DaemonKind = "lsp"
 
 	// Reserved — enum entries only, no Daemon impl yet. Listed here so the
 	// ID prefix table stays exhaustive and new kinds land as one-file diffs.
@@ -40,6 +45,7 @@ const (
 // generateTaskId so transcripts and test fixtures read consistently.
 var idPrefix = map[DaemonKind]rune{
 	KindLocalBash:         'b',
+	KindSandboxedBash:     'x',
 	KindLocalAgent:        'a',
 	KindMonitor:           'm',
 	KindLSP:               'l',

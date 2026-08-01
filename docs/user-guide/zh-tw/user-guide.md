@@ -22,6 +22,7 @@
   - [核准提示](#核准提示)
   - [權限規則](#權限規則)
   - [密鑰遮蔽 — 什麼可以「離開」](#密鑰遮蔽secret-redaction-什麼可以離開)
+  - [沙箱化執行 — 指令在**哪裡**執行](#沙箱化執行sandboxed-execution-指令在哪裡執行)
 - [7. 子代理與人格](#7-子代理與人格)
   - [動態工作流（選用）](#動態工作流選用-由引擎執行的任務圖)
 - [8. Hooks 鉤子](#8-hooks-鉤子)
@@ -744,6 +745,45 @@ redaction_disable:            # 要完全關閉的規則 id
 
 `redaction_allow` 與 `redaction_disable` 僅能透過 YAML 設定（`/config` 只提供開關）。錯誤的正規表示式或不存在的規則 id 會在啟動時直接失敗，而不會靜默地停用某條規則——錯誤訊息會列出有效的 id。
 
+### 沙箱化執行（Sandboxed Execution）— 指令在**哪裡**執行
+
+權限決定什麼可以執行，遮蔽決定什麼可以離開，沙箱則決定**在哪裡執行**。這是第三條軸線，同樣無法取代前兩者：一個已核准的 `bash` 呼叫仍然是已核准的呼叫——沙箱只改變它是跑在你的機器上，還是跑在容器裡。
+
+預設情況下，每個 `bash` 呼叫（主代理、子代理、swarm 成員）都是直接在主機上的子行程。它有逾時與 kill-tree，但沒有檔案系統隔離、也沒有網路邊界；`cd /` 是可行的，`curl | sh` 會真的裝到你的機器上。
+
+啟用容器執行環境之後，子代理就能改用 `isolation: "sandbox"` 生成：
+
+```yaml
+sandbox_runtime: docker       # ""（關閉，預設）| docker | podman
+sandbox_image: alpine:3.20    # 選填；否則讀 .devcontainer/devcontainer.json
+sandbox_network: allow        # allow（預設）| none
+```
+
+**你會得到什麼。** 沙箱工作階段就是 worktree 工作階段**再加上**一個把該 worktree 掛載到 `/workspace` 的容器。編輯仍然落在主機上（`edit`/`write` 工具完全不變，所以你可以照常查看結果），但 shell 指令跑在容器裡。你檔案系統的其餘部分（`~/.ssh`、旁邊的其他 repo、worktree 以上的一切）根本不存在於容器中；搭配 `sandbox_network: none` 則完全沒有網路。
+
+**你不會得到什麼。** worktree 本身在容器內可完整讀寫——這是刻意的，因為代理需要看到自己的建置產物。沙箱保護的是**主機不受這個工作階段影響**；worktree 隔離保護的是**repo 的其餘部分不受這個工作階段影響**。兩者互補，而 `"sandbox"` 會同時開啟。
+
+**映像選擇**沿用你多半已經有的慣例：若 repo 內有 `.devcontainer/devcontainer.json`，就使用其中的 `image`；否則請設定 `sandbox_image`。兩者皆無時，沙箱生成會**明確失敗**——evva 絕不會靜默退回成不沙箱執行，因為那等於在你剛要求隔離的當下把隔離拿掉。（若 devcontainer 只用 Dockerfile 建置而未指定 image，此層級不處理，請將 `sandbox_image` 指向已建好的映像。）
+
+每個工作階段只啟動一個容器並重複使用，因此容器啟動成本只付一次，而不是每次呼叫都付。首次執行可能還要拉取映像。工作階段結束時（無論成功或中止）容器都會被移除。
+
+在 swarm 中，沙箱是**manifest 層級**的決定而非單次呼叫的參數——一個 worker 的信任層級屬於 roster 的一部分，而且會被 `member_spawn` 產生的臨時 clone 正確繼承：
+
+```yaml
+settings:
+  sandbox: true         # 所有 worker 預設進沙箱
+workers:
+  - agent: coder        # 繼承 settings.sandbox
+  - agent: docs-writer
+    sandbox: "off"      # 這個留在主機上
+```
+
+Leader 一律豁免：沙箱蘊含 worktree，而 leader 必須待在 base checkout 上才能合併其他成員的分支。
+
+`worktree_list` 會標示哪些 worktree 由容器支撐，`list_members` 會標示哪些成員在沙箱中，因此不必翻設定就能看見這條邊界。
+
+> **命名說明。** `bash` 工具有一個舊參數 `dangerouslyDisableSandbox`。它是被接受但無作用的空操作，且指的是**權限閘門**而非本功能——evva 早期的用語把「sandbox」用在核准層。兩者是不相干的軸線。
+
 ---
 
 ## 7. 子代理與人格
@@ -1087,6 +1127,12 @@ permission_mode: default     # default | accept_edits | plan | bypass
 redaction: true              # false = 工具結果逐位元組原樣傳遞
 redaction_allow: []          # 正規表示式；匹配到的值永不遮蔽
 redaction_disable: []        # 要關閉的規則 id（例如 "high-entropy"）
+
+# 沙箱化執行 — 見 §6「沙箱化執行」。選擇加入：runtime 留空表示每個 bash
+# 呼叫都照舊直接在主機上執行。
+sandbox_runtime: ""          # ""（關閉）| docker | podman
+sandbox_image: ""            # 留空 = 讀 .devcontainer/devcontainer.json；兩者皆無則拒絕沙箱化
+sandbox_network: allow       # allow | none（容器內沒有網路）
 
 # Web tooling
 fetch_max_bytes: 100000

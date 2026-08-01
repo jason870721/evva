@@ -1,10 +1,19 @@
 # PRD — Sandboxed Execution (OS-level isolation for bash + fan-out) — Implementation Plan
 
 > **Audience:** senior engineers implementing this phase.
-> **Status:** proposed.
-> **Target release:** TBD — wave-sized minor (`v1.11+` candidate). Per the
-> checkpoint-rewind precedent, the CLAUDE.md wave → minor row is added only
-> when the operator confirms the wave.
+> **Status:** ✅ **BUILT** — SBX-1..7 implemented 2026-08-01 on
+> `feature/sandbox-isolation`. The audit pass required by the concept → build
+> gate ([../long-range.md](../long-range.md) §1 step 2) was run at
+> `dev@7ae8d7a` (v1.14.0); the six corrections it produced are recorded below
+> and the body of this document is left as written so the delta stays legible.
+> **Target release:** claims **v1.15** — W3's second half, landing four
+> minors after its tentative slot because W3/v1.13 went to MCP server mode
+> and SEC took v1.14.
+> **Unblocked 2026-08-01.** This wave sat blocked, not merely unstarted:
+> `secret-redaction.md`'s header and `overview.md` §5 both recorded that its
+> acceptance criteria (§8) need a working `docker`/`podman` and the build
+> machine had none. Docker **28.1.1** is now installed and verified running
+> containers, so §8 is reachable and the wave was picked up.
 > **Roadmap source:** 2026-07-06 web research pass — OS-level agent
 > sandboxing (microVMs, gVisor, containers) is one of the defining 2026
 > agentic-coding trends (Codex "bets on cloud sandboxing"; E2B, Modal,
@@ -12,11 +21,74 @@
 > the last ~18 months). evva runs `bash` directly on the host with zero OS
 > isolation today.
 > **Evaluation provenance:** live-source audit at `dev@ef84887`
-> (v1.10.0-beta.1), 2026-07-06. All file:line references verified against
-> that commit.
+> (v1.10.0-beta.1), 2026-07-06; **re-audited at `dev@7ae8d7a` (v1.14.0),
+> 2026-08-01** — see the corrections below.
 > **Reference source:** none — no `ref/src` analogue (Claude Code's own
 > sandboxing is a hosted-product concern outside the ported surface).
 > Evva-native, motivated by the external sandboxing ecosystem, not a port.
+>
+> ### Audit-pass corrections
+>
+> 1. **§3.4 is materially obsolete — SWT already closed the filesystem
+>    half.** The PRD's highest-leverage claim was that swarm clones are "the
+>    single least-supervised `bash`-capable code path", because
+>    `constructMember` "never reassigns `WorkDir`". SWT-1..8 (v1.12, shipped
+>    after this PRD was drafted) changed exactly that:
+>    `internal/swarm/space.go:454` now sets `acfg.WorkDir =
+>    memberWorktree(sess, sp.Workdir)` whenever
+>    `agentdef.ResolveWorktree(sp.settings.WorktreeIsolation, ld.Worktree)`
+>    is true, plus `acfg.SessionWorkdir = sp.Workdir` for root-state pinning
+>    (D7). And `CloneMember` copies the base's whole `Loaded`
+>    (`internal/swarm/spawn.go:59`) including `Worktree`, so an ephemeral
+>    clone **inherits its base's isolation stance and gets its own worktree +
+>    branch**. What survives of §3.4: `member_spawn`'s schema still has no
+>    isolation knob (`from`/`count`/`retire` only), and there is still zero
+>    **process/network** isolation anywhere. The gap is real; it is just
+>    one axis narrower than the PRD describes.
+> 2. **Therefore §4.4 / SBX-5's shape is wrong.** Adding an `isolation` enum
+>    to `member_spawn`'s tool schema would fork the vocabulary a minor after
+>    SWT established the idiom: space-wide `Settings.WorktreeIsolation` +
+>    per-member `Member.Worktree` override, resolved through
+>    `agentdef.ResolveWorktree` (`manifest.go:162-167`). Sandboxing follows
+>    that same shape — `Settings.Sandbox` + `Member.Sandbox` +
+>    `ResolveSandbox` — because clone-inherits-base-definition is precisely
+>    the right inheritance semantics for "this worker is untrusted".
+>    **SBX-5 ships as a manifest/settings field, not a spawn-tool parameter.**
+> 3. **§4.1 got cheaper.** "Sandbox = worktree + bind-mounted container" no
+>    longer needs to build the worktree half for the swarm — SWT provisions
+>    `mode.WorktreeSession` per member already, carrying `Path`/`Branch`/
+>    `RepoRoot`. The container is a strict addition on top of an existing
+>    session object.
+> 4. **§4.1/§4.2 miss a path-mapping requirement.** The design bind-mounts
+>    the worktree at `/workspace` and assumes `cmd.Dir` handles the rest, but
+>    `cmd.Dir` is a **host** path and means nothing to `docker exec`. Where a
+>    workdir is nested inside the mounted root — exactly what SWT's
+>    `memberWorktree(sess, sp.Workdir)` produces for a space nested in a
+>    larger repo — the host path must be mapped onto its guest equivalent and
+>    passed as `docker exec -w`. Implemented as `Container.GuestPath`.
+> 5. **§3.1 verified unchanged, so §4.2's minimal diff applies verbatim.**
+>    Four minors on, every reference still lands: `exec.CommandContext` at
+>    `bash.go:170`, `cmd.Dir` at `:171`, timeouts `:37-39`, `proc.Group`
+>    `:182`, `KillTree` `:186-189`, `WaitDelay` `:193`, and the no-op
+>    `dangerouslyDisableSandbox` at `:91,109,145-147`.
+> 6. **§3.6 undercounts the work.** `daemon.Kind` did gain members since
+>    (`KindLocalWorkflow`, `KindDream`), and a new kind must also register a
+>    rune in the `idPrefix` map (`pkg/tools/daemon/kind.go:41-49`) — not just
+>    the const block. §3.7's greenfield claim otherwise holds: every
+>    docker/podman hit in `pkg`+`internal` is a comment or a test, with one
+>    reusable precedent — `pkg/mcp/config.go:192-195` already identifies
+>    container runtimes by command basename to warn about `--rm`-less MCP
+>    servers.
+>
+> **Line drift** (informational, four minors' worth): `SetWorktreeController(a)`
+> `agent.go:568` → `:637`; `resolveWorktreeController` `:65-70` → `:71-76`;
+> `WorktreeControllerLookup` `:38` → `:34-38`; the `WorktreeSession` struct now
+> lives in `worktree_controller.go:46-69` and gained `RepoRoot` (SWT);
+> `spawn.go`'s `req.Isolation == "worktree"` `:62` → `:83` and `cfgClone`
+> `:67-69` → `:88-90`; `ToolState.Workdir()` `:371-376` → `:458-463`;
+> `SetWorktreeController` `toolset.go:229-239` → `:283-287`; `NewBashWithHost`
+> `builtins.go:72` → `:78`; worktree provisioning split out into
+> `internal/tools/mode/worktree_core.go`.
 
 ---
 
