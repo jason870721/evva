@@ -137,6 +137,16 @@ func (a *App) Attach(c ui.Controller) {
 	a.status.SetAgentName(strings.ToUpper(c.ProfileName()))
 	a.status.SetPermissionMode(c.PermissionModeName())
 	a.status.SetContext(0, status.ContextLimitFor(c.Model()))
+	// A host may attach an agent that already carries a conversation —
+	// `evva resume <id>` thaws before the UI starts. Render it, so the
+	// first frame IS the session the operator asked for instead of an
+	// empty screen that silently holds their history.
+	if msgs := c.Messages(); len(msgs) > 0 {
+		a.transcript.LoadFromMessages(msgs)
+		a.status.SetUsage(c.Usage())
+		a.status.SetContext(c.LastTurnInputTokens(), status.ContextLimitFor(c.Model()))
+		a.state.SetHint("resumed session " + c.AgentID() + " · type a prompt to continue")
+	}
 	a.view.MarkDirty()
 	a.relayout()
 }
@@ -776,6 +786,29 @@ func (a *App) slashVisible() bool {
 func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.ForAgent)
 
+	// /title carries an argument, so it cannot ride the exact-match switch
+	// below. Bare "/title" clears the name and restores the prompt preview
+	// the picker showed before anyone named the session.
+	if text == "/title" || strings.HasPrefix(text, "/title ") {
+		a.input.Reset()
+		a.slash.Reset()
+		if a.controller == nil {
+			a.state.SetHint("no controller attached")
+			a.view.MarkDirty()
+			return a, nil
+		}
+		title := strings.TrimSpace(strings.TrimPrefix(text, "/title"))
+		if err := a.controller.SetSessionTitle("", title); err != nil {
+			a.state.SetHint("title: " + err.Error())
+		} else if title == "" {
+			a.state.SetHint("session title cleared")
+		} else {
+			a.state.SetHint("session titled “" + title + "”")
+		}
+		a.view.MarkDirty()
+		return a, nil
+	}
+
 	switch text {
 	case "/exit", "/quit", "exit":
 		a.input.Reset()
@@ -906,6 +939,31 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 		} else {
 			a.state.SetHint("no controller attached")
 		}
+		return a, nil
+	case "/fork":
+		a.input.Reset()
+		a.slash.Reset()
+		if a.controller == nil {
+			a.state.SetHint("no controller attached")
+			a.view.MarkDirty()
+			return a, nil
+		}
+		// The transcript does not change — the conversation continues, it
+		// just continues under a new name. Only the session id in the HUD
+		// moves, which is exactly what happened.
+		id, err := a.controller.ForkSession()
+		if err != nil {
+			a.state.SetHint("fork: " + err.Error())
+			a.view.MarkDirty()
+			return a, nil
+		}
+		a.status.SetAgentID(id)
+		short := id
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		a.state.SetHint("forked into session " + short + " · the original stays in /resume")
+		a.view.MarkDirty()
 		return a, nil
 	case "/rewind":
 		a.input.Reset()

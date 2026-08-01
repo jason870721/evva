@@ -44,10 +44,10 @@ func TestResetPersonaSessions(t *testing.T) {
 
 	save := func(id, persona string) {
 		t.Helper()
-		err := session.Save(appHome, &session.Snapshot{
+		err := session.Save(appHome, &session.Snapshot{Meta: session.Meta{
 			Version: session.SnapshotVersion, SessionID: id,
 			Workdir: workdir, WorkdirSlug: slug, Profile: persona,
-		})
+		}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -64,7 +64,7 @@ func TestResetPersonaSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Snapshot.Profile != "bob" {
+	if len(entries) != 1 || entries[0].Profile != "bob" {
 		t.Errorf("after persona reset: want only bob's snapshot, got %d entries", len(entries))
 	}
 

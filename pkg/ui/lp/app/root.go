@@ -489,6 +489,28 @@ func (a *App) slashVisible() bool {
 func (a *App) handleSubmit(m SubmitMsg) (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.ForAgent)
 
+	// /title carries an argument, so it cannot ride the exact-match switch.
+	// Bare "/title" clears the name.
+	if text == "/title" || strings.HasPrefix(text, "/title ") {
+		a.input.Reset()
+		a.slash.Reset()
+		if a.controller == nil {
+			a.state.SetHint("no controller attached")
+			a.view.MarkDirty()
+			return a, nil
+		}
+		title := strings.TrimSpace(strings.TrimPrefix(text, "/title"))
+		if err := a.controller.SetSessionTitle("", title); err != nil {
+			a.state.SetHint("title: " + err.Error())
+		} else if title == "" {
+			a.state.SetHint("session title cleared")
+		} else {
+			a.state.SetHint("session titled “" + title + "”")
+		}
+		a.view.MarkDirty()
+		return a, nil
+	}
+
 	switch text {
 	case "/exit", "/quit", "exit":
 		a.input.Reset()
@@ -530,6 +552,26 @@ func (a *App) handleSubmit(m SubmitMsg) (tea.Model, tea.Cmd) {
 		return a.openOverlay(overlays.NewEffort(a.controller))
 	case "/resume":
 		return a.openOverlay(overlays.NewResume(a.controller))
+	case "/fork":
+		a.input.Reset()
+		a.slash.Reset()
+		if a.controller == nil {
+			a.state.SetHint("no controller attached")
+			a.view.MarkDirty()
+			return a, nil
+		}
+		id, err := a.controller.ForkSession()
+		if err != nil {
+			a.state.SetHint("fork: " + err.Error())
+		} else {
+			short := id
+			if len(short) > 8 {
+				short = short[:8]
+			}
+			a.state.SetHint("forked into session " + short + " · the original stays in /resume")
+		}
+		a.view.MarkDirty()
+		return a, nil
 	case "/update":
 		a.input.Reset()
 		a.slash.Reset()

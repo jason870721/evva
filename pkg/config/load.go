@@ -362,6 +362,8 @@ func Load(opts LoadOptions) (*Config, error) {
 		PruneKeepResults:        fileCfg.PruneKeepResults,
 		EmbeddingProvider:       embeddingProvider,
 		EmbeddingModel:          fileCfg.EmbeddingModel,
+		SessionRetentionDays:    fileCfg.SessionRetentionDays,
+		SessionRetentionMax:     fileCfg.SessionRetentionMax,
 		SandboxRuntime:          sandboxRuntime,
 		SandboxImage:            strings.TrimSpace(fileCfg.SandboxImage),
 		SandboxNetwork:          sandboxNetwork,

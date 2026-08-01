@@ -14,7 +14,15 @@ import (
 // ResetSpace / ClearMemberSession / restart-resume — which all resolve from
 // the root — keep finding its sessions). One helper so persist, list, and
 // resume can never disagree about where a transcript lives.
+// A resumed session outranks both: it keeps writing to the slug it was
+// created under, so resuming yesterday's session from a sibling directory
+// updates that session instead of forking a second copy of it under a new
+// slug. Cleared by ClearSession, which is how a new conversation gets the
+// current workdir's slug back.
 func (a *Agent) sessionSlug() string {
+	if a.sessionMeta.WorkdirSlug != "" {
+		return a.sessionMeta.WorkdirSlug
+	}
 	dir := a.workdir
 	if a.cfg != nil && a.cfg.SessionWorkdir != "" {
 		dir = a.cfg.SessionWorkdir
@@ -53,19 +61,18 @@ func (a *Agent) persistSession() {
 		return
 	}
 	now := time.Now().UTC()
-	snap := &session.Snapshot{
-		Version:         session.SnapshotVersion,
-		SessionID:       a.ID,
-		Workdir:         a.workdir,
-		WorkdirSlug:     slug,
-		Profile:         a.activePersona,
-		Provider:        a.profile.LLMProvider.Name,
-		Model:           string(a.profile.LLMModel),
-		CreatedAt:       a.sessionCreatedAt,
-		UpdatedAt:       now,
-		FirstUserPrompt: session.FirstUserPromptPreview(a.session.GetMessages()),
-		Session:         a.session.ToSnapshot(),
-	}
+	meta := a.sessionMeta
+	meta.Version = session.SnapshotVersion
+	meta.SessionID = a.ID
+	meta.Workdir = a.workdir
+	meta.WorkdirSlug = slug
+	meta.Profile = a.activePersona
+	meta.Provider = a.profile.LLMProvider.Name
+	meta.Model = string(a.profile.LLMModel)
+	meta.CreatedAt = a.sessionCreatedAt
+	meta.UpdatedAt = now
+	meta.FirstUserPrompt = session.FirstUserPromptPreview(a.session.GetMessages())
+	snap := &session.Snapshot{Meta: meta, Session: a.session.ToSnapshot()}
 	if snap.CreatedAt.IsZero() {
 		snap.CreatedAt = now
 		a.sessionCreatedAt = now

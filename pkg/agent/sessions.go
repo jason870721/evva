@@ -46,10 +46,10 @@ func ResetPersonaSessions(appHome, workdir, persona string) error {
 	}
 	var firstErr error
 	for _, e := range entries {
-		if e.Snapshot.Profile != persona {
+		if e.Profile != persona {
 			continue
 		}
-		if err := session.Delete(appHome, slug, e.Snapshot.SessionID); err != nil && firstErr == nil {
+		if err := session.Delete(appHome, slug, e.SessionID); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

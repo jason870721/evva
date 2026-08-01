@@ -9,7 +9,11 @@
   - [/profile — Switch Persona](#profile--switch-persona)
   - [/output-style — Communication Style](#output-style--communication-style)
   - [/effort — Thinking Effort](#effort--thinking-effort)
-  - [/resume — Resume a Previous Session](#resume--resume-a-previous-session)
+  - [/resume — Browse, Resume, and Curate Sessions](#resume--browse-resume-and-curate-sessions)
+  - [/title — Name the Current Session](#title--name-the-current-session)
+  - [/fork — Branch the Conversation](#fork--branch-the-conversation)
+  - [Sessions from the command line](#sessions-from-the-command-line)
+  - [evva export — a transcript you can send someone](#evva-export--a-transcript-you-can-send-someone)
   - [/rewind — Time-Travel Undo](#rewind--time-travel-undo)
   - [/context and /compact — the context ladder](#context-and-compact--the-context-ladder)
   - [Bundled skills](#bundled-skills)
@@ -99,7 +103,9 @@ Available commands:
 | `/effort` | set thinking effort (low / medium / high / ultra) |
 | `/compact` | compact the transcript — pick a rung of the context ladder |
 | `/context` | where the prompt's weight sits — pin blocks to protect them |
-| `/resume` | resume a previous session from this workdir |
+| `/resume` | browse past sessions — resume, pin, or delete |
+| `/fork` | branch this session; the original stays resumable |
+| `/title` | name this session so `/resume` shows it by name |
 | `/rewind` | undo a prior turn — restore code, conversation, or both |
 | `/redactions` | secrets masked out of tool results this session — press `r` to reveal |
 | `/clear` | start a new session — fresh history/usage/todos; the old session stays in `/resume` |
@@ -316,28 +322,29 @@ Adjusts the model's reasoning depth. Four tiers:
 
 Each provider maps these onto its own knob — Anthropic effort levels, DeepSeek thinking on/off + tier, OpenAI reasoning effort, GLM's two thinking-effort tiers (low/medium → High, high/ultra → Max), etc. Providers with only a coarse on/off switch map `low` → off and the rest → on. The chosen tier persists as `default_effort` and is shown in the status bar (`▸ model · ⚡high`).
 
-### /resume — Resume a Previous Session
+### /resume — Browse, Resume, and Curate Sessions
 
-Reload a previous session from this workdir. Every iteration's state is persisted to `~/.evva/sessions/<workdir-slug>/<session-id>.json`, so closing the TUI and reopening it doesn't lose work — `/resume` brings the conversation back exactly where you left it.
+Every iteration's state is persisted to `~/.evva/sessions/<workdir-slug>/<session-id>.json`, so closing the TUI and reopening it doesn't lose work — `/resume` brings a conversation back exactly where you left it, and is also where you name, pin, and delete the ones you accumulate.
 
-The picker lists the 10 most-recently-touched sessions per page, sorted by last-write time descending. Each row shows the first user prompt of that session as a one-line preview plus the persona, message count, and model:
+The picker lists 10 sessions per page, newest first. Each row shows the session's **label** — its title if you gave it one, otherwise the first user prompt — plus the persona, message count, and model:
 
 ```
 ┌─ /RESUME ────────────────────────────────────────────────────┐
-│ Reload a previous session — same workdir only, most recent   │
-│ first. Resuming clears the live transcript and replaces it   │
-│ with the saved one.                                          │
+│ Reload a previous session — this workdir, most recent first. │
+│ Resuming clears the live transcript and replaces it with the │
+│ saved one.                                                   │
 │                                                              │
-│ ▶ wire up the /resume slash command and overlay              │
+│ ▶📌the parser port                                           │
 │     5m ago · evva · 42 msgs · claude-opus-4-8                │
-│   port the typed-memory directory + relevance recall         │
-│     2h ago · evva · 87 msgs · claude-opus-4-8                │
+│     ⑂ trying the streaming approach                          │
+│       2m ago · evva · 44 msgs · claude-opus-4-8              │
 │   verify the multi-platform release workflow                 │
 │     1d ago · evva · 18 msgs · deepseek-v4-pro                │
 │   …                                                          │
 │                                                              │
 │ page 1 / 3                                                   │
-│ [↑↓] cursor · [←→] page · [Enter] resume · [Esc] cancel      │
+│ [↑↓] cursor · [←→] page · [Enter] resume · [p] pin ·         │
+│ [d] delete · [a] all · [Esc] cancel                          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -346,7 +353,12 @@ The picker lists the 10 most-recently-touched sessions per page, sorted by last-
 | `↑` / `↓` | move the cursor within the current page |
 | `←` / `→` | flip to the previous / next page (10 entries per page) |
 | `Enter` | resume the highlighted session |
+| `p` | pin / unpin — a pinned session (`📌`) is never removed by `evva sessions prune` |
+| `d` | delete — press twice on the same row to confirm; any other key disarms it |
+| `a` | widen the list to every workdir on the machine, and back |
 | `Esc` | cancel |
+
+A **fork** (`⑂`) renders indented under the session it branched from. If its parent isn't in the current view — pruned, or in another workdir while the list is scoped to this one — it renders as a top-level row rather than disappearing.
 
 **What gets restored:**
 
@@ -354,8 +366,9 @@ The picker lists the 10 most-recently-touched sessions per page, sorted by last-
 - The persona, provider, and model the session was running under. If any of those are no longer available (you deleted the persona, swapped to a build without that model) the resume falls back to `evva` / your current default and logs a warning.
 - The session-id — subsequent saves overwrite the same file rather than creating a new one, so a resumed session keeps a single entry in the picker.
 - The cumulative usage and context bar in the status pill.
+- **The working directory**, if you resumed a session from another project. A conversation that talks about files evva can't reach is worse than a directory change you asked for. A session whose directory no longer exists resumes in place with a warning.
 
-**Scope:** sessions are scoped to the workdir they were started from. Running `evva` in a different directory shows that directory's sessions; the global pool lives under `~/.evva/sessions/` organised by workdir slug (e.g. `-Users-alice-lab-myrepo`).
+**Scope:** sessions live under `~/.evva/sessions/` organised by workdir slug (e.g. `-Users-alice-lab-myrepo`). The picker opens scoped to the current directory; `a` shows everything. A resumed session keeps writing to the slug it was created under, so resuming from a sibling directory updates that session rather than making a second copy of it.
 
 **Save cadence:** the file is rewritten after every loop iteration (i.e. after each tool round-trip) so a crashed evva loses at most one in-flight LLM call's worth of work.
 
@@ -364,6 +377,80 @@ The picker lists the 10 most-recently-touched sessions per page, sorted by last-
 **Subagents:** only the root agent's session is persisted. Subagents spawned via the Agent tool are ephemeral by design and never appear in `/resume`.
 
 Resuming is refused if a run is in flight; press Esc first to cancel, then `/resume` again.
+
+### /title — Name the Current Session
+
+```
+/title the parser port
+```
+
+The picker shows a session's first user prompt by default, which is fine for "fix the flaky test" and useless for the session you'll come back to in three weeks. `/title` names it; the name shows up in `/resume` and in `evva sessions list`. Bare `/title` clears the name and restores the prompt preview.
+
+### /fork — Branch the Conversation
+
+```
+/fork
+```
+
+Forking splits the current conversation in two. Everything so far is copied into a **new session**; you keep going in the child, and the parent stays on disk exactly as it was at the branch point, listed in `/resume` under its own name.
+
+Use it before an experiment you might want to abandon: try the risky refactor in the fork, and if it goes wrong, resume the parent instead of unpicking it.
+
+- The transcript doesn't change — the conversation continues, it just continues under a new id. Only the session id in the status bar moves.
+- **A fork starts with no checkpoints,** so `/rewind` inside it cannot reach past the fork point. That isn't a rule evva enforces; checkpoints are stored per session id, and the child's id is new.
+- A fork inherits the parent's persona, provider, and model — but not its title or its pin. A branch is an experiment until you say otherwise.
+- `evva resume <id> -fork` does the same thing from the shell without opening the parent first.
+
+### Sessions from the command line
+
+Inside evva, `/resume` reaches every past conversation. These are the ways in from a fresh terminal.
+
+```bash
+evva resume                    # numbered picker, this directory
+evva resume -all               # ...every directory on the machine
+evva resume 4cafec5d           # by id — any unique prefix works
+evva resume -fork 4cafec5d     # branch it first; the original is untouched
+evva -c                        # reopen the newest session here, no prompt
+evva --continue                # the long form
+
+evva sessions list             # what's here
+evva sessions list -all        # what's on the machine
+evva sessions prune -keep 20   # what a prune WOULD delete (dry run)
+evva sessions prune -keep 20 -apply
+evva sessions prune -days 90 -all -apply
+
+evva export 4cafec5d                     # → evva-4cafec5d.html
+evva export 4cafec5d -o review.html -full
+```
+
+**Ids are UUIDs, and any unique prefix works.** The first 8 characters are what the listings print and are almost always enough; an ambiguous prefix tells you what it matched instead of guessing.
+
+**`-c` never errors on an empty directory.** If there's nothing to resume it says so and starts a fresh session.
+
+**Pruning is a dry run by default.** `evva sessions prune` prints exactly which sessions it would delete and stops; `-apply` is required to actually remove them. **Pinned sessions are exempt**, and they don't consume a `-keep` slot — pinning three sessions under `-keep 10` leaves ten unpinned ones alive, not seven. `-keep` counts per workdir, so a busy project can't evict a quiet one's history.
+
+Nothing prunes automatically. Checkpoints do self-prune, because a checkpoint is a before-image evva made on your behalf; a transcript is your own writing. If you want caps without passing flags every time, set them in `~/.evva/config/evva-config.yml`:
+
+```yaml
+session_retention_days: 90   # 0 = no age limit (the default)
+session_retention_max: 20    # per workdir; 0 = no count limit (the default)
+```
+
+`evva sessions prune -apply` then uses those.
+
+### evva export — a transcript you can send someone
+
+```bash
+evva export 4cafec5d -o review.html
+```
+
+Writes the whole session as **one self-contained HTML file**: inline CSS, no scripts, no fonts or images fetched from anywhere. It opens with the network off, and it follows the reader's light/dark preference. Tool calls and results are collapsed behind disclosure triangles, failed calls are marked, and token usage is footnoted.
+
+**Secrets are scrubbed unconditionally** — including when you have `redaction: false` set for your own terminal. Export is the moment a transcript stops being local, and turning masking off for yourself says nothing about what you want leaving the machine. The footer reports how many values were masked. There is no flag to skip it.
+
+The **system prompt is omitted**: it isn't part of the conversation, and it would put a persona's full instructions into a file you're about to send someone.
+
+By default tool results are truncated at 2 KB with a note saying how much was cut — enough to follow the reasoning without turning a long session into a data dump. `-full` keeps everything, for archives.
 
 ### /rewind — Time-Travel Undo
 

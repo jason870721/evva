@@ -204,13 +204,10 @@ func evalList(args []string) {
 			return
 		}
 		for _, e := range entries {
-			if e.Snapshot == nil {
-				continue
-			}
 			fmt.Printf("%-38s %s  %s\n",
-				e.Snapshot.SessionID,
-				e.Snapshot.UpdatedAt.Format("2006-01-02 15:04"),
-				truncateLine(e.Snapshot.FirstUserPrompt, 60))
+				e.SessionID,
+				e.UpdatedAt.Format("2006-01-02 15:04"),
+				truncateLine(e.Label(), 60))
 		}
 		return
 	}
@@ -248,10 +245,14 @@ func promptFor(label string) string {
 	return strings.TrimSpace(line)
 }
 
+// truncateLine cuts to n RUNES, not bytes. Byte slicing splits multi-byte
+// characters and prints a replacement glyph — which is what the session
+// listings did to every CJK prompt before this.
 func truncateLine(s string, n int) string {
 	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return string(r[:n]) + "…"
 }

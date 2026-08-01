@@ -29,10 +29,10 @@ func TestClearMemberSession_IdleMember(t *testing.T) {
 	// a roster token snapshot, and today's budget spend.
 	slug := memdir.ProjectKey(sp.Workdir)
 	for id, persona := range map[string]string{"s-w": "w", "s-peer": "peer"} {
-		err := session.Save(appHome, &session.Snapshot{
+		err := session.Save(appHome, &session.Snapshot{Meta: session.Meta{
 			Version: session.SnapshotVersion, SessionID: id,
 			Workdir: sp.Workdir, WorkdirSlug: slug, Profile: persona,
-		})
+		}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -53,7 +53,7 @@ func TestClearMemberSession_IdleMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Snapshot.Profile != "peer" {
+	if len(entries) != 1 || entries[0].Profile != "peer" {
 		t.Errorf("snapshots after clear: want only peer's, got %d entries", len(entries))
 	}
 

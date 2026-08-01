@@ -60,7 +60,12 @@ func (publicOnlyController) RespondPermission(string, ui.PermissionDecision) err
 func (publicOnlyController) RespondQuestion(string, ui.QuestionResponse) error     { return nil }
 func (publicOnlyController) ClearSession() error                                   { return nil }
 func (publicOnlyController) ListSessions() ([]ui.SessionInfo, []string)            { return nil, nil }
+func (publicOnlyController) ListAllSessions() ([]ui.SessionInfo, []string)         { return nil, nil }
 func (publicOnlyController) ResumeSession(string) error                            { return nil }
+func (publicOnlyController) ForkSession() (string, error)                          { return "", nil }
+func (publicOnlyController) SetSessionTitle(string, string) error                  { return nil }
+func (publicOnlyController) PinSession(string, bool) error                         { return nil }
+func (publicOnlyController) DeleteSession(string) error                            { return nil }
 func (publicOnlyController) Checkpoints() []ui.CheckpointInfo                      { return nil }
 func (publicOnlyController) RestoreCheckpoint(string, string) (string, error)      { return "", nil }
 func (publicOnlyController) Redactions() []ui.RedactionInfo                        { return nil }

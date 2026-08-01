@@ -82,20 +82,54 @@ func main() {
 		case "eval":
 			runEval(os.Args[2:])
 			return
+		case "resume":
+			runResume(os.Args[2:])
+			return
+		case "sessions":
+			runSessions(os.Args[2:])
+			return
+		case "export":
+			runExport(os.Args[2:])
+			return
 		}
 	}
 
+	bootstrap(os.Args[1:], "")
+}
+
+// bootstrap is everything after subcommand dispatch: flags, the memory /
+// shell notices, and the TUI-or-headless fork.
+//
+// Extracted from main so `evva resume` can reach it with a session already
+// chosen. resumeID, when set, is thawed into the agent before the UI's
+// first frame — which is why it is a parameter here rather than a flag:
+// resume is a mode of starting evva, not an option on a run.
+func bootstrap(argv []string, resumeID string) {
 	_ = godotenv.Load()
 	cfg := config.Get()
 
-	temp := flag.Float64("temp", -1, "sampling temperature (-1 → leave unset)")
-	maxTokens := flag.Int("max-tokens", cfg.DefaultMaxTokens, "max output tokens (0 → provider default)")
-	maxIters := flag.Int("max-iters", cfg.DefaultMaxIterations, "max loop iterations before pausing for Continue")
-	noTUI := flag.Bool("no-tui", false, "disable the interactive TUI; read a prompt and run once with plain CLI output")
-	tuiName := flag.String("tui", "bubbletea", "interactive UI to use (available: "+strings.Join(ui.Names(), ", ")+")")
-	permModeFlag := flag.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
-	outputSchema := flag.String("output-schema", "", "headless only: path to a JSON-Schema file; the run's final answer is printed to stdout as JSON matching it (progress goes to stderr)")
-	flag.Parse()
+	fs := flag.NewFlagSet("evva", flag.ExitOnError)
+	temp := fs.Float64("temp", -1, "sampling temperature (-1 → leave unset)")
+	maxTokens := fs.Int("max-tokens", cfg.DefaultMaxTokens, "max output tokens (0 → provider default)")
+	maxIters := fs.Int("max-iters", cfg.DefaultMaxIterations, "max loop iterations before pausing for Continue")
+	noTUI := fs.Bool("no-tui", false, "disable the interactive TUI; read a prompt and run once with plain CLI output")
+	tuiName := fs.String("tui", "bubbletea", "interactive UI to use (available: "+strings.Join(ui.Names(), ", ")+")")
+	permModeFlag := fs.String("permission-mode", "", "permission stance: default|accept_edits|plan|bypass (overrides YAML)")
+	outputSchema := fs.String("output-schema", "", "headless only: path to a JSON-Schema file; the run's final answer is printed to stdout as JSON matching it (progress goes to stderr)")
+	cont := fs.Bool("continue", false, "resume the most recent session in this directory")
+	contShort := fs.Bool("c", false, "shorthand for -continue")
+	_ = fs.Parse(argv)
+
+	if resumeID == "" && (*cont || *contShort) {
+		id, err := mostRecentSession(cfg)
+		if err != nil {
+			exitf(1, "evva: -continue: %v", err)
+		}
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "evva: no saved session for this directory — starting a new one")
+		}
+		resumeID = id
+	}
 
 	// First-session notice for auto-memory: no MEMORY.md index yet. Quiet
 	// thereafter — once the index exists the user has seen it (or opted in by
@@ -142,10 +176,13 @@ func main() {
 		if *outputSchema != "" {
 			fmt.Fprintln(os.Stderr, "evva: --output-schema is headless-only; ignored in TUI mode (add -no-tui or pipe stdout)")
 		}
-		runTUI(ctx, acfg, cfg.AppHome, *tuiName)
+		runTUI(ctx, acfg, cfg.AppHome, *tuiName, resumeID)
 		return
 	}
-	runCLI(ctx, acfg, *outputSchema)
+	if resumeID != "" {
+		fmt.Fprintln(os.Stderr, "evva: resume is TUI-only; ignored in headless mode")
+	}
+	runCLI(ctx, acfg, *outputSchema, fs.Args())
 }
 
 // runTUI is the interactive path. The selected UI owns the screen; the
@@ -159,7 +196,7 @@ func main() {
 // With a sink installed the agent emits KindApprovalNeeded /
 // KindQuestionNeeded to the UI, which renders the overlay and resolves via
 // Controller.RespondPermission / RespondQuestion — no host broker wiring.
-func runTUI(ctx context.Context, acfg agent.Config, evvaHome, tuiName string) {
+func runTUI(ctx context.Context, acfg agent.Config, evvaHome, tuiName, resumeID string) {
 	factory, ok := ui.Lookup(tuiName)
 	if !ok {
 		exitf(2, "evva: unknown -tui %q (available: %s)", tuiName, strings.Join(ui.Names(), ", "))
@@ -174,6 +211,16 @@ func runTUI(ctx context.Context, acfg agent.Config, evvaHome, tuiName string) {
 		exitf(1, "evva: %v", err)
 	}
 	defer ag.Shutdown()
+	// Thaw BEFORE Attach: the UI renders whatever conversation the
+	// controller is holding when it first sees it, so resuming here means
+	// the first frame is the resumed session rather than an empty screen
+	// that flickers into one.
+	if resumeID != "" {
+		if err := ag.Controller().ResumeSession(resumeID); err != nil {
+			ag.Shutdown()
+			exitf(1, "evva: resume: %v", err)
+		}
+	}
 	tui.Attach(ag.Controller())
 	if err := tui.Run(ctx); err != nil {
 		// exitf calls os.Exit, which does NOT run the deferred Shutdown — so
@@ -195,13 +242,15 @@ func runTUI(ctx context.Context, acfg agent.Config, evvaHome, tuiName string) {
 // mode: the event trace moves to stderr so stdout carries exactly one
 // thing — the final JSON payload — and `evva -no-tui --output-schema s.json
 // -p "..." | jq .` just works.
-func runCLI(ctx context.Context, acfg agent.Config, schemaPath string) {
-	prompt, err := readPrompt(flag.Args())
+func runCLI(ctx context.Context, acfg agent.Config, schemaPath string, args []string) {
+	prompt, err := readPrompt(args)
 	if err != nil {
 		exitf(2, "evva: %v", err)
 	}
 	if prompt == "" {
-		exitf(2, "usage: evva [-temp 0.7] [-max-tokens N] [-max-iters N] [-no-tui] [-permission-mode default|accept_edits|plan|bypass] [-output-schema file.json] <prompt>")
+		exitf(2, "usage: evva [-c] [-temp 0.7] [-max-tokens N] [-max-iters N] [-no-tui] [-permission-mode default|accept_edits|plan|bypass] [-output-schema file.json] <prompt>\n"+
+			"       evva resume [-fork] [-all] [id]   ·  evva sessions [list|prune]  ·  evva export <id>\n"+
+			"       evva swarm | service | mcp-serve | eval | update")
 	}
 
 	var extraOpts []agent.Option

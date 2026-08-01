@@ -12,16 +12,18 @@ import (
 
 func newSnapshot(id, slug, prompt string) *Snapshot {
 	return &Snapshot{
-		Version:         SnapshotVersion,
-		SessionID:       id,
-		Workdir:         "/tmp/proj",
-		WorkdirSlug:     slug,
-		Profile:         "evva",
-		Provider:        "anthropic",
-		Model:           "claude-opus-4-8",
-		CreatedAt:       time.Now().UTC(),
-		UpdatedAt:       time.Now().UTC(),
-		FirstUserPrompt: prompt,
+		Meta: Meta{
+			Version:         SnapshotVersion,
+			SessionID:       id,
+			Workdir:         "/tmp/proj",
+			WorkdirSlug:     slug,
+			Profile:         "evva",
+			Provider:        "anthropic",
+			Model:           "claude-opus-4-8",
+			CreatedAt:       time.Now().UTC(),
+			UpdatedAt:       time.Now().UTC(),
+			FirstUserPrompt: prompt,
+		},
 		Session: SessionState{
 			Messages: []llm.Message{{Role: llm.RoleUser, Content: prompt}},
 		},
@@ -73,9 +75,9 @@ func TestListSortsMTimeDesc(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries; got %d", len(entries))
 	}
-	if entries[0].Snapshot.SessionID != "bbb" {
+	if entries[0].SessionID != "bbb" {
 		t.Errorf("expected newest first; got %q then %q",
-			entries[0].Snapshot.SessionID, entries[1].Snapshot.SessionID)
+			entries[0].SessionID, entries[1].SessionID)
 	}
 }
 
@@ -94,7 +96,7 @@ func TestListSkipsCorruptFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Snapshot.SessionID != "good" {
+	if len(entries) != 1 || entries[0].SessionID != "good" {
 		t.Errorf("good entry missing or polluted: %+v", entries)
 	}
 	if len(warnings) == 0 || !strings.Contains(warnings[0], "garbage.json") {
@@ -132,7 +134,7 @@ func TestSaveRejectsBadEnvelope(t *testing.T) {
 	if err := Save(home, nil); err == nil {
 		t.Error("Save(nil) should error")
 	}
-	if err := Save(home, &Snapshot{Version: SnapshotVersion}); err == nil {
+	if err := Save(home, &Snapshot{Meta: Meta{Version: SnapshotVersion}}); err == nil {
 		t.Error("Save with empty slug/id should error")
 	}
 }
