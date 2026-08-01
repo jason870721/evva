@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -141,8 +142,14 @@ func TestWriteMCPServeTokenIsPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Windows does not model unix permission bits.
-	if perm := info.Mode().Perm(); perm&0o077 != 0 && os.Getenv("GOOS") != "windows" {
+	// Windows does not model unix permission bits: a file created 0o600 there
+	// reports 0o666, so this assertion can only ever fail.
+	//
+	// The original guard read os.Getenv("GOOS"), but GOOS is a BUILD constant,
+	// not an environment variable — that lookup returns "" on every platform,
+	// so the exception never fired and this test failed on every Windows CI
+	// run since it landed.
+	if perm := info.Mode().Perm(); perm&0o077 != 0 && runtime.GOOS != "windows" {
 		t.Errorf("token file mode = %v, want no group/other access", perm)
 	}
 }

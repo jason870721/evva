@@ -13,7 +13,7 @@ import (
 //   - RecordTurn — folds u into cumulative AND sets lastTurnInputTokens
 //   - LastTurnInputTokens — reads the field
 //   - MicroCompact(msgs) — replaces Messages, flips microCompacted=true
-//   - IsMicroCompacted — reads the flag
+//   - IsSpanCompacted — reads the flag
 //   - FullCompact(msgs) — replaces Messages, resets microCompacted, increments fullCompactCount, clears lastTurnInputTokens
 //   - GetFullCompactCount — reads the counter
 
@@ -28,8 +28,8 @@ func TestNew_ReturnsZeroValuedSession(t *testing.T) {
 	if s.Usage.Total() != 0 {
 		t.Errorf("Usage.Total(): got %d, want 0", s.Usage.Total())
 	}
-	if s.IsMicroCompacted() {
-		t.Error("IsMicroCompacted: got true, want false on fresh session")
+	if s.IsSpanCompacted() {
+		t.Error("IsSpanCompacted: got true, want false on fresh session")
 	}
 	if s.LastTurnInputTokens() != 0 {
 		t.Errorf("LastTurnInputTokens: got %d, want 0", s.LastTurnInputTokens())
@@ -129,10 +129,10 @@ func TestMicroCompact_ReplacesMessagesAndFlipsFlag(t *testing.T) {
 		{Role: llm.RoleUser, Content: "after-1"},
 		{Role: llm.RoleUser, Content: "after-2"},
 	}
-	s.MicroCompact(replacement)
+	s.SpanCompact(replacement)
 
-	if !s.IsMicroCompacted() {
-		t.Error("IsMicroCompacted: got false after MicroCompact")
+	if !s.IsSpanCompacted() {
+		t.Error("IsSpanCompacted: got false after MicroCompact")
 	}
 	got := s.GetMessages()
 	if len(got) != 2 || got[0].Content != "after-1" || got[1].Content != "after-2" {
@@ -145,27 +145,27 @@ func TestMicroCompact_AcceptsEmptySlice(t *testing.T) {
 	// was elidable, somehow) shouldn't panic the session.
 	s := New()
 	s.Append(llm.Message{Role: llm.RoleUser, Content: "x"})
-	s.MicroCompact([]llm.Message{})
+	s.SpanCompact([]llm.Message{})
 	if len(s.GetMessages()) != 0 {
 		t.Errorf("expected empty messages, got %d", len(s.GetMessages()))
 	}
-	if !s.IsMicroCompacted() {
-		t.Error("IsMicroCompacted should still flip on empty replacement")
+	if !s.IsSpanCompacted() {
+		t.Error("IsSpanCompacted should still flip on empty replacement")
 	}
 }
 
 func TestFullCompact_ResetsMicroFlagAndSetsLastTurnToBrief(t *testing.T) {
 	s := New()
 	s.RecordTurn(llm.Usage{InputTokens: 1234})
-	s.MicroCompact([]llm.Message{{Role: llm.RoleUser, Content: "mid"}})
-	if !s.IsMicroCompacted() {
+	s.SpanCompact([]llm.Message{{Role: llm.RoleUser, Content: "mid"}})
+	if !s.IsSpanCompacted() {
 		t.Fatal("precondition: MicroCompact should have flipped flag")
 	}
 
 	brief := []llm.Message{{Role: llm.RoleUser, Content: "[BRIEF]"}}
 	s.FullCompact(brief, 250)
 
-	if s.IsMicroCompacted() {
+	if s.IsSpanCompacted() {
 		t.Error("FullCompact should reset microCompacted to false")
 	}
 	if got, want := s.GetFullCompactCount(), 1; got != want {

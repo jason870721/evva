@@ -84,6 +84,20 @@ type FileConfig struct {
 	RedactionAllow   []string `yaml:"redaction_allow,omitempty"`
 	RedactionDisable []string `yaml:"redaction_disable,omitempty"`
 
+	// Context ladder (CTX). Both rungs default TRUE — like redaction these
+	// are opt-OUT, because a session that quietly stays under budget is
+	// strictly better than one that hits full compaction and loses the
+	// transcript. Pointers so a missing key preserves the default.
+	//
+	// The three int tunables use zero-means-default (see PrunePolicy.
+	// normalized), so a partially-specified block can't accidentally
+	// configure a policy that prunes everything.
+	ContextPrune     *bool `yaml:"context_prune,omitempty"`
+	ContextSpan      *bool `yaml:"context_span,omitempty"`
+	PruneMinBytes    int   `yaml:"prune_min_bytes,omitempty"`
+	PruneKeepTurns   int   `yaml:"prune_keep_turns,omitempty"`
+	PruneKeepResults int   `yaml:"prune_keep_results,omitempty"`
+
 	// Sandboxed execution (SBX). All three are plain strings whose zero value
 	// IS the default, so omitempty round-trips correctly without the *bool
 	// dance the opt-in booleans above need. sandbox_runtime: "" = off,

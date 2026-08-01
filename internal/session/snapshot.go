@@ -50,6 +50,11 @@ type SessionState struct {
 	LastTurnInputTokens int           `json:"last_turn_input_tokens"`
 	MicroCompacted      bool          `json:"micro_compacted"`
 	FullCompactCount    int           `json:"full_compact_count"`
+	// Pins are tool-result IDs the operator exempted from the context
+	// ladder. Added in v1.17; absent in older snapshots, which decode to
+	// nil and rehydrate as "nothing pinned" — the pre-pin behavior. That
+	// is why this could be added without bumping SnapshotVersion.
+	Pins []string `json:"pins,omitempty"`
 }
 
 // ToSnapshot copies the live session into a JSON-friendly DTO. The
@@ -62,8 +67,9 @@ func (s *Session) ToSnapshot() SessionState {
 		Messages:            msgs,
 		Usage:               s.Usage,
 		LastTurnInputTokens: int(s.lastTurnInputTokens.Load()),
-		MicroCompacted:      s.microCompacted,
+		MicroCompacted:      s.spanCompacted,
 		FullCompactCount:    s.fullCompactCount,
+		Pins:                s.Pins(),
 	}
 }
 
@@ -78,6 +84,7 @@ func FromSnapshot(state SessionState) *Session {
 	s.SetUsage(state.Usage)
 	s.SetLastTurnInputTokens(state.LastTurnInputTokens)
 	s.SetCompactState(state.MicroCompacted, state.FullCompactCount)
+	s.SetPins(state.Pins)
 	return s
 }
 

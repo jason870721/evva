@@ -64,6 +64,8 @@ func (publicOnlyController) ResumeSession(string) error                         
 func (publicOnlyController) Checkpoints() []ui.CheckpointInfo                      { return nil }
 func (publicOnlyController) RestoreCheckpoint(string, string) (string, error)      { return "", nil }
 func (publicOnlyController) Redactions() []ui.RedactionInfo                        { return nil }
+func (publicOnlyController) ContextReport(int) ui.ContextReport                    { return ui.ContextReport{} }
+func (publicOnlyController) TogglePinnedBlock(string) bool                         { return false }
 
 // Compile-time proof that the public-only stub satisfies the contract.
 var _ ui.Controller = (*publicOnlyController)(nil)

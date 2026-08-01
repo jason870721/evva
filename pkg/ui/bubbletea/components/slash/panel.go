@@ -41,10 +41,11 @@ type Command struct {
 // /quit is a recognised submit alias but omitted from suggestions
 // to keep the row count tight.
 var builtins = []Command{
-	{Name: "/compact", Desc: "compact the transcript · pick micro or full"},
+	{Name: "/compact", Desc: "compact the transcript · pick a rung of the context ladder"},
 	{Name: "/config", Desc: "edit runtime settings (max_iterations, api keys, …)"},
 	{Name: "/effort", Desc: "set thinking effort · low, medium, high, ultra"},
 	{Name: "/cost", Desc: "session token spend · priced cost breakdown"},
+	{Name: "/context", Desc: "where the prompt's weight sits · pin blocks to protect them"},
 	{Name: "/model", Desc: "switch llm provider / model · clears history"},
 	{Name: "/profile", Desc: "switch agent persona · clears history"},
 	{Name: "/output-style", Desc: "switch communication style · Explanatory, Learning, custom"},

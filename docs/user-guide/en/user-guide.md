@@ -11,6 +11,7 @@
   - [/effort — Thinking Effort](#effort--thinking-effort)
   - [/resume — Resume a Previous Session](#resume--resume-a-previous-session)
   - [/rewind — Time-Travel Undo](#rewind--time-travel-undo)
+  - [/context and /compact — the context ladder](#context-and-compact--the-context-ladder)
   - [Bundled skills](#bundled-skills)
 - [3. Keybindings](#3-keybindings)
 - [4. Yank Mode — Copying from the Transcript](#4-yank-mode--copying-from-the-transcript)
@@ -96,7 +97,8 @@ Available commands:
 | `/profile` | switch agent persona (evva, nono, …) — **clears conversation history** |
 | `/output-style` | switch how the agent talks (default / Explanatory / Learning / custom) — **clears conversation history** |
 | `/effort` | set thinking effort (low / medium / high / ultra) |
-| `/compact` | compact the transcript — pick micro or full |
+| `/compact` | compact the transcript — pick a rung of the context ladder |
+| `/context` | where the prompt's weight sits — pin blocks to protect them |
 | `/resume` | resume a previous session from this workdir |
 | `/rewind` | undo a prior turn — restore code, conversation, or both |
 | `/redactions` | secrets masked out of tool results this session — press `r` to reveal |
@@ -411,6 +413,68 @@ Any mode that rewrites files asks for a confirmation first — a code restore **
 **Storage & retention**
 
 Checkpoints live under `<workdir>/.evva/checkpoints/<session-id>/` — evva-owned runtime state, like `.evva/plans` and `.evva/worktrees`. **Add `.evva/` (or at least `.evva/checkpoints/`) to your `.gitignore`.** Each session keeps its most-recent `checkpoint_max_per_session` checkpoints (default 50; older ones are pruned and their unique before-images garbage-collected), and only a bounded number of session namespaces persist across sessions. The feature is **opt-in** (`enable_checkpoints`, default off) — see the note at the top of this section.
+
+### /context and /compact — the context ladder
+
+Every turn ships the whole conversation to the model, so a long session eventually runs out of window. evva handles that in **three escalating rungs**, cheapest first, and only ever climbs to the next one when the previous rung failed to get the prompt back under budget:
+
+| Rung | Cost | What it does | What you lose |
+| --- | --- | --- | --- |
+| **Prune** | free, no LLM call | Replaces big, old tool results with a one-line tombstone | Nothing permanently — the tombstone says how to get it back |
+| **Span** | one LLM call | Summarizes the *oldest half*; recent turns stay verbatim | Detail from early in the session |
+| **Full** | one LLM call | Summarizes everything into a single brief | The transcript |
+
+The ladder runs automatically once the prompt crosses `auto_compact_threshold` (default 0.8 of the model's window). `/compact` lets you trigger any rung by hand.
+
+**Tombstones are instructions, not gravestones.** A pruned result is replaced by text the model can act on:
+
+```
+[pruned to save context: read loop.go result from turn 12, 41.2KB — read the file again if you still need it]
+```
+
+It states what was removed, how big it was (so the model can judge whether recovery is worth it), and the exact action that recovers it. That is what makes pruning safe: the model is never left guessing whether something existed.
+
+**What is never pruned:**
+
+- **Errors.** Re-running a failed command might succeed the second time and erase the evidence, so error text is the one tool output that genuinely cannot be recovered.
+- **The recent window** — the last 3 turns, plus the last 12 live results regardless of turn, so a single turn that fans out 40 parallel calls still leaves the model something to stand on.
+- **Anything under the size floor** (2KB), where the tombstone would cost more clarity than it saves bytes.
+- **Pinned blocks** (below).
+
+**`/context`** shows where the weight actually sits — a category breakdown (system prompt / your turns / model output / file reads / other tool output) and the heaviest individual blocks:
+
+```
+▰ /CONTEXT — where the prompt's weight sits
+prompt · 120,000 / 200,000 tokens  (60.0% of the window)
+ledger · 64.7KB across 7 turn(s)
+
+  category         bytes   share
+  system          12.0KB   18.5%  persona prompt + tool schemas
+  file            41.0KB   63.4%  file reads · cheapest to recover
+  tool            11.7KB   18.1%  other tool output
+
+    turn  tool      subject                    bytes
+  ▸ 4     read      loop.go                   41.0KB
+    6     bash      go                         8.4KB
+  ◌ 7     grep      func New                   3.0KB
+```
+
+`📌` marks a pinned block, `✘` a failed one, `◌` one already pruned.
+
+**Pinning.** Select a block and press `Space` to pin it. A pinned block is exempt from every rung — and when full compaction discards the transcript, pinned content is re-injected verbatim after the brief. Use it for the one file or command output the whole task hinges on. Only tool results are pinnable; your own turns are never pruned in the first place. Pins survive `/resume`.
+
+Tuning:
+
+```yaml
+auto_compact_threshold: 0.8   # fraction of the window that starts the ladder
+context_prune: true           # opt-out; false disables the free rung
+context_span: true            # opt-out; false collapses the ladder to prune → full
+prune_min_bytes: 2048         # never tombstone a result smaller than this
+prune_keep_turns: 3           # recent turns that are never pruned
+prune_keep_results: 12        # trailing live results kept regardless of turn
+```
+
+Both rung toggles are opt-*out*, on the same reasoning as redaction: a session that quietly stays under budget beats one that hits full compaction and loses the transcript. The three integers treat `0` as "use the default", so a partially-filled block degrades to safe values rather than to a policy that prunes the session out from under the model.
 
 ### Bundled skills
 
@@ -1103,6 +1167,14 @@ max_iterations: 30
 max_tokens: 4096
 auto_compact_threshold: 0.8
 display_thinking: true
+
+# Context ladder (prune → span → full). Both rungs are opt-OUT.
+# The three integers treat 0 as "use the default".
+context_prune: true
+context_span: true
+prune_min_bytes: 2048
+prune_keep_turns: 3
+prune_keep_results: 12
 
 # Default model used at startup (overwritten by /model swap)
 default_provider: deepseek

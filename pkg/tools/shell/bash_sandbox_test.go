@@ -14,20 +14,29 @@ import (
 	"github.com/johnny1110/evva/pkg/sandbox"
 )
 
+// sandboxTestImage is the image every test in this file provisions.
+const sandboxTestImage = "alpine:latest"
+
+// requireRuntime skips unless a runtime can actually run sandboxTestImage.
+//
+// A responding daemon is not enough: Docker Desktop on Windows answers `info`
+// while in Windows-container mode and then rejects every Linux image, which
+// is exactly how these tests came to fail on the Windows CI runner. Probe the
+// capability, not a proxy for it. See the twin guard in pkg/sandbox.
 func requireRuntime(t *testing.T) string {
 	t.Helper()
 	for _, rt := range []string{"docker", "podman"} {
 		if !sandbox.Available(rt) {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		err := exec.CommandContext(ctx, rt, "info").Run()
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		err := exec.CommandContext(ctx, rt, "run", "--rm", sandboxTestImage, "true").Run()
 		cancel()
 		if err == nil {
 			return rt
 		}
 	}
-	t.Skip("no responding container runtime — skipping bash sandbox test")
+	t.Skip("no container runtime able to run " + sandboxTestImage + " — skipping bash sandbox test")
 	return ""
 }
 

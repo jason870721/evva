@@ -14,6 +14,63 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Context engine (CTX-1..7).** evva's context story was binary: the transcript
+  grew verbatim until the compaction threshold, then one LLM call rewrote the
+  whole history into a brief. Everything between "it fits" and "summarize the
+  world" was missing, and the cheap tier that did exist could run **once per
+  session** before every later compaction escalated to the expensive one.
+
+  There is now a **three-rung ladder**, climbed only as far as necessary:
+
+  1. **Prune** — free, no LLM call. Replaces the body of large, old,
+     recoverable tool results with a tombstone. Re-runnable, so it keeps
+     reclaiming whatever the session has grown since the last pass.
+  2. **Span compaction** — one bounded LLM call. Summarizes only the oldest
+     span and splices the brief in front of the surviving verbatim tail.
+  3. **Full compaction** — the pre-existing whole-session rewrite, now the
+     last resort rather than the only tool.
+
+  Escalation is **measured, not assumed**: one rung runs per iteration, the
+  loop makes a real LLM call, and the next check reads the actual post-rung
+  prompt size. A rung with nothing to do falls through immediately.
+
+  **Tombstones are model-facing contracts.** Each states what was removed, how
+  big it was, and the exact action that recovers it — `[pruned to save context:
+  read loop.go result from turn 12, 41.2KB — read the file again if you still
+  need it]`. That is what makes pruning safe at temperature; the model is never
+  left guessing whether content existed.
+
+  Never pruned: **error results** (re-running a failure may succeed and erase
+  the evidence, so error text is the one output that genuinely cannot be
+  recovered), pinned blocks, the recent turn window, the trailing live-result
+  floor, and anything under the size floor.
+
+  **`/context`** is a new overlay showing where the prompt's weight actually
+  sits — category totals and the heaviest individual blocks — and **`Space`
+  pins** a block, exempting it from every rung and re-injecting it verbatim
+  when compaction rewrites history. Pins survive `/resume`.
+
+  Config: `context_prune` and `context_span` (both **opt-out**, like
+  `redaction`), plus `prune_min_bytes` / `prune_keep_turns` /
+  `prune_keep_results`, which read `0` as "use the default" so a
+  partially-filled block degrades to safe values.
+
+  This wave began with the audit pass the roadmap requires before any
+  long-range concept PRD is built, and that pass paid for itself: **CTX-3
+  (read dedup) and half of CTX-5 (the status-bar gauge) turned out to be
+  already shipped**, and the draft's central term "microcompaction" collided
+  head-on with a shipped `microCompact` that meant the opposite thing. The
+  LLM-summarizing rung is therefore named *span* compaction; "micro" keeps its
+  shipped meaning as an alias for the prune rung, and the persisted
+  `micro_compacted` snapshot field is unchanged so older sessions still resume.
+  See `docs/roadmap/PRD/context-engine.md` §0.
+
+  **SDK surface:** new `ui.Controller` methods `ContextReport(topN int)
+  ui.ContextReport` and `TogglePinnedBlock(toolID string) bool`, plus the
+  `ui.ContextReport` / `ui.ContextBlock` types. Both return public types only,
+  so the `publicOnlyController` compile gate still passes — a UI in a separate
+  module can implement the contract without importing evva internals.
+
 - **Agent eval & regression harness (EVAL-1..7).** The release workflow gates
   on `go test ./...` — code correctness. Nothing gated the thing that changes
   on almost every release: system-prompt wording, tool descriptions, model
@@ -101,6 +158,23 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   criteria need a working container runtime and the build machine had none;
   that is no longer true, and the criteria are now met against real
   containers.
+
+### Changed
+
+- **`/compact` now offers the three ladder rungs** — Prune / Span / Full —
+  instead of Micro / Full. `Agent.Compact` (and `ui.Controller.Compact`)
+  accepts `"prune"`, `"span"` and `"full"`; **`"micro"` still works** as an
+  alias for `"prune"`, so existing callers and scripts keep running.
+
+- **Auto-compaction no longer destroys error text.** The old micro-compact
+  preserved a tool result's `IsError` flag while overwriting its `Content`
+  with `[elided by auto micro-compact]` — the model could see that something
+  had failed but not what. Error results are now never pruned at all.
+
+- **The cheap compaction tier is no longer one-shot.** It previously flipped a
+  session-level boolean, so after a single pass every subsequent compaction
+  escalated to a full LLM summarization. Pruning now re-runs whenever there is
+  new material to reclaim.
 
 ## [v1.14.0] — 2026-08-01
 

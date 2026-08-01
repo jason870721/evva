@@ -14,24 +14,39 @@ import (
 // the toolchain, and a 5 MB image keeps the first-run pull from dominating.
 const integrationImage = "alpine:latest"
 
-// requireRuntime skips unless a container runtime is genuinely usable — on
-// PATH *and* with a responding daemon. `docker` installed but not running is
-// a common developer state and must skip, not fail.
+// requireRuntime skips unless a container runtime can actually run the image
+// these tests use. `docker` installed but not running is a common developer
+// state and must skip, not fail.
+//
+// A responding daemon is NOT sufficient, which is what the first version of
+// this guard got wrong. Docker Desktop on Windows answers `info` perfectly
+// well while in Windows-container mode, and then rejects every Linux image
+// with "no matching manifest for windows/amd64" — so the guard passed on the
+// Windows CI runner and eleven tests failed on a machine that was never going
+// to run them. The probe below tests the capability the tests need rather
+// than a proxy for it: start the actual image and throw it away.
 func requireRuntime(t *testing.T) string {
 	t.Helper()
 	for _, rt := range []string{"docker", "podman"} {
 		if !Available(rt) {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		err := exec.CommandContext(ctx, rt, "info").Run()
-		cancel()
-		if err == nil {
-			return rt
+		if !canRunImage(rt, integrationImage) {
+			continue
 		}
+		return rt
 	}
-	t.Skip("no responding container runtime (docker/podman) — skipping sandbox integration test")
+	t.Skip("no container runtime able to run " + integrationImage + " — skipping sandbox integration test")
 	return ""
+}
+
+// canRunImage reports whether rt can start integrationImage. Any failure —
+// daemon down, wrong container OS, image unpullable, no network — reads as
+// "cannot", because every one of them means these tests cannot run here.
+func canRunImage(rt, image string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, rt, "run", "--rm", image, "true").Run() == nil
 }
 
 // The core promise: a command issued through the sandbox actually executes

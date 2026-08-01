@@ -189,6 +189,24 @@ type Config struct {
 	RedactionAllow   []string
 	RedactionDisable []string
 
+	// Context ladder (CTX). ContextPrune gates rung 1 — tombstoning large,
+	// old, recoverable tool results. It defaults ON for the same reason
+	// redaction does: the operator who has not thought about it is better
+	// served by a session that stays under budget than by one that hits
+	// full compaction and loses the transcript wholesale. ContextSpan gates
+	// rung 2 (summarize the oldest span); turning it off collapses the
+	// ladder back to prune → full.
+	//
+	// The three Prune* tunables are the safety margins: results smaller
+	// than PruneMinBytes are never worth tombstoning, and the last
+	// PruneKeepTurns turns plus the trailing PruneKeepResults live results
+	// are never touched at all. See docs/roadmap/PRD/context-engine.md.
+	ContextPrune     bool
+	ContextSpan      bool
+	PruneMinBytes    int
+	PruneKeepTurns   int
+	PruneKeepResults int
+
 	// Sandboxed execution (SBX). SandboxRuntime names the container runtime
 	// backing isolation:"sandbox" — "" (off, the default), "docker" or
 	// "podman". Note this is a DIFFERENT axis from the permission gate, which
@@ -339,6 +357,11 @@ func (c *Config) Clone() *Config {
 		Redaction:               c.Redaction,
 		RedactionAllow:          slices.Clone(c.RedactionAllow),
 		RedactionDisable:        slices.Clone(c.RedactionDisable),
+		ContextPrune:            c.ContextPrune,
+		ContextSpan:             c.ContextSpan,
+		PruneMinBytes:           c.PruneMinBytes,
+		PruneKeepTurns:          c.PruneKeepTurns,
+		PruneKeepResults:        c.PruneKeepResults,
 		SandboxRuntime:          c.SandboxRuntime,
 		SandboxImage:            c.SandboxImage,
 		SandboxNetwork:          c.SandboxNetwork,
@@ -476,6 +499,59 @@ func (c *Config) SetRedaction(v bool) error {
 	c.Redaction = v
 	c.mu.Unlock()
 	return c.SaveFile()
+}
+
+// GetPruneEnabled reports whether rung 1 of the context ladder is active.
+// Read on every compact check, so it takes effect mid-session.
+func (c *Config) GetPruneEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ContextPrune
+}
+
+// SetPruneEnabled toggles rung 1 and persists.
+func (c *Config) SetPruneEnabled(v bool) error {
+	c.mu.Lock()
+	c.ContextPrune = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetSpanEnabled reports whether rung 2 (span compaction) is active. With
+// it off the ladder is prune → full.
+func (c *Config) GetSpanEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ContextSpan
+}
+
+// SetSpanEnabled toggles rung 2 and persists.
+func (c *Config) SetSpanEnabled(v bool) error {
+	c.mu.Lock()
+	c.ContextSpan = v
+	c.mu.Unlock()
+	return c.SaveFile()
+}
+
+// GetPruneMinBytes returns the prune size floor.
+func (c *Config) GetPruneMinBytes() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PruneMinBytes
+}
+
+// GetPruneKeepTurns returns how many recent user turns prune protects.
+func (c *Config) GetPruneKeepTurns() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PruneKeepTurns
+}
+
+// GetPruneKeepResults returns the trailing live-result floor prune keeps.
+func (c *Config) GetPruneKeepResults() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PruneKeepResults
 }
 
 // GetRedactionAllow returns a copy of the allowlist patterns.
@@ -1072,6 +1148,8 @@ func (c *Config) SaveFile() error {
 	enableMemRecall := c.EnableMemoryRecall
 	enableAutoDream := c.EnableAutoDream
 	redaction := c.Redaction
+	contextPrune := c.ContextPrune
+	contextSpan := c.ContextSpan
 	enableCheckpoints := c.EnableCheckpoints
 	enableRepoMap := c.EnableRepoMap
 	enableLSPDiagnosticsOnEdit := c.LSPDiagnosticsOnEdit
@@ -1106,6 +1184,11 @@ func (c *Config) SaveFile() error {
 		Redaction:               &redaction,
 		RedactionAllow:          slices.Clone(c.RedactionAllow),
 		RedactionDisable:        slices.Clone(c.RedactionDisable),
+		ContextPrune:            &contextPrune,
+		ContextSpan:             &contextSpan,
+		PruneMinBytes:           c.PruneMinBytes,
+		PruneKeepTurns:          c.PruneKeepTurns,
+		PruneKeepResults:        c.PruneKeepResults,
 		SandboxRuntime:          c.SandboxRuntime,
 		SandboxImage:            c.SandboxImage,
 		SandboxNetwork:          c.SandboxNetwork,

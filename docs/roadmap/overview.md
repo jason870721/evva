@@ -4,8 +4,8 @@
 > just a proposal" across everything under `docs/roadmap/`. The individual PRD
 > files' own `Status:` headers drift once shipped (see §6) — **this file is
 > the source of truth going forward**, refreshed at each release.
-> **As of:** 2026-08-01, `main` @ **v1.14.0 stable**; `dev` carries two
-> unreleased waves (SBX → v1.15, EVAL → v1.16).
+> **As of:** 2026-08-01, `main` @ **v1.14.0 stable**; `dev` carries three
+> unreleased waves (SBX → v1.15, EVAL → v1.16, CTX → v1.17).
 
 ---
 
@@ -15,13 +15,13 @@
 |---|---|---|
 | `main` (stable / GitHub "Latest") | **v1.14.0** | promoted 2026-08-01 at `7ae8d7a`. Carries everything through secret redaction: the v1.11 swarm batch, SWT worktree isolation (v1.12), MCP server mode (v1.13), SEC redaction (v1.14) |
 | `pre-release` (beta) | **v1.14.0-beta.1** | promoted verbatim to v1.14.0; converges at its next cut from dev |
-| `dev` (integration) | unreleased | `main` + **SBX-1..7** (claims v1.15, merged 2026-08-01 at `023dc87`, PR #66) + **EVAL-1..7** (claims v1.16, PR open) |
+| `dev` (integration) | unreleased | `main` + **SBX-1..7** (claims v1.15, merged 2026-08-01 at `023dc87`, PR #66) + **EVAL-1..7** (claims v1.16, merged 2026-08-01 at `e8f8089`, PR #67) + **CTX-1..7** (claims v1.17, PR open) |
 
-**Two unreleased waves are stacked on `dev`.** Per the base-version decision
+**Three unreleased waves are stacked on `dev`.** Per the base-version decision
 in `CLAUDE.md`, a single `pre-release feature` cut would ship them together
-and take the newest never-shipped wave's minor — **v1.16.0-beta.1**. The v1.15
-row stays in the wave map regardless: it records which wave the work belongs
-to, not which tag carried it.
+and take the newest never-shipped wave's minor — **v1.17.0-beta.1**. The v1.15
+and v1.16 rows stay in the wave map regardless: they record which wave the
+work belongs to, not which tag carried it.
 
 **✅ Horizon 1 is closed.** With SBX and EVAL built, every wave the 2026-07
 design reviews put on the table has been implemented — W1 swarm operations
@@ -29,6 +29,16 @@ design reviews put on the table has been implemented — W1 swarm operations
 loop (EVAL v1.16), plus MCP server mode pulled forward from W11 into v1.13.
 There is no remaining *designed-but-unbuilt* surface; what is left is
 long-range concept drafts (§5), each of which still needs its audit pass.
+
+**▶ Horizon 2 has started.** W5 — the context engine (CTX-1..7, claims v1.17)
+— is the first long-range concept PRD taken through the full
+audit-then-build gate. It is also the strongest evidence yet for why that
+gate is non-negotiable: **two of its seven work items were already shipped**
+(CTX-3 read dedup, and the status-bar half of CTX-5), and the draft's central
+term "microcompaction" named the exact opposite of what evva's shipped
+`microCompact` did. Building to the draft as written would have re-implemented
+solved problems and redefined live vocabulary. W5 unblocks W6 (memory
+semantic recall) per long-range §7.
 
 **✅ The v1.9 anomaly is closed.** `swarm-worktree-isolation.md` claimed the
 **v1.9** minor (commit `42ac53f`, 2026-07-02) but was never built, and no
@@ -41,9 +51,9 @@ rather than mysterious.
 
 ---
 
-## 2. Feature PRDs (`docs/roadmap/PRD/`) — 26 tracked
+## 2. Feature PRDs (`docs/roadmap/PRD/`) — 27 tracked
 
-**Tally: 24 stable · 2 built-but-unreleased (sandbox isolation → v1.15, agent eval harness → v1.16) · 0 proposed.**
+**Tally: 24 stable · 3 built-but-unreleased (sandbox isolation → v1.15, agent eval harness → v1.16, context engine → v1.17) · 0 proposed.**
 
 | # | PRD | Status | Shipped in | Notes |
 |---|---|---|---|---|
@@ -70,24 +80,26 @@ rather than mysterious.
 | 21 | [swarm-verify-checks.md](PRD/swarm-verify-checks.md) | ✅ Stable | v1.11.0 | CHK-1..6 implemented 2026-07-10 (`feature/swarm-verify-checks`); minor unclaimed — operator assigns at wave confirmation |
 | 22 | [sandbox-isolation.md](PRD/sandbox-isolation.md) | 🟡 **Built — merged to `dev`, untagged** | — (claims **v1.15**) | SBX-1..7, 2026-08-01: `isolation:"sandbox"` = worktree + bind-mounted container, `bash` via `docker`/`podman exec`, devcontainer.json image resolution, `sandbox_runtime`/`sandbox_image`/`sandbox_network`, swarm `settings.sandbox` + per-member `sandbox:`. **Was blocked, not merely unstarted** — its acceptance criteria need a container runtime, and there now is one (Docker 28.1.1), so they were met against real containers. Six audit corrections in its header; two changed the design. Completes W3 "Safety" |
 | 23 | [mcp-server-mode.md](PRD/mcp-server-mode.md) | ✅ Stable | v1.13.0 | MCP-1..5, 2026-07-30: `evva mcp-serve` over stdio / streamable HTTP, `mcpServe` allowlist (startup-validated, read-only tools only), whole-persona invocation with `<external-request>` trust framing, RP-15-style bearer auth. Two PRD corrections recorded in its header: the persona adapter's placement was an import cycle, and the RP-21 envelope was the wrong framing |
-| 24 | [agent-eval-harness.md](PRD/agent-eval-harness.md) | 🟡 **Built — on a feature branch, unreleased** | — (claims **v1.16**) | EVAL-1..7, 2026-08-01: `evva eval capture/run/list`, `pkg/evalharness` fixtures + structural tool-call diff (hard gate, non-zero exit) + opt-in LLM judge (advisory). Six audit corrections; fixtures deliberately do NOT embed `session.Snapshot` (machine-specific paths), and driving is a `Runner` interface so the scoring layer stays free of the agent loop. **Closes Horizon 1** |
+| 24 | [agent-eval-harness.md](PRD/agent-eval-harness.md) | 🟡 **Built — merged to `dev`, untagged** | — (claims **v1.16**) | EVAL-1..7, 2026-08-01: `evva eval capture/run/list`, `pkg/evalharness` fixtures + structural tool-call diff (hard gate, non-zero exit) + opt-in LLM judge (advisory). Six audit corrections; fixtures deliberately do NOT embed `session.Snapshot` (machine-specific paths), and driving is a `Runner` interface so the scoring layer stays free of the agent loop. **Closes Horizon 1** |
 | 25 | [solo-dynamic-workflow.md](PRD/solo-dynamic-workflow.md) | ✅ Stable | v1.11.0 | SDW-1..8: DWF execution model for solo TUI — `wf_task_*` board, engine auto-dispatch of subagent workers, `enable_dynamic_workflow` flag |
 | 26 | [secret-redaction.md](PRD/secret-redaction.md) | ✅ Stable | v1.14.0 | SEC-1..6, 2026-07-30: `pkg/redact` credential detector + stable content-derived placeholders, masking at the `execTool` choke point (covers provider payload, snapshot and TUI in one insertion), `/redactions` panel, `redaction` config defaulting **ON** — evva's only opt-OUT gate. First long-range **concept draft** to go through the audit pass; five corrections recorded in its header, incl. SEC-4 collapsing into SEC-2 and operator input being scoped out. Half of W3 — its sibling SBX stays blocked on a container runtime |
+| 27 | [context-engine.md](PRD/context-engine.md) | 🟡 **Built — PR open against `dev`, unreleased** | — (claims **v1.17**) | CTX-1..7, 2026-08-01: block ledger (`internal/session/ledger.go`) + a three-rung ladder — prune with recovery tombstones → span compaction → full compaction — plus `/context` overlay and pinning. **First Horizon 2 wave.** Seven audit corrections; the two expensive ones are that **CTX-3 and half of CTX-5 were already shipped**, and that the draft's "microcompaction" named the opposite of evva's shipped `microCompact`. Also repaired two live defects the draft's own safety rules exposed: auto-compaction was destroying error text, and the cheap tier could only run once per session |
 
 **Status legend:** ✅ Stable (in a promoted `vX.Y.Z` on `main`) · 🟡 Beta (built,
 in a `-beta.N` on `pre-release`, not yet promoted) · ⚠️ Anomaly (wave claimed
 in CLAUDE.md, no implementation) · 📝 Proposed (PRD written, no wave claimed,
 no code).
 
-**Plus 32 long-range concept PRDs** (added 2026-07-06 by the
-[long-range.md](long-range.md) planning pass, in two batches, not
-duplicated as rows here until they claim waves):
+**Plus 30 long-range concept PRDs** (32 were added 2026-07-06 by the
+[long-range.md](long-range.md) planning pass, in two batches; they are not
+duplicated as rows here until they claim waves, and two — secret-redaction
+and context-engine — have since done so and moved into the table above):
 
-- *Backbone (W1–W19):* secret-redaction, context-engine,
-  memory-semantic-recall, session-tree, steering-v2, model-routing,
-  vision-completion, acp-editor-integration, ci-headless-runner,
-  browser-tools, swarm-federation, swarm-leader-takeover, workflow-scripts,
-  gardener, persona-ecosystem, arch-v2.
+- *Backbone (W1–W19):* memory-semantic-recall, session-tree, steering-v2,
+  model-routing, vision-completion, acp-editor-integration,
+  ci-headless-runner, browser-tools, swarm-federation,
+  swarm-leader-takeover, workflow-scripts, gardener, persona-ecosystem,
+  arch-v2.
 - *Batch 2 (W20–W35):* onboarding-doctor, swarm-templates, diff-review-ui,
   plan-mode-v2, test-watch-loop, git-intelligence, provider-expansion,
   batch-api-background, treesitter-code-intel, multi-root-workspaces,
@@ -96,7 +108,7 @@ duplicated as rows here until they claim waves):
 
 All carry `Status: long-range concept draft` — **not audited against live
 source**; per the concept → build gate in long-range §8, each needs an
-audit pass before implementation. Three have now been through that gate,
+audit pass before implementation. Four have now been through that gate,
 and together they calibrate what the pass costs — it is never zero, and it
 has changed the design every time:
 
@@ -105,13 +117,30 @@ has changed the design every time:
 | SEC (2026-07-30) | 5 | deleted a whole work item (SEC-4 collapsed into SEC-2) |
 | SBX (2026-08-01) | 6 | a *shipped* wave (SWT) had closed half the gap the PRD was written against, which changed where the remaining work belonged |
 | EVAL (2026-08-01) | 6 | the prescribed fixture format embedded machine-specific paths, so it could not be committed |
+| CTX (2026-08-01) | 7 | **two of seven work items were already shipped**, and the draft's central term named the opposite of the live code |
 
-The SBX case is the instructive one for anyone picking up a later wave: the
-PRD's central claim ("swarm clones are the least-supervised bash path,
-because `constructMember` never reassigns `WorkDir`") was simply true when
-written and simply false four minors later. Nothing about reading the PRD
-alone would reveal that. Full sequencing lives in long-range §3 (backbone)
-and §3b (batch 2).
+Two cases are instructive for anyone picking up a later wave.
+
+**SBX** — the PRD's central claim ("swarm clones are the least-supervised
+bash path, because `constructMember` never reassigns `WorkDir`") was simply
+true when written and simply false four minors later. Nothing about reading
+the PRD alone would reveal that.
+
+**CTX** — the sharpest illustration so far, because the audit *subtracted*
+work rather than adjusting it. CTX-3 (read dedup) and the status-bar half of
+CTX-5 were already in the tree, so building to the draft would have
+re-implemented solved problems. Worse, the draft's headline feature name —
+"microcompaction", defined as *summarize the oldest span with an LLM call* —
+was already taken by a shipped `microCompact` that makes **no LLM call** and
+does something else entirely; adopting the draft's vocabulary would have
+silently redefined a `/compact` menu entry, an event payload, a log line and
+a persisted snapshot field. The audit also surfaced two live defects that the
+draft's own safety rules exposed but nobody had noticed: auto-compaction was
+erasing error *text* while keeping the error *flag*, and the cheap tier could
+only run once per session. Neither was in scope as written; both were
+repaired.
+
+Full sequencing lives in long-range §3 (backbone) and §3b (batch 2).
 
 ---
 
@@ -159,12 +188,13 @@ Everything with no code yet, grouped by what it needs from the operator:
 - ~~**`mcp-server-mode.md`**~~ — **resolved 2026-07-30.** Built (MCP-1..5); shipped stable in v1.13.0.
 - ~~**`secret-redaction.md`**~~ — **resolved 2026-07-30.** Built (SEC-1..6); shipped stable in v1.14.0. First long-range concept PRD to clear the audit gate.
 - ~~**`sandbox-isolation.md`**~~ — **resolved 2026-08-01.** Was **blocked, not merely unstarted**: its rollout (§8) needs a working `docker`/`podman` and the build machine had none, which is why W3 "Safety" shipped half. Docker **28.1.1** is now installed and verified running containers, so the wave was picked up: SBX-1..7 built and merged to `dev` at `023dc87` (PR #66), acceptance criteria met against real containers, claims **v1.15**. W3 is complete.
-- ~~**`agent-eval-harness.md`**~~ — **resolved 2026-08-01.** Built (EVAL-1..7) on `feature/agent-eval-harness`, claims **v1.16**; PR open against `dev`. This was W4 and the last never-started wave from the 2026-07 design reviews.
+- ~~**`agent-eval-harness.md`**~~ — **resolved 2026-08-01.** Built (EVAL-1..7) and merged to `dev` at `e8f8089` (PR #67), claims **v1.16**. This was W4 and the last never-started wave from the 2026-07 design reviews.
+- ~~**`context-engine.md`**~~ — **resolved 2026-08-01.** Built (CTX-1..7), claims **v1.17**; PR open against `dev`. **W5 — the first Horizon 2 wave**, and the first pickup where the audit gate deleted work rather than merely adjusting it: CTX-3 and half of CTX-5 were already shipped. Unblocks W6 (memory semantic recall).
 - ~~**Old, non-swarm, never slotted**~~ — **cleared.** All three shipped stable in v1.11.0.
 - ~~**Swarm v1.11+ candidates**~~ — **cleared.** All six from the 2026-07-04/05 design review shipped stable in v1.11.0 (blackboard, cost accounting, doctor, outbound notifications, TUI attach, verify checks).
-- **Nothing designed remains unbuilt.** Every PRD in §2 is now stable or built-and-awaiting-a-cut. The next wave necessarily comes from the long-range set below, which means the next piece of work necessarily starts with an audit pass.
+- **Nothing designed remains unbuilt.** Every PRD in §2 is now stable or built-and-awaiting-a-cut. Every further wave comes from the long-range set below, which means every further piece of work starts with an audit pass.
 - **Un-graduated explore spikes** (no PRD at all yet, just a hypothesis): EX-2 (remote persona — graduation path drafted as `swarm-federation.md`), EX-3 (leader takeover — drafted as `swarm-leader-takeover.md`), EX-5 (wake jitter). **EX-4 (replay/eval harness) is now partly answered:** the shipped `pkg/evalharness` provides the scoring layer EX-4 would otherwise have had to invent, so if EX-4 is ever built its remaining scope is swarm event-log *capture* only — see the boundary in `agent-eval-harness.md` §3.3.
-- **Long-range concept PRDs** (2026-07-06, 30 still unbuilt of the original 32 — see the note under §2 and [long-range.md](long-range.md) §3 for the full sequenced list): concept-grade drafts for horizons W5–W35; each requires a live-source audit pass before build. The nearest are H2's TUI quartet — context-engine (W5), memory-semantic-recall (W6), session-tree (W7), steering-v2 (W8) — which long-range §4 argues should be batched, since they share the status bar, overlays and session store.
+- **Long-range concept PRDs** (2026-07-06, **29 still unbuilt** of the original 32 — see the note under §2 and [long-range.md](long-range.md) §3 for the full sequenced list): concept-grade drafts for horizons W6–W35; each requires a live-source audit pass before build. The nearest are the rest of H2's TUI quartet — memory-semantic-recall (W6), session-tree (W7), steering-v2 (W8) — which long-range §4 argues should be batched with W5 (now built), since they share the status bar, overlays and session store. **W6 is the natural next pickup**: long-range §7 gates it on W5, which just landed.
 
 Nothing in the remaining backlog has claimed a wave/minor. Per `CLAUDE.md`,
 that happens at planning time when an operator picks it up — this document
@@ -178,7 +208,7 @@ Individual PRD files' `Status:` headers are **not** reliably updated after
 shipping — most of the 24 stable PRDs in §2 still read "proposed" despite
 having been live in `main` for weeks or months. Chasing 20+ files on every
 release isn't worth it. The exception worth keeping is the *audit-pass
-record*: waves that went through the concept → build gate (SEC, SBX, EVAL)
+record*: waves that went through the concept → build gate (SEC, SBX, EVAL, CTX)
 carry their corrections in their own headers, because that delta is the only
 place the reasoning for a design change survives. Going forward:
 

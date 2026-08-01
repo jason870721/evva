@@ -2,15 +2,17 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/johnny1110/evva/internal/session"
-	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/llm"
+	"github.com/johnny1110/evva/pkg/tools"
 )
 
 // stubLLM is a hand-wired llm.Client used to drive fullCompact's
@@ -21,10 +23,10 @@ type stubLLM struct {
 	complete func(ctx context.Context, msgs []llm.Message, toolSet []tools.Tool) (llm.Response, error)
 }
 
-func (s *stubLLM) Name() string  { return "stub" }
-func (s *stubLLM) Model() string { return "stub-model" }
+func (s *stubLLM) Name() string               { return "stub" }
+func (s *stubLLM) Model() string              { return "stub-model" }
 func (s *stubLLM) SupportsDeferLoading() bool { return false }
-func (s *stubLLM) Apply(...llm.Option) {}
+func (s *stubLLM) Apply(...llm.Option)        {}
 func (s *stubLLM) Complete(ctx context.Context, msgs []llm.Message, toolSet []tools.Tool) (llm.Response, error) {
 	return s.complete(ctx, msgs, toolSet)
 }
@@ -45,132 +47,211 @@ func newTestAgent(client llm.Client) *Agent {
 	}
 }
 
-// TestMicroCompactElidesOldToolResults verifies that micro-compact:
-//   - leaves non-RoleTool messages untouched
-//   - elides Content from every RoleTool message older than the recency
-//     window while preserving ID + IsError
-//   - leaves the most recent microCompactKeepRecent RoleTool messages intact
-//   - flips s.IsMicroCompacted() to true so the next compact escalates
-func TestMicroCompactElidesOldToolResults(t *testing.T) {
-	a := newTestAgent(nil)
-
-	// Build a session with 10 RoleTool messages interleaved with assistant
-	// turns. Tool result content is identifiable so we can verify which
-	// got elided.
-	for i := 0; i < 10; i++ {
+// seedToolSession builds n turns of user → assistant(tool_use) →
+// tool_result, each result padded to size bytes. The assistant message
+// carries a real ToolCall so BuildLedger can resolve the tool name and
+// file label — without it every block would be an unnamed CategoryTool
+// and the tombstone text would lose its recovery instruction.
+func seedToolSession(a *Agent, n, size int) []string {
+	ids := make([]string, n)
+	for i := 0; i < n; i++ {
+		id := idForTurn(i)
+		ids[i] = id
 		a.session.Append(llm.Message{Role: llm.RoleUser, Content: "u"})
-		a.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "a"})
 		a.session.Append(llm.Message{
-			Role: llm.RoleTool,
-			ToolResults: []*llm.ToolResult{
-				{ID: idForTurn(i), Content: contentForTurn(i), IsError: i%3 == 0},
-			},
+			Role: llm.RoleAssistant,
+			ToolCalls: []*tools.Call{{
+				ID:    id,
+				Name:  "read",
+				Input: json.RawMessage(`{"file_path":"/repo/f` + strconv.Itoa(i) + `.go"}`),
+			}},
+		})
+		a.session.Append(llm.Message{
+			Role:        llm.RoleTool,
+			ToolResults: []*llm.ToolResult{{ID: id, Content: strings.Repeat("x", size)}},
 		})
 	}
-
-	a.microCompact(a.session)
-
-	if !a.session.IsMicroCompacted() {
-		t.Fatal("expected IsMicroCompacted true after microCompact")
-	}
-
-	msgs := a.session.GetMessages()
-	// Walk and count surviving vs elided.
-	var elided, kept int
-	var foundElidedIDs, foundKeptIDs []string
-	for _, m := range msgs {
-		if m.Role != llm.RoleTool {
-			continue
-		}
-		for _, tr := range m.ToolResults {
-			if tr.Content == microCompactPlaceholder {
-				elided++
-				foundElidedIDs = append(foundElidedIDs, tr.ID)
-			} else {
-				kept++
-				foundKeptIDs = append(foundKeptIDs, tr.ID)
-				// Sanity: kept results must match their original Content.
-				if want := contentForTurn(idxFromID(tr.ID)); tr.Content != want {
-					t.Errorf("kept tool result %s: got %q, want %q", tr.ID, tr.Content, want)
-				}
-			}
-		}
-	}
-
-	wantElided := 10 - microCompactKeepRecent // 2
-	if elided != wantElided {
-		t.Errorf("elided count: got %d, want %d", elided, wantElided)
-	}
-	if kept != microCompactKeepRecent {
-		t.Errorf("kept count: got %d, want %d", kept, microCompactKeepRecent)
-	}
-
-	// Elided IDs should be the oldest two; kept IDs the newest eight.
-	for _, id := range foundElidedIDs {
-		if i := idxFromID(id); i >= wantElided {
-			t.Errorf("turn %d should have been kept, but was elided", i)
-		}
-	}
-	for _, id := range foundKeptIDs {
-		if i := idxFromID(id); i < wantElided {
-			t.Errorf("turn %d should have been elided, but was kept", i)
-		}
-	}
+	return ids
 }
 
-// TestMicroCompactPreservesIsErrorOnElidedResults verifies IsError survives
-// elision — the model must still see which old tool calls failed.
-func TestMicroCompactPreservesIsErrorOnElidedResults(t *testing.T) {
-	a := newTestAgent(nil)
-	for i := 0; i < microCompactKeepRecent+2; i++ {
-		a.session.Append(llm.Message{
-			Role: llm.RoleTool,
-			ToolResults: []*llm.ToolResult{
-				{ID: idForTurn(i), Content: contentForTurn(i), IsError: i == 0},
-			},
-		})
-	}
-
-	a.microCompact(a.session)
-
-	msgs := a.session.GetMessages()
-	// Turn 0 was the oldest → elided, and was IsError=true.
-	first := msgs[0].ToolResults[0]
-	if first.Content != microCompactPlaceholder {
-		t.Errorf("oldest result content: got %q, want elided placeholder", first.Content)
-	}
-	if !first.IsError {
-		t.Errorf("oldest result IsError: got false, want true (must survive elision)")
-	}
-	if first.ID != idForTurn(0) {
-		t.Errorf("oldest result ID: got %q, want %q (must survive elision)", first.ID, idForTurn(0))
-	}
-}
-
-// TestMicroCompactSkipsWhenTooFewResults verifies micro-compact is a
-// no-op (but still records the level transition) when there aren't yet
-// more than the recency-window's worth of RoleTool messages.
-func TestMicroCompactSkipsWhenTooFewResults(t *testing.T) {
-	a := newTestAgent(nil)
-	for i := 0; i < 3; i++ {
-		a.session.Append(llm.Message{
-			Role: llm.RoleTool,
-			ToolResults: []*llm.ToolResult{
-				{ID: idForTurn(i), Content: contentForTurn(i)},
-			},
-		})
-	}
-	a.microCompact(a.session)
-
-	if !a.session.IsMicroCompacted() {
-		t.Error("expected IsMicroCompacted true even on no-op")
-	}
+// resultByID finds a tool result in the live session.
+func resultByID(a *Agent, id string) *llm.ToolResult {
 	for _, m := range a.session.GetMessages() {
 		for _, tr := range m.ToolResults {
-			if tr.Content == microCompactPlaceholder {
-				t.Errorf("did not expect any elision in a <=keepRecent session, got %q", tr.Content)
+			if tr != nil && tr.ID == id {
+				return tr
 			}
 		}
+	}
+	return nil
+}
+
+// TestPruneTombstonesOldLargeResults verifies rung 1 tombstones results
+// that are old AND large, and leaves the protected window verbatim.
+//
+// With the shipped defaults (keep 3 turns, keep 12 trailing results) a
+// 20-turn session protects results 8..19 and prunes 0..7.
+func TestPruneTombstonesOldLargeResults(t *testing.T) {
+	a := newTestAgent(nil)
+	ids := seedToolSession(a, 20, 4096)
+
+	if !a.pruneContext(a.session) {
+		t.Fatal("expected pruneContext to report work done")
+	}
+
+	for i, id := range ids {
+		tr := resultByID(a, id)
+		if tr == nil {
+			t.Fatalf("result %s vanished", id)
+		}
+		pruned := session.IsTombstone(tr.Content)
+		wantPruned := i < 8
+		if pruned != wantPruned {
+			t.Errorf("result %d (%s): pruned=%v, want %v — content %.60q", i, id, pruned, wantPruned, tr.Content)
+		}
+	}
+}
+
+// TestPruneNeverTouchesErrorResults locks down the one tool output that
+// is genuinely unrecoverable: re-running a failed command may succeed the
+// second time and erase the evidence, so an error's text must survive
+// even when it is old, large, and otherwise a prime prune candidate.
+func TestPruneNeverTouchesErrorResults(t *testing.T) {
+	a := newTestAgent(nil)
+	ids := seedToolSession(a, 20, 4096)
+
+	failed := resultByID(a, ids[0])
+	failed.IsError = true
+	want := failed.Content
+
+	a.pruneContext(a.session)
+
+	got := resultByID(a, ids[0])
+	if session.IsTombstone(got.Content) {
+		t.Error("an error result was pruned; error text is not recoverable by re-running")
+	}
+	if got.Content != want {
+		t.Error("error result content drifted")
+	}
+	if !got.IsError {
+		t.Error("IsError flag lost")
+	}
+}
+
+// TestPruneRespectsSizeFloor verifies small results are left alone —
+// below the floor the tombstone costs more clarity than it buys bytes.
+func TestPruneRespectsSizeFloor(t *testing.T) {
+	a := newTestAgent(nil)
+	ids := seedToolSession(a, 20, 64)
+
+	if a.pruneContext(a.session) {
+		t.Error("expected no prune work on a session of tiny results")
+	}
+	for _, id := range ids {
+		if session.IsTombstone(resultByID(a, id).Content) {
+			t.Errorf("result %s pruned despite being under the size floor", id)
+		}
+	}
+}
+
+// TestPruneIsRepeatableAndDoesNotSpendTheLadder is the regression test for
+// audit finding 4: the old micro-compact flipped a one-shot bool, so the
+// free rung could run exactly once per session and everything after it
+// escalated to a full summarization. Pruning must stay available.
+func TestPruneIsRepeatableAndDoesNotSpendTheLadder(t *testing.T) {
+	a := newTestAgent(nil)
+	seedToolSession(a, 20, 4096)
+
+	a.pruneContext(a.session)
+	if a.session.IsSpanCompacted() {
+		t.Fatal("prune must not mark the span rung spent — it is free and re-runnable")
+	}
+	first := append([]llm.Message(nil), a.session.GetMessages()...)
+
+	// A second pass over unchanged history finds nothing new: tombstones
+	// are recognized on rebuild, so they are neither re-planned nor
+	// counted as live recent results.
+	if a.pruneContext(a.session) {
+		t.Error("second prune pass reported work on unchanged history")
+	}
+	second := a.session.GetMessages()
+	if len(first) != len(second) {
+		t.Fatalf("message count drifted: %d → %d", len(first), len(second))
+	}
+	for i := range first {
+		for j := range first[i].ToolResults {
+			if first[i].ToolResults[j].Content != second[i].ToolResults[j].Content {
+				t.Errorf("msg %d result %d content drifted across repeated prune", i, j)
+			}
+		}
+	}
+
+	// New material after the first pass IS prunable — that is the whole
+	// point of the rung being repeatable.
+	for i := 20; i < 30; i++ {
+		id := "tc2-" + strconv.Itoa(i)
+		a.session.Append(llm.Message{Role: llm.RoleUser, Content: "u"})
+		a.session.Append(llm.Message{
+			Role:      llm.RoleAssistant,
+			ToolCalls: []*tools.Call{{ID: id, Name: "bash", Input: json.RawMessage(`{"command":"go test ./..."}`)}},
+		})
+		a.session.Append(llm.Message{
+			Role:        llm.RoleTool,
+			ToolResults: []*llm.ToolResult{{ID: id, Content: strings.Repeat("y", 4096)}},
+		})
+	}
+	if !a.pruneContext(a.session) {
+		t.Error("prune found no work after the session grew — the rung is not repeatable")
+	}
+}
+
+// TestPruneSkipsPinnedBlocks verifies the operator's explicit keep wins
+// over every prune rule.
+func TestPruneSkipsPinnedBlocks(t *testing.T) {
+	a := newTestAgent(nil)
+	ids := seedToolSession(a, 20, 4096)
+	a.session.Pin(ids[0])
+
+	a.pruneContext(a.session)
+
+	if session.IsTombstone(resultByID(a, ids[0]).Content) {
+		t.Error("a pinned result was pruned")
+	}
+	if !session.IsTombstone(resultByID(a, ids[1]).Content) {
+		t.Error("precondition failed: the unpinned neighbour should have been pruned")
+	}
+}
+
+// TestPruneTombstoneCarriesRecovery is audit finding 6: a bare
+// "[elided]" placeholder tells the model neither what was lost nor how to
+// get it back. The tombstone is a contract and must state both.
+func TestPruneTombstoneCarriesRecovery(t *testing.T) {
+	a := newTestAgent(nil)
+	ids := seedToolSession(a, 20, 4096)
+	a.pruneContext(a.session)
+
+	ts := resultByID(a, ids[0]).Content
+	for _, want := range []string{"read", "f0.go", "4.0KB", "turn 1", "read the file again"} {
+		if !strings.Contains(ts, want) {
+			t.Errorf("tombstone missing %q: %s", want, ts)
+		}
+	}
+}
+
+// TestPruneEmptySession is a no-op smoke test.
+func TestPruneEmptySession(t *testing.T) {
+	a := newTestAgent(nil)
+	a.session.Append(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	a.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+
+	if a.pruneContext(a.session) {
+		t.Error("expected no prune work on a session with no tool results")
+	}
+	if got := len(a.session.GetMessages()); got != 2 {
+		t.Errorf("message count changed: got %d, want 2", got)
+	}
+	if a.session.IsSpanCompacted() {
+		t.Error("a no-op prune must not spend the span rung")
 	}
 }
 
@@ -179,7 +260,7 @@ func TestMicroCompactSkipsWhenTooFewResults(t *testing.T) {
 //   - Messages collapses to a single RoleUser entry carrying the brief
 //   - the brief text from the LLM survives
 //   - "Proceed with the Next Step" instruction is appended
-//   - session.IsMicroCompacted() resets to false (the next compact
+//   - session.IsSpanCompacted() resets to false (the next compact
 //     starts the cycle over)
 //   - the summarization call's usage is folded into session.Usage
 func TestFullCompactReplacesMessagesWithBrief(t *testing.T) {
@@ -205,7 +286,7 @@ func TestFullCompactReplacesMessagesWithBrief(t *testing.T) {
 	a.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
 	// Mark micro already done so the compact() escalation path matches the
 	// real-world preconditions, even though we call fullCompact directly.
-	a.session.MicroCompact(a.session.GetMessages())
+	a.session.SpanCompact(a.session.GetMessages())
 
 	a.fullCompact(context.Background(), a.session)
 
@@ -236,8 +317,8 @@ func TestFullCompactReplacesMessagesWithBrief(t *testing.T) {
 		t.Error("brief missing proceed instruction")
 	}
 
-	if a.session.IsMicroCompacted() {
-		t.Error("IsMicroCompacted should reset to false after full compact")
+	if a.session.IsSpanCompacted() {
+		t.Error("IsSpanCompacted should reset to false after full compact")
 	}
 	// After full compact, cumulative Usage is reset to reflect the
 	// post-compact context: input = brief output tokens (the new
@@ -264,7 +345,7 @@ func TestFullCompactLeavesSessionAloneOnLLMError(t *testing.T) {
 	a := newTestAgent(stub)
 	a.session.Append(llm.Message{Role: llm.RoleUser, Content: "build it"})
 	a.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
-	a.session.MicroCompact(a.session.GetMessages())
+	a.session.SpanCompact(a.session.GetMessages())
 
 	before := a.session.GetMessages()
 	a.fullCompact(context.Background(), a.session)
@@ -273,10 +354,10 @@ func TestFullCompactLeavesSessionAloneOnLLMError(t *testing.T) {
 	if len(before) != len(after) {
 		t.Errorf("messages mutated on LLM error: before=%d after=%d", len(before), len(after))
 	}
-	// IsMicroCompacted must NOT flip back via FullCompact, since FullCompact
+	// IsSpanCompacted must NOT flip back via FullCompact, since FullCompact
 	// was never called — session.microCompacted should still be true.
-	if !a.session.IsMicroCompacted() {
-		t.Error("IsMicroCompacted should remain true on summarization failure")
+	if !a.session.IsSpanCompacted() {
+		t.Error("IsSpanCompacted should remain true on summarization failure")
 	}
 }
 
@@ -291,7 +372,7 @@ func TestFullCompactLeavesSessionAloneOnEmptyBrief(t *testing.T) {
 	}
 	a := newTestAgent(stub)
 	a.session.Append(llm.Message{Role: llm.RoleUser, Content: "build it"})
-	a.session.MicroCompact(a.session.GetMessages())
+	a.session.SpanCompact(a.session.GetMessages())
 
 	beforeLen := len(a.session.GetMessages())
 	a.fullCompact(context.Background(), a.session)
@@ -332,27 +413,31 @@ func TestCompactRatioUsesLastTurnInputTokens(t *testing.T) {
 	a.llm = &knownModelStub{stubLLM: stub, model: "claude-sonnet-4-6"}
 
 	// Case 1: cumulative is huge, last-turn is tiny → must NOT compact.
+	// Seeded with prunable material so a spurious trigger would be
+	// unmistakable rather than merely a no-op that looks like a pass.
+	ids := seedToolSession(a, 20, 4096)
 	a.session.AddUsage(llm.Usage{InputTokens: 450_000, OutputTokens: 100_000})
 	a.session.RecordTurn(llm.Usage{InputTokens: 5_000}) // tiny current prompt
 	a.compact(context.Background(), a.session)
 
-	if a.session.IsMicroCompacted() {
+	if session.IsTombstone(resultByID(a, ids[0]).Content) {
 		t.Error("compact triggered on tiny last-turn (cumulative was big — bug repro). want no-op")
 	}
 
 	// Case 2: cumulative is small, last-turn is huge → SHOULD compact.
-	// Reset and re-arm. micro compact has no LLM call, so it's safe with
-	// the failing stub.
+	// The ladder's first rung is free, so this stays safe with a stub that
+	// fails the test if the LLM is called at all.
 	a2 := newTestAgent(&knownModelStub{stubLLM: stub, model: "claude-sonnet-4-6"})
+	ids2 := seedToolSession(a2, 20, 4096)
 	a2.session.AddUsage(llm.Usage{InputTokens: 1_000}) // tiny cumulative
 	a2.session.RecordTurn(llm.Usage{InputTokens: 450_000})
-	// Need at least one tool message so microCompact does something
-	// observable (otherwise it short-circuits as "too few results").
-	a2.session.Append(llm.Message{Role: llm.RoleTool, ToolResults: []*llm.ToolResult{{ID: "x", Content: "y"}}})
 	a2.compact(context.Background(), a2.session)
 
-	if !a2.session.IsMicroCompacted() {
+	if !session.IsTombstone(resultByID(a2, ids2[0]).Content) {
 		t.Error("compact failed to trigger on huge last-turn (cumulative was small). LastTurnInputTokens not read?")
+	}
+	if a2.session.IsSpanCompacted() {
+		t.Error("the ladder skipped its free rung and escalated straight to span compaction")
 	}
 }
 
@@ -380,7 +465,7 @@ func TestFullCompactResetsLastTurnInputTokens(t *testing.T) {
 	a.session.Append(llm.Message{Role: llm.RoleUser, Content: "build it"})
 	// Simulate: a turn happened with a huge prompt → ratio crossed.
 	a.session.RecordTurn(llm.Usage{InputTokens: 450_000})
-	a.session.MicroCompact(a.session.GetMessages())
+	a.session.SpanCompact(a.session.GetMessages())
 
 	if got := a.session.LastTurnInputTokens(); got != 450_000 {
 		t.Fatalf("precondition: LastTurnInputTokens got %d, want 450000", got)
@@ -400,95 +485,128 @@ func TestFullCompactResetsLastTurnInputTokens(t *testing.T) {
 	}
 }
 
-// TestMicroCompactEmptySession is a no-op smoke test — verifies micro
-// compact on a session with zero RoleTool messages doesn't panic, leaves
-// Messages untouched, but still flips IsMicroCompacted so the next
-// compact escalates.
-func TestMicroCompactEmptySession(t *testing.T) {
+// TestPrunePreservesToolID locks down that ToolResult.ID survives
+// tombstoning. The model uses the ID to match tool_use ↔ tool_result
+// blocks; losing it produces an invalid request that providers 400 on.
+func TestPrunePreservesToolID(t *testing.T) {
 	a := newTestAgent(nil)
-	// Pre-populate with non-tool messages only — micro should leave them.
-	a.session.Append(llm.Message{Role: llm.RoleUser, Content: "hi"})
-	a.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	ids := seedToolSession(a, 20, 4096)
 
-	before := a.session.GetMessages()
+	a.pruneContext(a.session)
 
-	a.microCompact(a.session)
-
-	after := a.session.GetMessages()
-	if len(before) != len(after) {
-		t.Fatalf("micro-compact mutated message count on a no-tool session: before=%d after=%d", len(before), len(after))
-	}
-	for i := range before {
-		if before[i].Content != after[i].Content {
-			t.Errorf("message %d content drifted: before=%q after=%q", i, before[i].Content, after[i].Content)
+	for _, id := range ids {
+		if resultByID(a, id) == nil {
+			t.Errorf("result %s lost its ID across pruning", id)
 		}
-	}
-	if !a.session.IsMicroCompacted() {
-		t.Error("expected IsMicroCompacted true even on a no-op session — escalation must still happen next time")
 	}
 }
 
-// TestMicroCompactPreservesToolID locks down that ToolResult.ID survives
-// elision. The model uses the ID to match tool_use ↔ tool_result blocks;
-// losing it produces an invalid request that providers 400 on.
-func TestMicroCompactPreservesToolID(t *testing.T) {
-	a := newTestAgent(nil)
-	for i := 0; i < microCompactKeepRecent+3; i++ {
-		a.session.Append(llm.Message{
-			Role: llm.RoleTool,
-			ToolResults: []*llm.ToolResult{
-				{ID: idForTurn(i), Content: contentForTurn(i)},
-			},
-		})
+// TestSpanCompactFoldsOldestSpan drives rung 2: the oldest span collapses
+// into a brief while the recent tail survives verbatim.
+func TestSpanCompactFoldsOldestSpan(t *testing.T) {
+	client := &stubLLM{complete: func(context.Context, []llm.Message, []tools.Tool) (llm.Response, error) {
+		return llm.Response{Content: "## Original Task\nfix the parser"}, nil
+	}}
+	a := newTestAgent(client)
+	seedToolSession(a, 20, 512)
+	before := len(a.session.GetMessages())
+
+	a.spanCompact(context.Background(), a.session)
+
+	msgs := a.session.GetMessages()
+	if len(msgs) >= before {
+		t.Fatalf("span compaction did not shrink history: %d → %d", before, len(msgs))
 	}
+	if msgs[0].Role != llm.RoleUser {
+		t.Fatalf("first message after span compaction: got role %q, want user", msgs[0].Role)
+	}
+	if !strings.Contains(msgs[0].Content, "EARLIER CONTEXT FOLDED") {
+		t.Error("brief is missing its framing header")
+	}
+	if !strings.Contains(msgs[0].Content, "fix the parser") {
+		t.Error("summarizer output did not survive into the brief")
+	}
+	if !a.session.IsSpanCompacted() {
+		t.Error("span compaction must mark its rung spent so the next escalation goes full")
+	}
+}
 
-	a.microCompact(a.session)
+// TestSpanCompactLeavesSessionIntactOnFailure verifies a transport error
+// neither rewrites history nor spends the rung — otherwise one flaky call
+// would push the session straight to full compaction.
+func TestSpanCompactLeavesSessionIntactOnFailure(t *testing.T) {
+	client := &stubLLM{complete: func(context.Context, []llm.Message, []tools.Tool) (llm.Response, error) {
+		return llm.Response{}, errors.New("transport boom")
+	}}
+	a := newTestAgent(client)
+	seedToolSession(a, 20, 512)
+	before := len(a.session.GetMessages())
 
-	for i, m := range a.session.GetMessages() {
-		if m.Role != llm.RoleTool {
+	a.spanCompact(context.Background(), a.session)
+
+	if got := len(a.session.GetMessages()); got != before {
+		t.Errorf("history changed on a failed span compaction: %d → %d", before, got)
+	}
+	if a.session.IsSpanCompacted() {
+		t.Error("a failed span compaction must not spend the rung")
+	}
+}
+
+// TestSpanBoundaryNeverLandsOnToolMessage is the well-formedness
+// invariant: cutting in front of a RoleTool message would orphan it from
+// the assistant tool_use that requested it, and every provider rejects
+// that.
+func TestSpanBoundaryNeverLandsOnToolMessage(t *testing.T) {
+	a := newTestAgent(nil)
+	seedToolSession(a, 20, 128)
+	msgs := a.session.GetMessages()
+
+	for _, frac := range []float64{0.1, 0.25, 0.5, 0.75, 0.9} {
+		end := spanBoundary(msgs, frac)
+		if end == 0 {
 			continue
 		}
-		for j, tr := range m.ToolResults {
-			wantID := idForTurn(i)
-			if tr.ID != wantID {
-				t.Errorf("msg %d result %d: ID drifted, got %q want %q (must survive elision)",
-					i, j, tr.ID, wantID)
-			}
+		if msgs[end].Role == llm.RoleTool {
+			t.Errorf("frac %.2f: boundary %d lands on a tool message", frac, end)
 		}
 	}
 }
 
-// TestMicroCompactIsStableUnderRepeatedCalls verifies calling
-// microCompact twice in a row doesn't double-elide or otherwise corrupt
-// already-placeholder results.
-func TestMicroCompactIsStableUnderRepeatedCalls(t *testing.T) {
-	a := newTestAgent(nil)
-	for i := 0; i < microCompactKeepRecent+2; i++ {
-		a.session.Append(llm.Message{
-			Role: llm.RoleTool,
-			ToolResults: []*llm.ToolResult{
-				{ID: idForTurn(i), Content: contentForTurn(i)},
-			},
-		})
+// TestSpanBoundaryDeclinesShortTranscripts verifies the rung reports "no
+// safe boundary" rather than folding a session that has nothing old.
+func TestSpanBoundaryDeclinesShortTranscripts(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: llm.RoleUser, Content: "a"},
+		{Role: llm.RoleAssistant, Content: "b"},
 	}
-
-	a.microCompact(a.session)
-	firstPass := a.session.GetMessages()
-	a.microCompact(a.session)
-	secondPass := a.session.GetMessages()
-
-	if len(firstPass) != len(secondPass) {
-		t.Fatalf("message count drifted: first=%d second=%d", len(firstPass), len(secondPass))
+	if got := spanBoundary(msgs, 0.5); got != 0 {
+		t.Errorf("spanBoundary on a 2-message session: got %d, want 0", got)
 	}
-	for i := range firstPass {
-		if len(firstPass[i].ToolResults) != len(secondPass[i].ToolResults) {
-			t.Fatalf("msg %d tool result count drifted", i)
-		}
-		for j := range firstPass[i].ToolResults {
-			if firstPass[i].ToolResults[j].Content != secondPass[i].ToolResults[j].Content {
-				t.Errorf("msg %d result %d content drifted across repeat micro-compact", i, j)
-			}
-		}
+}
+
+// TestFullCompactReinjectsPins verifies a pin survives the rung that
+// discards everything else.
+func TestFullCompactReinjectsPins(t *testing.T) {
+	client := &stubLLM{complete: func(context.Context, []llm.Message, []tools.Tool) (llm.Response, error) {
+		return llm.Response{Content: "brief body"}, nil
+	}}
+	a := newTestAgent(client)
+	ids := seedToolSession(a, 6, 256)
+	pinned := resultByID(a, ids[0])
+	pinned.Content = "PINNED-PAYLOAD-MARKER"
+	a.session.Pin(ids[0])
+
+	a.fullCompact(context.Background(), a.session)
+
+	msgs := a.session.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("full compaction should collapse to one message, got %d", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Content, "PINNED-PAYLOAD-MARKER") {
+		t.Error("pinned content did not survive full compaction")
+	}
+	if !strings.Contains(msgs[0].Content, "brief body") {
+		t.Error("the brief itself is missing")
 	}
 }
 
@@ -504,7 +622,7 @@ func (k *knownModelStub) Model() string { return k.model }
 
 // --- helpers --------------------------------------------------------------
 
-func idForTurn(i int) string     { return "tc-" + string(rune('a'+i)) }
+func idForTurn(i int) string      { return "tc-" + string(rune('a'+i)) }
 func contentForTurn(i int) string { return "result-" + string(rune('a'+i)) }
 func idxFromID(id string) int {
 	if len(id) != 4 {

@@ -298,6 +298,53 @@ type Controller interface {
 	// one back into the transcript would hand the model the value the whole
 	// wave exists to withhold.
 	Redactions() []RedactionInfo
+
+	// ContextReport returns the block-ledger breakdown behind the status
+	// bar's context gauge: where the prompt's weight actually sits. topN
+	// caps the returned Blocks (0 = all); Categories and TotalBytes always
+	// describe the whole session.
+	//
+	// Safe to call from a UI goroutine mid-run — the implementation
+	// snapshots the history under a lock.
+	ContextReport(topN int) ContextReport
+
+	// TogglePinnedBlock flips the pin on a tool result and reports the
+	// resulting state. A pinned block is exempt from every rung of the
+	// context ladder and is re-injected verbatim when compaction rewrites
+	// history. Unknown ids are accepted — pinning is an intent, not an
+	// assertion that the block exists yet.
+	TogglePinnedBlock(toolID string) bool
+}
+
+// ContextBlock is one row in the /context overlay: an accounted chunk of
+// the prompt.
+type ContextBlock struct {
+	ToolID   string // pin key; empty for non-tool blocks
+	Category string // "system" | "user" | "assistant" | "file" | "tool"
+	ToolName string // "read", "bash", … ; empty for non-tool blocks
+	Label    string // file base name, command verb, pattern — the subject
+	Bytes    int    // model-visible size
+	Turn     int    // 1-based user-turn ordinal
+	Pinned   bool   // exempt from the ladder
+	Pruned   bool   // already replaced by a tombstone
+	IsError  bool   // failed tool result; never pruned
+}
+
+// ContextReport is the /context overlay's data, snapshotted at open.
+type ContextReport struct {
+	// Blocks are the heaviest first, capped at the requested topN.
+	Blocks []ContextBlock
+	// Categories totals bytes across the WHOLE session, not just Blocks.
+	Categories map[string]int
+	// TotalBytes is the ledger's full model-visible size.
+	TotalBytes int
+	// Turns is how many user turns the session has seen.
+	Turns int
+	// UsedTokens / LimitTokens mirror the status-bar gauge so the overlay
+	// and the bar can never disagree. LimitTokens is 0 for a model with
+	// no entry in the context-size table.
+	UsedTokens  int
+	LimitTokens int
 }
 
 // RedactionInfo is one masked secret, as shown in the /redactions overlay.

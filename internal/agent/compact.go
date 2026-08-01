@@ -11,37 +11,54 @@ import (
 	"github.com/johnny1110/evva/pkg/llm"
 )
 
-// Compaction has two levels, escalated lazily:
+// The context ladder has three rungs, escalated lazily and in order of
+// increasing cost and loss:
 //
-//   - Micro (level 1): elide the Content of every older RoleTool message
-//     while preserving ToolResult.ID and IsError so the request stays
-//     well-formed. Recent tool results stay verbatim; older ones become
-//     short placeholders. Cheap, local, no LLM call.
+//   - Prune (rung 1, free): replace the body of large, old, recoverable
+//     tool results with a tombstone stating what was removed and how to
+//     get it back. No LLM call. RE-RUNNABLE — every pass can reclaim
+//     whatever the session has grown since the last one.
 //
-//   - Full (level 2): ask the LLM to compress the entire conversation
-//     into a single "context brief" — Original Task / Done / Current
-//     Target / Next Step / Key Context — and replace Messages with one
-//     User message carrying the brief plus a "proceed" instruction.
-//     One LLM call; falls back gracefully on failure.
+//   - Span compaction (rung 2, one bounded LLM call): summarize only the
+//     OLDEST span of the transcript and splice the brief in front of the
+//     surviving tail. Partially lossy, but the recent working set stays
+//     verbatim.
 //
-// Escalation: micro first; if it already ran on this session (and we're
-// still over budget) the next compact goes full.
+//   - Full compaction (rung 3, expensive): compress the entire
+//     conversation into a single "context brief" — Original Task / Done /
+//     Current Target / Next Step / Key Context — and replace Messages
+//     with one User message carrying the brief plus a "proceed"
+//     instruction. Falls back gracefully on failure.
+//
+// Escalation is measured, not assumed: each rung runs at most once per
+// iteration, and the loop makes a real LLM call before compact() is
+// consulted again — so the next rung fires only when the previous one
+// demonstrably failed to get the prompt under threshold. A rung that
+// finds nothing to do falls through immediately rather than burning an
+// iteration.
+//
+// Naming note: rung 2 is "span", not "micro". evva shipped a
+// `microCompact` for four minors that made no LLM call and elided tool
+// results — i.e. a crude version of rung 1. The vocabulary is preserved
+// where it is user- or disk-facing ("micro" remains an accepted alias in
+// the /compact chooser; the snapshot field is still `micro_compacted`)
+// and corrected everywhere else.
 
 const (
-	// microCompactKeepRecent is the number of trailing RoleTool messages
-	// (one per parallel-dispatch turn) that micro-compact leaves untouched.
-	// Older RoleTool messages have their ToolResult.Content elided.
-	microCompactKeepRecent = 8
-
-	// microCompactPlaceholder is the stand-in Content stored on elided
-	// ToolResults. Short and self-describing — the model recognizes it as
-	// "you've already seen this result; act on what came after."
-	microCompactPlaceholder = "[elided by auto micro-compact]"
-
 	// summaryToolResultMaxBytes caps each tool result rendered into the
 	// summarizer prompt. Bounds the summarizer's own input size when the
 	// transcript has many long results.
 	summaryToolResultMaxBytes = 600
+
+	// spanCompactFraction is the share of the transcript rung 2 folds
+	// into a brief. Half is the useful middle: enough to matter, little
+	// enough that the model keeps the recent working set verbatim.
+	spanCompactFraction = 0.5
+
+	// spanCompactMinMessages is the transcript length below which span
+	// compaction is pointless — there is no "oldest span" worth an LLM
+	// call, so the ladder skips straight to full.
+	spanCompactMinMessages = 8
 )
 
 // Compact is the manual entry point invoked by the TUI's /compact
@@ -52,7 +69,8 @@ const (
 // loop, same guard SwitchLLM uses; the caller (TUI) surfaces that as
 // a hint rather than queueing.
 //
-// kind is "micro" or "full"; any other value is an error.
+// kind is "prune" (alias "micro"), "span", or "full"; any other value is
+// an error.
 func (a *Agent) Compact(ctx context.Context, kind string) error {
 	if a.IsSubagent() {
 		return fmt.Errorf("agent: subagents do not support manual compaction")
@@ -68,12 +86,19 @@ func (a *Agent) Compact(ctx context.Context, kind string) error {
 	a.status = constant.COMPACTING
 
 	switch kind {
-	case "micro":
+	case "prune", "micro":
 		a.emit(event.KindCompacting, func(e *event.Event) {
-			e.Compacting = &event.CompactingPayload{Type: "micro"}
+			e.Compacting = &event.CompactingPayload{Type: "prune"}
 		})
-		a.logger.Info("compact.manual", "kind", "micro")
-		a.microCompact(a.session)
+		a.logger.Info("compact.manual", "kind", "prune")
+		a.pruneContext(a.session)
+		a.status = constant.IDLE
+	case "span":
+		a.emit(event.KindCompacting, func(e *event.Event) {
+			e.Compacting = &event.CompactingPayload{Type: "span"}
+		})
+		a.logger.Info("compact.manual", "kind", "span")
+		a.spanCompact(ctx, a.session)
 		a.status = constant.IDLE
 	case "full":
 		a.emit(event.KindCompacting, func(e *event.Event) {
@@ -84,7 +109,7 @@ func (a *Agent) Compact(ctx context.Context, kind string) error {
 		a.status = constant.IDLE
 	default:
 		a.status = constant.IDLE
-		return fmt.Errorf("agent: unknown compact kind %q (want \"micro\" or \"full\")", kind)
+		return fmt.Errorf("agent: unknown compact kind %q (want \"prune\", \"span\" or \"full\")", kind)
 	}
 	a.logger.Info("compact.done")
 	a.emit(event.KindIdle, func(e *event.Event) {})
@@ -130,7 +155,7 @@ func (a *Agent) compact(ctx context.Context, s *session.Session) {
 	currentUsage := a.Session().LastTurnInputTokens()
 	usageRatio := float64(currentUsage) / float64(maxContextSize)
 	threshold := cfg.GetAutoCompactThreshold()
-	microDone := s.IsMicroCompacted()
+	spanDone := s.IsSpanCompacted()
 	if usageRatio < threshold {
 		a.logger.Info("compact.check",
 			"decision", "skip:under_threshold",
@@ -139,115 +164,238 @@ func (a *Agent) compact(ctx context.Context, s *session.Session) {
 			"last_turn_input", currentUsage,
 			"usage_ratio", usageRatio,
 			"threshold", threshold,
-			"micro_done", microDone,
+			"span_done", spanDone,
 		)
 		return // safe.
 	}
 
 	a.status = constant.COMPACTING
 
-	if microDone {
+	decide := func(kind string) {
 		a.logger.Info("compact.check",
-			"decision", "trigger:full",
+			"decision", "trigger:"+kind,
 			"model", string(modelStr),
 			"max_context", maxContextSize,
 			"last_turn_input", currentUsage,
 			"usage_ratio", usageRatio,
 			"threshold", threshold,
-			"micro_done", microDone,
+			"span_done", spanDone,
 		)
 		a.emit(event.KindCompacting, func(e *event.Event) {
-			e.Compacting = &event.CompactingPayload{Type: "full", UsageRatio: usageRatio}
+			e.Compacting = &event.CompactingPayload{Type: kind, UsageRatio: usageRatio}
 		})
-		a.fullCompact(ctx, s)
-	} else {
-		a.logger.Info("compact.check",
-			"decision", "trigger:micro",
-			"model", string(modelStr),
-			"max_context", maxContextSize,
-			"last_turn_input", currentUsage,
-			"usage_ratio", usageRatio,
-			"threshold", threshold,
-			"micro_done", microDone,
-		)
-		a.emit(event.KindCompacting, func(e *event.Event) {
-			e.Compacting = &event.CompactingPayload{Type: "micro", UsageRatio: usageRatio}
-		})
-		a.microCompact(s)
+	}
+
+	// Rung 1 — prune. Free and recoverable, so it is always tried first
+	// and is never gated by a spent-once flag. Returning here is not
+	// giving up: the iteration continues, makes a real LLM call, and the
+	// NEXT compact.check measures the actual post-prune prompt. That is
+	// what makes the escalation evidence-based instead of speculative.
+	if plan := a.planPrune(s); !plan.Empty() {
+		decide("prune")
+		a.applyPrune(s, plan)
+		return
+	}
+
+	// Rung 2 — span compaction. Nothing left to prune for free, so pay
+	// for one bounded summarization of the oldest span.
+	if !spanDone && cfg.GetSpanEnabled() {
+		decide("span")
+		a.spanCompact(ctx, s)
+		return
+	}
+
+	// Rung 3 — full compaction.
+	decide("full")
+	a.fullCompact(ctx, s)
+}
+
+// prunePolicy resolves the operator's configured prune tunables.
+func (a *Agent) prunePolicy() session.PrunePolicy {
+	return session.PrunePolicy{
+		MinBytes:          a.cfg.GetPruneMinBytes(),
+		KeepRecentTurns:   a.cfg.GetPruneKeepTurns(),
+		KeepRecentResults: a.cfg.GetPruneKeepResults(),
 	}
 }
 
-// microCompact walks the session, identifies every RoleTool message, and
-// replaces the Content of each ToolResult on older ones with a short
-// placeholder. The most recent microCompactKeepRecent RoleTool messages
-// stay verbatim. ToolResult.ID and IsError survive untouched so the
-// next LLM request still matches tool_use/tool_result pairs correctly.
-//
-// No LLM call. Always flips s.microCompacted=true so the next compact
-// escalates to full.
-func (a *Agent) microCompact(s *session.Session) {
-	msgs := s.GetMessages()
+// planPrune builds the prune plan for the current history. Split from
+// applyPrune so the ladder can ask "is there free work available?"
+// without committing to it.
+func (a *Agent) planPrune(s *session.Session) session.PrunePlan {
+	if !a.cfg.GetPruneEnabled() {
+		return session.PrunePlan{}
+	}
+	return session.PlanPrune(session.BuildLedger(s.GetMessages(), "", s.PinSet()), a.prunePolicy())
+}
 
-	// Indices of every RoleTool message in order.
-	toolMsgIdx := make([]int, 0)
-	for i, m := range msgs {
-		if m.Role == llm.RoleTool {
-			toolMsgIdx = append(toolMsgIdx, i)
+// applyPrune installs a plan's tombstones. No LLM call, and no ladder
+// state is touched — pruning stays repeatable.
+func (a *Agent) applyPrune(s *session.Session, plan session.PrunePlan) {
+	s.ReplaceMessages(session.ApplyPrune(s.GetMessages(), plan))
+	a.logger.Info("compact.prune",
+		"tombstoned_results", plan.Count(),
+		"freed_bytes", plan.Bytes,
+		"last_turn_input_before", s.LastTurnInputTokens(),
+	)
+	a.emit(event.KindCompactingEnd, func(e *event.Event) {
+		e.CompactingEnd = &event.CompactingEndPayload{Type: "prune", OK: true}
+	})
+}
+
+// pruneContext is the manual /compact entry point for rung 1. Reports
+// whether anything was tombstoned.
+func (a *Agent) pruneContext(s *session.Session) bool {
+	plan := a.planPrune(s)
+	if plan.Empty() {
+		a.logger.Info("compact.prune.skipped", "reason", "nothing_prunable")
+		a.emit(event.KindCompactingEnd, func(e *event.Event) {
+			e.CompactingEnd = &event.CompactingEndPayload{Type: "prune", OK: true}
+		})
+		return false
+	}
+	a.applyPrune(s, plan)
+	return true
+}
+
+// spanBoundary picks the index where the folded span ends and the
+// verbatim tail begins, targeting frac of the transcript.
+//
+// The boundary MUST NOT land on a RoleTool message: a tool result is only
+// well-formed when the assistant tool_use that requested it is still
+// present, and everything before the boundary is about to be deleted.
+// Requiring msgs[end] to be a non-tool message is sufficient — in a
+// well-formed transcript an assistant turn carrying ToolCalls is always
+// immediately followed by the RoleTool message answering them, so any
+// non-tool message at `end` proves the preceding calls were all answered.
+//
+// Returns 0 when no safe boundary leaves a useful tail, which the caller
+// reads as "skip this rung".
+func spanBoundary(msgs []llm.Message, frac float64) int {
+	if len(msgs) < spanCompactMinMessages {
+		return 0
+	}
+	// Leave at least two messages standing, so the tail is a real
+	// working set rather than a single dangling turn.
+	maxEnd := len(msgs) - 2
+	target := int(float64(len(msgs)) * frac)
+	if target > maxEnd {
+		target = maxEnd
+	}
+	for end := target; end > 0; end-- {
+		if msgs[end].Role != llm.RoleTool {
+			return end
 		}
 	}
+	return 0
+}
 
-	// Nothing old enough to elide — record the level transition so the
-	// next compact promotes to full, but leave Messages untouched.
-	if len(toolMsgIdx) <= microCompactKeepRecent {
-		s.MicroCompact(msgs)
-		a.logger.Info("compact.micro.skipped", "tool_messages", len(toolMsgIdx))
+// spanCompact folds the oldest span of the transcript into a brief and
+// splices it in front of the surviving tail. One LLM call, bounded by
+// construction: the summarizer sees only the span, and each tool result
+// inside it is capped at summaryToolResultMaxBytes.
+//
+// Failure is non-fatal and non-advancing — a transport error leaves the
+// session untouched and the flag unset, so the next iteration retries
+// this rung rather than skipping to full compaction on a transient.
+//
+// When no safe span boundary exists the rung escalates immediately
+// rather than marking itself spent for nothing.
+func (a *Agent) spanCompact(ctx context.Context, s *session.Session) {
+	msgs := s.GetMessages()
+	end := spanBoundary(msgs, spanCompactFraction)
+	if end == 0 {
+		a.logger.Info("compact.span.skipped", "reason", "no_safe_boundary", "messages", len(msgs))
+		a.fullCompact(ctx, s)
+		return
+	}
+
+	prompt := buildSpanSummarizationPrompt(msgs[:end])
+	resp, err := a.llm.Complete(ctx, []llm.Message{{Role: llm.RoleUser, Content: prompt}}, nil)
+	if err != nil {
+		a.logger.Warn("compact.span.failed", "err", err)
 		a.emit(event.KindCompactingEnd, func(e *event.Event) {
-			e.CompactingEnd = &event.CompactingEndPayload{Type: "micro", OK: true}
+			e.CompactingEnd = &event.CompactingEndPayload{Type: "span", OK: false, Err: err.Error()}
+		})
+		return
+	}
+	brief := strings.TrimSpace(resp.Content)
+	if brief == "" {
+		a.logger.Warn("compact.span.empty", "model", a.llm.Model())
+		a.emit(event.KindCompactingEnd, func(e *event.Event) {
+			e.CompactingEnd = &event.CompactingEndPayload{Type: "span", OK: false, Err: "empty summary"}
 		})
 		return
 	}
 
-	keep := make(map[int]struct{}, microCompactKeepRecent)
-	for _, idx := range toolMsgIdx[len(toolMsgIdx)-microCompactKeepRecent:] {
-		keep[idx] = struct{}{}
+	header := "[EARLIER CONTEXT FOLDED — the first part of this session was summarized to manage " +
+		"context budget. Everything after this block is the verbatim recent transcript.]\n\n" + brief
+	if pinned := session.RenderPinned(msgs[:end], session.BuildLedger(msgs[:end], "", s.PinSet())); pinned != "" {
+		header += "\n\n" + pinned
 	}
 
-	out := make([]llm.Message, len(msgs))
-	var elidedMessages, elidedResults, elidedBytes int
-	for i, m := range msgs {
-		if m.Role != llm.RoleTool {
-			out[i] = m
-			continue
-		}
-		if _, recent := keep[i]; recent {
-			out[i] = m
-			continue
-		}
-		newResults := make([]*llm.ToolResult, len(m.ToolResults))
-		for j, tr := range m.ToolResults {
-			elidedBytes += len(tr.Content)
-			elidedResults++
-			newResults[j] = &llm.ToolResult{
-				ID:      tr.ID,
-				Content: microCompactPlaceholder,
-				IsError: tr.IsError,
-			}
-		}
-		out[i] = llm.Message{Role: llm.RoleTool, ToolResults: newResults}
-		elidedMessages++
+	tail := msgs[end:]
+	var rebuilt []llm.Message
+	if tail[0].Role == llm.RoleUser {
+		// Merge into the surviving user message rather than emitting a
+		// second one: back-to-back user messages are accepted by some
+		// providers and rejected by others, and there is no reason to
+		// find out which at runtime.
+		merged := tail[0]
+		merged.Content = header + "\n\n" + merged.Content
+		rebuilt = append([]llm.Message{merged}, tail[1:]...)
+	} else {
+		rebuilt = append([]llm.Message{{Role: llm.RoleUser, Content: header}}, tail...)
 	}
 
-	s.MicroCompact(out)
-	a.logger.Info("compact.micro",
-		"elided_tool_messages", elidedMessages,
-		"elided_tool_results", elidedResults,
-		"elided_bytes", elidedBytes,
-		"kept_recent", microCompactKeepRecent,
-		"last_turn_input_after", s.LastTurnInputTokens(),
+	// AddUsage, not RecordTurn: the summarizer's InputTokens describes
+	// the span we just folded, not the size of the prompt the next turn
+	// will send. Feeding it to the compaction gauge would re-trigger the
+	// ladder immediately.
+	s.AddUsage(resp.Usage)
+	s.SpanCompact(rebuilt)
+	a.logger.Info("compact.span",
+		"folded_messages", end,
+		"kept_messages", len(tail),
+		"brief_bytes", len(brief),
+		"summary_in_tokens", resp.Usage.InputTokens,
+		"summary_out_tokens", resp.Usage.OutputTokens,
 	)
 	a.emit(event.KindCompactingEnd, func(e *event.Event) {
-		e.CompactingEnd = &event.CompactingEndPayload{Type: "micro", OK: true}
+		e.CompactingEnd = &event.CompactingEndPayload{Type: "span", OK: true, BriefTokens: resp.Usage.OutputTokens}
 	})
+	a.persistSession()
+}
+
+// spanSummarizationInstructions differs from the full-compaction brief in
+// one load-bearing way: the transcript after the span is NOT gone, so the
+// summary must not claim to be complete working memory. It is a preamble
+// to still-present detail.
+const spanSummarizationInstructions = `You are compressing the EARLY portion of a developer's session with their AI coding assistant. The recent portion of the conversation is still present verbatim and follows your summary — you are writing a preamble to it, not replacing it.
+
+Produce a tight markdown brief with these three sections:
+
+## Original Task
+What the developer asked for at the start.
+
+## Established So Far
+Decisions taken, files touched, approaches ruled out. Bullet list, specific: paths, identifiers, error messages.
+
+## Still Relevant
+Constraints, conventions, or context from this early span that later turns depend on. Bullet list. Omit anything the recent transcript already makes obvious.
+
+Do not describe what the assistant is currently doing — the verbatim transcript that follows covers that. No preamble or commentary outside the three sections.`
+
+// buildSpanSummarizationPrompt renders the folded span for the
+// summarizer, reusing the same flattening as full compaction.
+func buildSpanSummarizationPrompt(span []llm.Message) string {
+	var b strings.Builder
+	b.WriteString(spanSummarizationInstructions)
+	b.WriteString("\n\n---\n\nEARLY CONVERSATION SPAN TO SUMMARIZE:\n\n")
+	for _, m := range span {
+		renderMessageForSummary(&b, m)
+	}
+	return b.String()
 }
 
 // fullCompact summarizes the entire session into a single "context
@@ -292,15 +440,18 @@ func (a *Agent) fullCompact(ctx context.Context, s *session.Session) {
 		return
 	}
 
-	rebuilt := []llm.Message{
-		{
-			Role: llm.RoleUser,
-			Content: "[CONTEXT BRIEF — the session was compacted to manage context budget. " +
-				"The following summary is your working memory; the earlier transcript is gone.]\n\n" +
-				brief +
-				"\n\nProceed with the Next Step described above.",
-		},
+	body := "[CONTEXT BRIEF — the session was compacted to manage context budget. " +
+		"The following summary is your working memory; the earlier transcript is gone.]\n\n" + brief
+	// Pins are the operator's explicit "do not lose this", so they
+	// survive even the rung that discards everything else. Re-injected
+	// verbatim BEFORE the proceed instruction so the model reads them as
+	// standing context rather than as the next action.
+	msgs := s.GetMessages()
+	if pinned := session.RenderPinned(msgs, session.BuildLedger(msgs, "", s.PinSet())); pinned != "" {
+		body += "\n\n" + pinned
 	}
+	body += "\n\nProceed with the Next Step described above."
+	rebuilt := []llm.Message{{Role: llm.RoleUser, Content: body}}
 
 	// Snapshot the pre-compact cumulative so the log still tells us
 	// what we threw away even after FullCompact resets the session's

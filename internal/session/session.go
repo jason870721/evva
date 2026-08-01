@@ -1,6 +1,8 @@
 package session
 
 import (
+	"sort"
+	"sync"
 	"sync/atomic"
 
 	"github.com/johnny1110/evva/pkg/llm"
@@ -13,6 +15,16 @@ import (
 type Session struct {
 	// LLM context payload
 	Messages []llm.Message
+	// msgMu guards ASSIGNMENTS to Messages, not reads of it through the
+	// field or GetMessages — those stay agent-goroutine-owned and
+	// unlocked, as they always were, because the agent loop passes the
+	// live slice straight to the provider on every turn.
+	//
+	// The lock exists for CopyMessages: the /context overlay builds its
+	// ledger from the UI goroutine while the loop may be appending, and
+	// a torn slice header there would panic the TUI rather than merely
+	// report a stale byte count.
+	msgMu sync.RWMutex
 	// Usage is the running sum of every turn's reported token usage in this
 	// session. Compaction is expected to reset Messages but leave Usage as
 	// the running tab of what the user has already paid for.
@@ -31,22 +43,148 @@ type Session struct {
 	// status bar — read it from their own goroutines. Everything else on
 	// the session stays owned by the agent loop.
 	lastTurnInputTokens atomic.Int64
-	// microCompacted: compress tool_use result block only (level-1 compact)
-	microCompacted bool
+	// spanCompacted records that the middle rung of the context ladder
+	// (span compaction — summarize the oldest span in place) has run on
+	// this session, so the next escalation goes full.
+	//
+	// It persists as "micro_compacted" for snapshot compatibility: the
+	// field predates the ladder, when the middle rung was the
+	// placeholder-eliding "micro compact" that CTX-2 replaced with
+	// pruning. Renaming the JSON key would strand every session file
+	// written before v1.17 for no behavioral gain.
+	spanCompacted bool
 	// fullCompact: compress all session message (level-2 compact)
 	fullCompactCount int
+
+	// pins is the set of tool-result IDs the operator has exempted from
+	// every rung of the context ladder. Keyed by ID rather than message
+	// index because compaction and /rewind replace Messages wholesale —
+	// an index-keyed pin would silently start protecting the wrong block.
+	//
+	// Guarded because this is the second field read across goroutines:
+	// the TUI's /context overlay toggles pins from the UI goroutine while
+	// the agent loop plans against them mid-run.
+	pinsMu sync.RWMutex
+	pins   map[string]struct{}
 }
 
 func New() *Session {
 	return &Session{}
 }
 
+// Pin exempts a tool result from pruning, span compaction, and full
+// compaction. Unknown IDs are accepted: a pin set before the result
+// arrives is still a valid intent, and BuildLedger simply won't find a
+// block to mark until it does.
+func (s *Session) Pin(toolID string) {
+	if toolID == "" {
+		return
+	}
+	s.pinsMu.Lock()
+	defer s.pinsMu.Unlock()
+	if s.pins == nil {
+		s.pins = make(map[string]struct{})
+	}
+	s.pins[toolID] = struct{}{}
+}
+
+// Unpin removes a pin. No-op when absent.
+func (s *Session) Unpin(toolID string) {
+	s.pinsMu.Lock()
+	defer s.pinsMu.Unlock()
+	delete(s.pins, toolID)
+}
+
+// TogglePin flips the pin on toolID and reports the resulting state.
+func (s *Session) TogglePin(toolID string) bool {
+	if toolID == "" {
+		return false
+	}
+	s.pinsMu.Lock()
+	defer s.pinsMu.Unlock()
+	if s.pins == nil {
+		s.pins = make(map[string]struct{})
+	}
+	if _, ok := s.pins[toolID]; ok {
+		delete(s.pins, toolID)
+		return false
+	}
+	s.pins[toolID] = struct{}{}
+	return true
+}
+
+// IsPinned reports whether toolID is pinned.
+func (s *Session) IsPinned(toolID string) bool {
+	s.pinsMu.RLock()
+	defer s.pinsMu.RUnlock()
+	_, ok := s.pins[toolID]
+	return ok
+}
+
+// PinSet returns a copy of the pin set for ledger construction. A copy
+// because BuildLedger runs on the agent goroutine while the UI may be
+// toggling.
+func (s *Session) PinSet() map[string]struct{} {
+	s.pinsMu.RLock()
+	defer s.pinsMu.RUnlock()
+	out := make(map[string]struct{}, len(s.pins))
+	for id := range s.pins {
+		out[id] = struct{}{}
+	}
+	return out
+}
+
+// Pins returns the pinned IDs, for snapshot persistence.
+func (s *Session) Pins() []string {
+	s.pinsMu.RLock()
+	defer s.pinsMu.RUnlock()
+	out := make([]string, 0, len(s.pins))
+	for id := range s.pins {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// SetPins replaces the pin set. Used by the resume path to rehydrate a
+// snapshot.
+func (s *Session) SetPins(ids []string) {
+	s.pinsMu.Lock()
+	defer s.pinsMu.Unlock()
+	s.pins = make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id != "" {
+			s.pins[id] = struct{}{}
+		}
+	}
+}
+
+// Ledger builds the block ledger for the current history. systemPrompt
+// is supplied by the caller because the prompt lives on the LLM client,
+// not in Messages — see CategorySystem.
+func (s *Session) Ledger(systemPrompt string) Ledger {
+	return BuildLedger(s.CopyMessages(), systemPrompt, s.PinSet())
+}
+
 func (s *Session) Append(msg llm.Message) {
+	s.msgMu.Lock()
+	defer s.msgMu.Unlock()
 	s.Messages = append(s.Messages, msg)
 }
 
 func (s *Session) GetMessages() []llm.Message {
 	return s.Messages
+}
+
+// CopyMessages returns a shallow copy of the history taken under the
+// write lock. Callers off the agent goroutine — the /context overlay —
+// must use this rather than GetMessages.
+func (s *Session) CopyMessages() []llm.Message {
+	s.msgMu.RLock()
+	defer s.msgMu.RUnlock()
+	out := make([]llm.Message, len(s.Messages))
+	copy(out, s.Messages)
+	return out
 }
 
 // AddUsage folds one usage entry into the cumulative session total only.
@@ -98,19 +236,36 @@ func (s *Session) SetUsage(u llm.Usage) {
 	s.Usage = u
 }
 
-// SetCompactState rehydrates the micro/full compaction counters. Used by
+// SetCompactState rehydrates the span/full compaction counters. Used by
 // session.FromSnapshot to round-trip persisted state; not for live use.
-func (s *Session) SetCompactState(micro bool, fullCount int) {
-	s.microCompacted = micro
+func (s *Session) SetCompactState(span bool, fullCount int) {
+	s.spanCompacted = span
 	s.fullCompactCount = fullCount
 }
 
-func (s *Session) IsMicroCompacted() bool {
-	return s.microCompacted
+// IsSpanCompacted reports whether the ladder's middle rung has already
+// run. The prune rung deliberately does NOT set it: pruning is free and
+// re-runnable, so gating it behind a one-shot flag would throw away the
+// cheapest tier after a single use.
+func (s *Session) IsSpanCompacted() bool {
+	return s.spanCompacted
 }
 
-func (s *Session) MicroCompact(messages []llm.Message) {
-	s.microCompacted = true
+// SpanCompact installs the post-span-compaction history and marks the
+// middle rung spent.
+func (s *Session) SpanCompact(messages []llm.Message) {
+	s.msgMu.Lock()
+	defer s.msgMu.Unlock()
+	s.spanCompacted = true
+	s.Messages = messages
+}
+
+// ReplaceMessages swaps the history without touching any ladder state.
+// This is the prune rung's setter — pruning rewrites content in place
+// and must stay repeatable as the session grows new material to prune.
+func (s *Session) ReplaceMessages(messages []llm.Message) {
+	s.msgMu.Lock()
+	defer s.msgMu.Unlock()
 	s.Messages = messages
 }
 
@@ -127,7 +282,9 @@ func (s *Session) MicroCompact(messages []llm.Message) {
 // the numbers up. The compaction caller is responsible for logging
 // the pre-reset totals before invoking this — they're gone after.
 func (s *Session) FullCompact(messages []llm.Message, briefTokens int) {
-	s.microCompacted = false
+	s.msgMu.Lock()
+	defer s.msgMu.Unlock()
+	s.spanCompacted = false
 	s.fullCompactCount++
 	s.Messages = messages
 	s.lastTurnInputTokens.Store(int64(briefTokens))

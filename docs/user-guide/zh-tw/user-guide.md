@@ -11,6 +11,7 @@
   - [/effort — 思考強度](#effort--思考強度)
   - [/resume — 還原先前的工作階段](#resume--還原先前的工作階段)
   - [/rewind — 時光倒帶](#rewind--時光倒帶)
+  - [/context 與 /compact — 上下文階梯](#context-與-compact--上下文階梯)
   - [內建技能](#內建技能)
 - [3. 快捷鍵](#3-快捷鍵)
 - [4. Yank 模式 — 從對話紀錄複製](#4-yank-模式--從對話紀錄複製)
@@ -103,7 +104,8 @@
 | `/profile` | 切換代理人格（evva、nono…）— **會清除對話歷史** |
 | `/output-style` | 切換說話風格（default / Explanatory / Learning / 自訂）— **會清除對話歷史** |
 | `/effort` | 設定思考強度（low / medium / high / ultra） |
-| `/compact` | 壓縮對話紀錄 — 可選 micro 或 full |
+| `/compact` | 壓縮對話紀錄 — 選擇上下文階梯的其中一階 |
+| `/context` | 檢視 prompt 的重量分佈 — 可釘選區塊加以保護 |
 | `/resume` | 還原此工作目錄下先前的工作階段 |
 | `/rewind` | 回復先前的回合 — 還原程式碼、對話，或兩者 |
 | `/redactions` | 本次工作階段中被遮蔽的密鑰 — 按 `r` 顯示原值 |
@@ -414,6 +416,68 @@ Respond like a 17th-century pirate captain. Refer to the codebase as "the ship".
 **儲存與保留**
 
 檢查點存放於 `<workdir>/.evva/checkpoints/<session-id>/`——屬於 evva 自有的執行期狀態，與 `.evva/plans`、`.evva/worktrees` 同類。**請把 `.evva/`（或至少 `.evva/checkpoints/`）加入你的 `.gitignore`。** 每個工作階段保留最近的 `checkpoint_max_per_session` 個檢查點（預設 50；較舊的會被清除，其獨有的前像也會被回收），且跨工作階段只會保留有限數量的命名空間。此功能**預設關閉（opt-in）**（`enable_checkpoints`，預設 off）——請見本節開頭的說明。
+
+### /context 與 /compact — 上下文階梯
+
+每一回合都會把整段對話送給模型，所以長時間的工作階段遲早會撐爆視窗。evva 用**三階梯度**處理這件事，最便宜的先上，而且只有在前一階確實沒能把 prompt 壓回預算內時，才會往上爬：
+
+| 階 | 代價 | 做什麼 | 失去什麼 |
+| --- | --- | --- | --- |
+| **Prune（修剪）** | 免費，不呼叫 LLM | 把又大又舊的工具結果換成一行墓碑 | 沒有永久損失 — 墓碑會說明怎麼取回 |
+| **Span（區段）** | 一次 LLM 呼叫 | 只摘要**最舊的那一半**，近期回合保持原文 | 工作階段早期的細節 |
+| **Full（全量）** | 一次 LLM 呼叫 | 把整段對話摘要成一份簡報 | 整份對話紀錄 |
+
+當 prompt 超過 `auto_compact_threshold`（預設為模型視窗的 0.8）時，階梯會自動啟動。`/compact` 則讓你手動觸發任何一階。
+
+**墓碑是指令，不是墓誌銘。** 被修剪的結果會被換成模型可以據此行動的文字：
+
+```
+[pruned to save context: read loop.go result from turn 12, 41.2KB — read the file again if you still need it]
+```
+
+它說明了被移除的是什麼、原本多大（讓模型自行判斷值不值得取回），以及取回它的確切動作。這正是修剪之所以安全的原因：模型永遠不必猜測某段內容是否曾經存在。
+
+**永遠不會被修剪的東西：**
+
+- **錯誤結果。** 重跑一個失敗的指令有可能第二次就成功，反而抹掉了證據 — 所以錯誤訊息是唯一真正無法靠重跑取回的工具輸出。
+- **近期視窗** — 最近 3 個回合，外加不論回合數的最後 12 筆存活結果，這樣即使某一回合一次展開 40 個平行呼叫，模型仍有立足點。
+- **低於大小門檻的內容**（2KB），在這個尺度下墓碑犧牲的清晰度比省下的位元組還多。
+- **被釘選的區塊**（見下）。
+
+**`/context`** 顯示重量究竟落在哪裡 — 分類統計（系統提示 / 你的回合 / 模型輸出 / 檔案讀取 / 其他工具輸出）以及最重的個別區塊：
+
+```
+▰ /CONTEXT — where the prompt's weight sits
+prompt · 120,000 / 200,000 tokens  (60.0% of the window)
+ledger · 64.7KB across 7 turn(s)
+
+  category         bytes   share
+  system          12.0KB   18.5%  persona prompt + tool schemas
+  file            41.0KB   63.4%  file reads · cheapest to recover
+  tool            11.7KB   18.1%  other tool output
+
+    turn  tool      subject                    bytes
+  ▸ 4     read      loop.go                   41.0KB
+    6     bash      go                         8.4KB
+  ◌ 7     grep      func New                   3.0KB
+```
+
+`📌` 代表已釘選，`✘` 代表失敗，`◌` 代表已被修剪。
+
+**釘選。** 選中一個區塊後按 `Space` 即可釘選。被釘選的區塊不受任何一階影響 — 而且當全量壓縮丟棄整份對話紀錄時，釘選的內容會在簡報之後原文重新注入。適合用在整個任務所繫的那一個檔案或指令輸出上。只有工具結果可以釘選；你自己的回合本來就不會被修剪。釘選狀態可以跨 `/resume` 保留。
+
+調校：
+
+```yaml
+auto_compact_threshold: 0.8   # 觸發階梯的視窗佔比
+context_prune: true           # opt-out；false 會關閉免費的那一階
+context_span: true            # opt-out；false 會讓階梯退化成 prune → full
+prune_min_bytes: 2048         # 小於此值的結果永不加墓碑
+prune_keep_turns: 3           # 永不修剪的近期回合數
+prune_keep_results: 12        # 不論回合數，保留的末端存活結果數
+```
+
+兩個階梯開關都是 opt-*out*，理由和密鑰遮蔽相同：一個安安靜靜待在預算內的工作階段，勝過一個撞上全量壓縮、把對話紀錄整份弄丟的工作階段。三個整數把 `0` 視為「用預設值」，所以只填一半的設定區塊會退化成安全值，而不是變成一份把對話從模型腳下修剪掉的策略。
 
 ### 內建技能
 
@@ -1106,6 +1170,14 @@ max_iterations: 30
 max_tokens: 4096
 auto_compact_threshold: 0.8
 display_thinking: true
+
+# Context ladder (prune → span → full). Both rungs are opt-OUT.
+# The three integers treat 0 as "use the default".
+context_prune: true
+context_span: true
+prune_min_bytes: 2048
+prune_keep_turns: 3
+prune_keep_results: 12
 
 # Default model used at startup (overwritten by /model swap)
 default_provider: deepseek

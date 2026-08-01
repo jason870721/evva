@@ -45,19 +45,42 @@ func TestCompactKeyAndModal(t *testing.T) {
 
 func TestCompactUpDown(t *testing.T) {
 	c := &Compact{choices: compactChoices}
+	last := len(compactChoices) - 1
+
 	if close, _ := c.Update(tea.KeyMsg{Type: tea.KeyDown}); close {
 		t.Fatal("Down should not close")
 	}
 	if c.sel != 1 {
 		t.Errorf("Down should advance sel to 1, got %d", c.sel)
 	}
-	c.Update(tea.KeyMsg{Type: tea.KeyDown}) // clamps at len-1
-	if c.sel != 1 {
-		t.Errorf("Down past last should stay at 1, got %d", c.sel)
+	// Walk past the end; selection must clamp at the last rung rather
+	// than wrap or run off.
+	for i := 0; i < len(compactChoices)+2; i++ {
+		c.Update(tea.KeyMsg{Type: tea.KeyDown})
 	}
-	c.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if c.sel != last {
+		t.Errorf("Down past last should clamp at %d, got %d", last, c.sel)
+	}
+	for i := 0; i < len(compactChoices)+2; i++ {
+		c.Update(tea.KeyMsg{Type: tea.KeyUp})
+	}
 	if c.sel != 0 {
-		t.Errorf("Up should revert to 0, got %d", c.sel)
+		t.Errorf("Up past first should clamp at 0, got %d", c.sel)
+	}
+}
+
+// TestCompactChoicesAreTheLadder locks the chooser to the auto path's
+// escalation order — a user picking manually should see the same rungs,
+// cheapest first, that the agent would climb on its own.
+func TestCompactChoicesAreTheLadder(t *testing.T) {
+	want := []string{"prune", "span", "full"}
+	if len(compactChoices) != len(want) {
+		t.Fatalf("chooser has %d rows, want %d", len(compactChoices), len(want))
+	}
+	for i, kind := range want {
+		if compactChoices[i].Kind != kind {
+			t.Errorf("row %d: got kind %q, want %q", i, compactChoices[i].Kind, kind)
+		}
 	}
 }
 

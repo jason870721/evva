@@ -66,9 +66,11 @@ opening new fronts.
 > **✅ Horizon 1 closed 2026-08-01.** All four waves are built. The minors
 > drifted from the tentative column — MCP server mode was pulled forward from
 > W11 and took v1.13, pushing SEC to v1.14, SBX to v1.15 and EVAL to v1.16 —
-> but nothing was dropped. The next wave necessarily comes from H2 or the
-> batch-2 set, which means it necessarily starts with an audit pass (§1 step
-> 2); see overview.md §2 for what the three completed audits actually cost.
+> but nothing was dropped. Every wave from here comes from H2 or the batch-2
+> set, which means every wave from here starts with an audit pass (§1 step 2);
+> see overview.md §2 for what the four completed audits actually cost. The
+> first post-H1 pickup was **W5 (context engine, v1.17)**, and its audit
+> deleted two of seven work items outright.
 
 | Wave | Tentative minor | Scope (tickets) | PRDs | Theme |
 |---|---|---|---|---|
@@ -81,12 +83,17 @@ opening new fronts.
 
 The solo terminal experience becomes the best-in-class reason to choose evva.
 
+> **▶ Horizon 2 started 2026-08-01** with W5. The tentative minors below have
+> drifted by two: H1 ran long (MCP pulled forward, then SBX and EVAL), so W5
+> took **v1.17** rather than v1.15. Treat the remaining numbers as ordinals,
+> as §1 already says — W6 claims whatever minor is free when it is picked up.
+
 | Wave | Tentative minor | Scope (tickets) | PRDs | Theme |
 |---|---|---|---|---|
-| **W5 — Context engine** | v1.15 | CTX-1..7: tool-result pruning, dedup read cache, microcompaction, context meter + `/context`, pinning | 🆕 [context-engine](PRD/context-engine.md) | T1 |
-| **W6 — Memory intelligence** | v1.16 | MEM-1..7: embedding recall over the typed memory store, `memory_search`, cross-project scope, dream integration | 🆕 [memory-semantic-recall](PRD/memory-semantic-recall.md) | T1 |
-| **W7 — Session tree** | v1.17 | SES-1..7: `evva resume` picker, fork-from-checkpoint, `/sessions`, self-contained HTML transcript export | 🆕 [session-tree](PRD/session-tree.md) | T1 |
-| **W8 — Steering v2** | v1.18 | STE-1..6: interrupt-grade steering (cancel in-flight LLM call / running tool and fold the user in), priority lanes | 🆕 [steering-v2](PRD/steering-v2.md) | T1 |
+| **W5 — Context engine** ✅ | v1.17 (was v1.15) | CTX-1..7: prune-with-tombstones, span compaction, `/context` overlay, pinning. Read dedup and the status-bar gauge turned out to be **already shipped** — see the PRD's §0 audit record | 🆕 [context-engine](PRD/context-engine.md) | T1 |
+| **W6 — Memory intelligence** | v1.18 | MEM-1..7: embedding recall over the typed memory store, `memory_search`, cross-project scope, dream integration | 🆕 [memory-semantic-recall](PRD/memory-semantic-recall.md) | T1 |
+| **W7 — Session tree** | v1.19 | SES-1..7: `evva resume` picker, fork-from-checkpoint, `/sessions`, self-contained HTML transcript export | 🆕 [session-tree](PRD/session-tree.md) | T1 |
+| **W8 — Steering v2** | v1.20 | STE-1..6: interrupt-grade steering (cancel in-flight LLM call / running tool and fold the user in), priority lanes | 🆕 [steering-v2](PRD/steering-v2.md) | T1 |
 
 ### Horizon 3 — 2027 H1: model & modality intelligence + interop
 
@@ -314,12 +321,18 @@ aware of each other so it's built once, not twice.
 - **[overview.md](overview.md)** = ship-status truth, refreshed per release
   as already established. The **32** concept PRDs from these two planning
   passes (16 backbone W1–W19 + 16 batch-2 W20–W35) are tracked there as one
-  line item, not 32 rows, until they claim waves.
+  line item, not 32 rows, until they claim waves. Two have — secret-redaction
+  (v1.14) and context-engine (v1.17) — leaving 30.
 - **`CLAUDE.md` wave map** = version truth. A wave's row is appended only at
   pickup, never by this document.
 - **Concept → build gate:** no concept PRD may be handed to an implementing
   agent without the audit pass (§1 step 2). Concept PRDs deliberately cite
-  packages and shipped behaviors, not line numbers.
+  packages and shipped behaviors, not line numbers. Four passes have now run
+  (SEC, SBX, EVAL, CTX) and the gate has changed the design every time;
+  overview.md §2 tabulates what each one cost. **CTX is the case to cite if
+  the gate is ever questioned** — two of its seven work items were already
+  shipped, and its headline term collided with live code that meant the
+  opposite.
 
 ---
 

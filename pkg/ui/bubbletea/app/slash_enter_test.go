@@ -61,13 +61,12 @@ func TestSlashEnterDispatchesHighlighted(t *testing.T) {
 
 	a.input.SetValue("/c")
 	cat := slash.Catalog(a.controller)
-	for i := 0; i < 3; i++ {
-		if !a.slash.MoveSel("/c", cat, +1) {
-			t.Fatalf("MoveSel(+1) #%d should engage", i+1)
+	// Walk down to /clear rather than assuming its index: "/c" matches a
+	// handful of builtins and the set grows as commands are added.
+	for i := 0; a.slash.Complete("/c", cat) != "/clear"; i++ {
+		if i > 20 || !a.slash.MoveSel("/c", cat, +1) {
+			t.Fatalf("never reached /clear walking the /c matches (stopped at %q)", a.slash.Complete("/c", cat))
 		}
-	}
-	if got := a.slash.Complete("/c", cat); got != "/clear" {
-		t.Fatalf("precondition: selection should rest on /clear, got %q", got)
 	}
 
 	a.handleKey(enterKey)

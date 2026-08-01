@@ -110,25 +110,35 @@ func TestPanelHiddenWhenOverlayOpen(t *testing.T) {
 func TestPanelMoveSel(t *testing.T) {
 	p := New()
 	catalog := Catalog(nil)
-	// "/c" matches /compact, /config, /clear → 3 entries.
+	// "/c" matches several builtins (/compact, /config, /context, /cost,
+	// /clear). The exact count is not the contract — walking to the end
+	// and stopping there is, so the test derives the length instead of
+	// hard-coding it and breaking every time a command is added.
 	if !p.MoveSel("/c", catalog, +1) {
 		t.Fatal("MoveSel(+1) should engage from idx 0")
 	}
 	if got := p.Selected(); got != 1 {
 		t.Errorf("after MoveSel(+1), Selected = %d, want 1", got)
 	}
-	if !p.MoveSel("/c", catalog, +1) {
-		t.Fatal("MoveSel(+1) again should engage")
+
+	const guard = 100
+	steps := 1
+	for p.MoveSel("/c", catalog, +1) {
+		steps++
+		if steps > guard {
+			t.Fatal("MoveSel never stopped advancing — it should clamp at the last match")
+		}
 	}
-	if !p.MoveSel("/c", catalog, +1) {
-		// Already at last; should report no movement.
-		// But Visible logic might still return true... let me check:
-		// Actually MoveSel returns whether selected CHANGED.
+	last := p.Selected()
+	if last != steps {
+		t.Errorf("Selected after walking to the end = %d, want %d", last, steps)
 	}
-	// Hitting +1 past the end should be a no-op.
-	prev := p.Selected()
+	// Hitting +1 past the end is a no-op.
 	if p.MoveSel("/c", catalog, +1) {
-		t.Errorf("MoveSel past last entry should return false (prev=%d)", prev)
+		t.Errorf("MoveSel past last entry should return false (prev=%d)", last)
+	}
+	if got := p.Selected(); got != last {
+		t.Errorf("a refused MoveSel moved the selection: %d → %d", last, got)
 	}
 }
 

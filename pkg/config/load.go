@@ -236,6 +236,20 @@ func Load(opts LoadOptions) (*Config, error) {
 		redaction = *fileCfg.Redaction
 	}
 
+	// Both context-ladder rungs are opt-OUT for the same reason. The int
+	// tunables stay at whatever the file says — including 0, which
+	// PrunePolicy.normalized reads as "use the default" so a partial block
+	// degrades to safe values rather than to a policy that prunes the
+	// session out from under the model.
+	contextPrune := true
+	if fileCfg.ContextPrune != nil {
+		contextPrune = *fileCfg.ContextPrune
+	}
+	contextSpan := true
+	if fileCfg.ContextSpan != nil {
+		contextSpan = *fileCfg.ContextSpan
+	}
+
 	// Sandboxing is opt-in (default off) and validated here rather than at
 	// session start: a typo'd runtime should be a startup error, not a
 	// surprise the first time a subagent asks for isolation:"sandbox". The
@@ -329,6 +343,11 @@ func Load(opts LoadOptions) (*Config, error) {
 		Redaction:               redaction,
 		RedactionAllow:          fileCfg.RedactionAllow,
 		RedactionDisable:        fileCfg.RedactionDisable,
+		ContextPrune:            contextPrune,
+		ContextSpan:             contextSpan,
+		PruneMinBytes:           fileCfg.PruneMinBytes,
+		PruneKeepTurns:          fileCfg.PruneKeepTurns,
+		PruneKeepResults:        fileCfg.PruneKeepResults,
 		SandboxRuntime:          sandboxRuntime,
 		SandboxImage:            strings.TrimSpace(fileCfg.SandboxImage),
 		SandboxNetwork:          sandboxNetwork,

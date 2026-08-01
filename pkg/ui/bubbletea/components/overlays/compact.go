@@ -19,17 +19,17 @@ import (
 
 // CompactChoice is one row in the chooser.
 type CompactChoice struct {
-	Kind  string // "micro" | "full" — value passed to Controller.Compact
+	Kind  string // "prune" | "span" | "full" — value passed to Controller.Compact
 	Label string
 	Desc  string
 }
 
-// compactChoices is the canonical option list. Micro first because
-// it's instant and cheap; Full sits below because the LLM call is
-// more expensive.
+// compactChoices lists the context ladder's three rungs in the order the
+// auto path escalates through them: cheapest and least lossy first.
 var compactChoices = []CompactChoice{
-	{Kind: "micro", Label: "Micro", Desc: "elide older tool results · instant, no LLM call"},
-	{Kind: "full", Label: "Full", Desc: "ask the LLM to summarize the conversation · ~5s, replaces history with a brief"},
+	{Kind: "prune", Label: "Prune", Desc: "tombstone big old tool results · instant, no LLM call, recoverable"},
+	{Kind: "span", Label: "Span", Desc: "summarize the oldest half · one LLM call, recent turns stay verbatim"},
+	{Kind: "full", Label: "Full", Desc: "summarize everything · ~5s, replaces the whole history with a brief"},
 }
 
 // CompactDoneMsg signals the user-facing outcome of a manual
