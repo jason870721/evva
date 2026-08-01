@@ -1215,6 +1215,8 @@ enable_auto_memory: true     # 記憶指引 + MEMORY.md 索引 + 寫入豁免 + 
 enable_memory_recall: true   # 每回合相關性側查詢（成本開關；設為 false 只保留索引）
 memory_recall_model: ""      # 留空 = 當前供應商中較便宜的模型（anthropic→sonnet、deepseek→flash、openai→gpt-5.4-mini、glm→glm-4.6 @ medium；ollama→當前模型+effort）
 enable_auto_dream: false     # 背景「做夢」：閒置時整併/修剪/重建記憶索引（預設關閉；真實但罕見的 token 成本）
+embedding_provider: ""       # "" = 關鍵字記憶搜尋（預設）| ollama（本機、私密）| openai（雲端 —— 會把記憶內容送出機器）
+embedding_model: ""          # 留空 = 該後端的預設（ollama→nomic-embed-text，openai→text-embedding-3-small）
 auto_dream_model: ""         # 留空 = 與召回相同的便宜 per-provider 預設（auto_dream_min_hours: 24、auto_dream_min_sessions: 5 可調整閘門）
 
 # 倉庫地圖（在工作階段開始時注入的 LSP 程式碼庫概覽；僅主代理）
@@ -1260,6 +1262,18 @@ evva 在 `~/.evva/memory/` 維護單一全域、以檔案為基礎的記憶。�
   `enable_memory_recall: false` 可只保留索引而略過此額外呼叫。預設使用當前供應商中
   較便宜的模型——Anthropic → Sonnet、DeepSeek → v4-flash、OpenAI → gpt-5.4-mini
   （皆為 medium effort）；Ollama 則沿用當前模型與 effort——亦可用 `memory_recall_model` 指定特定模型。
+- **主動搜尋（`memory_search`）**：召回是**推**的 —— evva 在你的回合開始時決定要浮出什麼。`memory_search` 則是**拉**：當它在任務進行到一半才意識到需要某個沒被給到的東西（「我們之前決定 PR 要怎麼開？」），它可以自己去找。你不會直接呼叫這個工具，它是給代理用的。
+- **語意搜尋（opt-in）**：設定 `embedding_provider` 之後，記憶內容會被建成向量索引，搜尋改為依語意比對 —— 查「部署流程」也能找到標題是「CI release flow」的記憶。沒設定時搜尋仍可用，只是退回關鍵字比對，而且結果會註明這件事，讓 evva 知道可能存在一則措辭不同、它沒找到的筆記。
+
+  ```yaml
+  embedding_provider: ollama      # ""（關閉，預設）| ollama | openai
+  embedding_model: ""             # "" = 該後端的預設模型
+  ```
+
+  **這是記憶相關設定中唯一預設關閉的，而且是刻意的。** 打開它意味著要嘛花錢呼叫 API，要嘛 —— 選 `openai` 的話 —— **把你的記憶內容送給第三方**。`ollama` 全部留在本機且不需要 API key：`ollama pull nomic-embed-text` 然後設 `embedding_provider: ollama` 即可。
+
+  向量快取放在 `~/.evva/memory/.index/`。它會增量重建（只處理有變動的部分）、在做夢之後刷新，而且是可拋棄的 —— 刪掉它會自己重建。第一次的冷啟建索引在背景進行，所以不會卡住啟動；在它完成之前的搜尋會走關鍵字模式。
+- **來源標記（provenance）**：新寫入的記憶會記錄一行 `origin`，標明它是在哪個專案寫下的。記憶庫是跨專案共用的 —— 這正是重點，在某個 repo 學到的教訓在另一個 repo 也拿得到 —— 而 origin 就是讓後續工作階段能分辨「**這個**專案的建置慣例」和「別的專案的慣例」的依據。v1.18 之前寫的記憶沒有 origin，會被視為「來源不明」。
 - **新鮮度**：召回時超過一天的記憶會在前面附上其年齡與「在當作事實前先對照現有
   程式碼驗證」的提醒。
 - **背景整併（「做夢」）**：設定 `enable_auto_dream: true`（預設關閉）後，當你閒置

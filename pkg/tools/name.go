@@ -56,9 +56,14 @@ const (
 	WF_TASK_LIST   ToolName = "wf_task_list"
 	WF_TASK_GET    ToolName = "wf_task_get"
 
-	// Auto-memory has no dedicated tool: the model writes typed memory files
-	// directly with write/edit, auto-allowed inside <APP_HOME>/memory/ by the
-	// permission carve-out (pkg/permission.IsAutoMemPath). See internal/memdir.
+	// Auto-memory WRITES have no dedicated tool: the model writes typed memory
+	// files directly with write/edit, auto-allowed inside <APP_HOME>/memory/ by
+	// the permission carve-out (pkg/permission.IsAutoMemPath). See internal/memdir.
+	//
+	// Reads have one. Per-turn recall is PUSH-only — the agent picks what to
+	// surface at turn start — so before this tool the model had no way to ask
+	// for a memory it realized it needed mid-run except by guessing a filename.
+	MEMORY_SEARCH ToolName = "memory_search"
 )
 
 // Deferred tools — name-only until loaded with TOOL_SEARCH. ================

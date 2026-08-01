@@ -4,6 +4,7 @@ import (
 	"github.com/johnny1110/evva/internal/repomap"
 	configtool "github.com/johnny1110/evva/internal/tools/config"
 	"github.com/johnny1110/evva/internal/tools/dev"
+	"github.com/johnny1110/evva/internal/tools/memory"
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/internal/tools/ux"
@@ -24,8 +25,8 @@ import (
 	"github.com/johnny1110/evva/pkg/tools/structured"
 	"github.com/johnny1110/evva/pkg/tools/todo"
 	"github.com/johnny1110/evva/pkg/tools/util"
-	"github.com/johnny1110/evva/pkg/tools/workflow"
 	"github.com/johnny1110/evva/pkg/tools/web"
+	"github.com/johnny1110/evva/pkg/tools/workflow"
 	pubtoolset "github.com/johnny1110/evva/pkg/toolset"
 )
 
@@ -114,6 +115,10 @@ func init() {
 	r.MustRegister(tools.TOOL_SEARCH, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)
 		return meta.NewToolSearch(ts.DeferredLookup), nil
+	})
+	r.MustRegister(tools.MEMORY_SEARCH, func(s tools.State) (tools.Tool, error) {
+		ts := s.(*ToolState)
+		return memory.NewSearch(ts.MemorySearcher, ts.MemoryOrigin), nil
 	})
 	r.MustRegister(tools.SKILL, func(s tools.State) (tools.Tool, error) {
 		ts := s.(*ToolState)

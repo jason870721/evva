@@ -2,6 +2,21 @@ package memdir
 
 import "strings"
 
+// OriginKey is the frontmatter key recording which project a memory was
+// written in.
+//
+// The store is deliberately global — one directory, no per-project keying
+// (see memdirpaths.go) — which is what makes a lesson learned in one repo
+// reachable from another. The cost of that choice is that nothing said
+// where a memory came from, so "this project's conventions" and "some other
+// project's conventions" were indistinguishable once written down. Origin
+// closes that without partitioning the store.
+//
+// Absent on every file written before v1.18; ParseFrontmatter yields "" for
+// a missing key, and every consumer treats that as "unknown origin" rather
+// than as a mismatch.
+const OriginKey = "origin"
+
 // ParseFrontmatter splits a YAML-ish frontmatter block from a markdown body.
 //
 // A memory file may open with a block delimited by a `---` line on each side:

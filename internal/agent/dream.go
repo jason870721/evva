@@ -135,6 +135,24 @@ func (a *Agent) runDream(memDir string, prior time.Time, sessions int) {
 
 	summary, files := sink.result()
 	a.logger.Info("dream.done", "files", files, "summary", truncateSummary(summary, 200))
+
+	// Consolidation is the one thing that rewrites memory bodies wholesale —
+	// merging two files into one, pruning a third — so the vector index is
+	// guaranteed stale afterwards. Re-syncing here means the change is
+	// reflected before the next search rather than at the next session open.
+	//
+	// Runs inline: this is already a background goroutine, and the index must
+	// settle before anything reads it. Failure is logged, not surfaced —
+	// searches keep working against the pre-dream rows, and the next session
+	// open re-syncs anyway.
+	if s := a.memorySearcher; s != nil && s.HasEmbedder() {
+		if res, err := s.Sync(context.Background()); err != nil {
+			a.logger.Warn("dream.reindex_failed", "err", err)
+		} else if res.Embedded > 0 || res.Dropped > 0 {
+			a.logger.Info("dream.reindex", "embedded", res.Embedded, "dropped", res.Dropped, "total", res.Total)
+		}
+	}
+
 	a.surfaceDreamDone(files)
 }
 

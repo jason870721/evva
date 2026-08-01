@@ -85,6 +85,17 @@ type PromptContext struct {
 	// model isn't told about a memory system it can't use this session.
 	EnableAutoMemory bool
 
+	// MemoryOrigin is the provenance label written into each new memory's
+	// frontmatter, identifying the project it was recorded in.
+	//
+	// Passed in rather than derived here because sysprompt does not import
+	// internal/memdir (the one-way dependency arrow this package documents
+	// elsewhere) — the agent computes it with the same key function that
+	// names session storage, so the two always agree. Empty suppresses the
+	// origin line entirely, which is what a session with no resolvable
+	// workdir should produce.
+	MemoryOrigin string
+
 	// EnableDynamicWorkflow swaps the multi-step-work protocol: true renders
 	// the dynamic-workflow board guidance (wf_task_* + engine dispatch) in
 	// place of the todo_write protocol, matching the tool swap the Main

@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 
 	"github.com/johnny1110/evva/internal/question"
+	"github.com/johnny1110/evva/internal/tools/memory"
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/pkg/config"
@@ -66,10 +67,15 @@ type ToolState struct {
 	deferredLookup     meta.DeferredLookup
 	planController     mode.PlanModeController
 	worktreeController mode.WorktreeController
-	readTracker        *fs.ReadTracker
-	checkpointSink     fs.CheckpointSink
-	lspSyncSink        fs.LSPSyncSink
-	wakeupQueue        *meta.WakeupQueue
+	// memorySearcher backs memory_search. Nil for subagents and whenever
+	// auto-memory is off — the tool then reports memory as unavailable
+	// rather than erroring, since neither is a fault condition.
+	memorySearcher memory.Provider
+	memoryOrigin   string
+	readTracker    *fs.ReadTracker
+	checkpointSink fs.CheckpointSink
+	lspSyncSink    fs.LSPSyncSink
+	wakeupQueue    *meta.WakeupQueue
 	// userPromptQueue carries prompts the user typed while a Run was
 	// already in flight. The agent loop drains it between iterations
 	// so the conversation stays well-formed (no orphaned tool_calls).
@@ -240,6 +246,36 @@ func (s *ToolState) SubagentSpawner() meta.SubagentSpawner {
 // struct, so the *Agent itself satisfies meta.SubagentSpawner.
 func (s *ToolState) SetSubagentSpawner(sp meta.SubagentSpawner) {
 	s.subagentSpawner = sp
+}
+
+// MemorySearcher returns the currently-installed memory searcher, or nil.
+// Read through by the memory_search tool at Execute time.
+func (s *ToolState) MemorySearcher() memory.Provider {
+	// A nil interface holding a nil concrete pointer would pass a != nil
+	// check in the tool and then panic on first use, so normalize here —
+	// this is exactly the case that arises when the agent installs a
+	// (*recall.Searcher)(nil) because auto-memory is off.
+	if s == nil || s.memorySearcher == nil {
+		return nil
+	}
+	return s.memorySearcher
+}
+
+// MemoryOrigin returns the current project's provenance label, used by
+// memory_search's scope:"project" filter. Empty when unknown.
+func (s *ToolState) MemoryOrigin() string {
+	if s == nil {
+		return ""
+	}
+	return s.memoryOrigin
+}
+
+// SetMemorySearcher installs the searcher and the project's origin label.
+// The agent layer calls this once after construction; subagents leave it
+// unset.
+func (s *ToolState) SetMemorySearcher(p memory.Provider, origin string) {
+	s.memorySearcher = p
+	s.memoryOrigin = origin
 }
 
 // DeferredLookup returns the currently-installed lookup for TOOL_SEARCH,

@@ -50,7 +50,7 @@ func (a *Agent) runMemoryRecall(ctx context.Context, query string) string {
 		return ""
 	}
 	surfaced := a.surfacedMemoryPaths(dir)
-	headers := recall.FindRelevant(ctx, client, model, query, dir, a.recentToolNames(), surfaced)
+	headers := recall.FindRelevant(ctx, client, model, query, dir, a.recentToolNames(), surfaced, a.memorySearcher)
 	if len(headers) == 0 {
 		return ""
 	}

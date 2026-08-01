@@ -15,7 +15,6 @@ import (
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
 	"github.com/johnny1110/evva/internal/swarm/bus"
 	"github.com/johnny1110/evva/internal/swarm/store"
-	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/pkg/agent"
 	"github.com/johnny1110/evva/pkg/config"
 	"github.com/johnny1110/evva/pkg/constant"
@@ -25,6 +24,7 @@ import (
 	"github.com/johnny1110/evva/pkg/skill"
 	"github.com/johnny1110/evva/pkg/tools"
 	"github.com/johnny1110/evva/pkg/tools/alarm"
+	"github.com/johnny1110/evva/pkg/worktree"
 )
 
 // SpacedEvent tags an agent event with the space it came from. AgentID is
@@ -109,7 +109,7 @@ type SwarmSpace struct {
 	// roster column, and teardown all read it. Absent entry = that member
 	// works in the shared space workdir (the pre-SWT behavior). Lazily
 	// allocated in constructMember.
-	worktrees map[string]mode.WorktreeSession
+	worktrees map[string]worktree.Session
 	// sandboxes holds the release func for each member running inside a
 	// container (SBX), keyed by member name. Calling it stops the container
 	// and unbinds it from the sandbox registry. Absent entry = that member's
@@ -235,7 +235,7 @@ func NewSpace(id string, m agentdef.Manifest, loaded []agentdef.Loaded, ts ToolS
 	// and per-member `worktree: off` is the escape hatch for mixed teams.
 	sp.teamIsolated = wantsWorktrees(m, loaded)
 	if sp.teamIsolated {
-		if err := mode.PreflightWorktreeRepo(ctx, sp.Workdir); err != nil {
+		if err := worktree.Preflight(ctx, sp.Workdir); err != nil {
 			sp.Shutdown()
 			return nil, fmt.Errorf("swarm: space %q: worktree isolation is enabled but %s at %s (set worktree: \"off\" per member, or drop settings.worktree_isolation)", id, err, sp.Workdir)
 		}
@@ -463,7 +463,7 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 	// asking for isolation means.
 	sandboxed := ld.Role != agentdef.RoleLeader && agentdef.ResolveSandbox(sp.settings.Sandbox, ld.Sandbox)
 	if ld.Role != agentdef.RoleLeader && (sandboxed || agentdef.ResolveWorktree(sp.settings.WorktreeIsolation, ld.Worktree)) {
-		sess, err := mode.ProvisionMemberWorktree(sp.ctx, sp.Workdir, memberWorktreeSlug(name))
+		sess, err := worktree.Provision(sp.ctx, sp.Workdir, memberWorktreeSlug(name))
 		if err != nil {
 			return fmt.Errorf("swarm: member %q: provision worktree: %w", name, err)
 		}
@@ -474,7 +474,7 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 		acfg.SessionWorkdir = sp.Workdir
 		sp.mu.Lock()
 		if sp.worktrees == nil {
-			sp.worktrees = map[string]mode.WorktreeSession{}
+			sp.worktrees = map[string]worktree.Session{}
 		}
 		sp.worktrees[name] = sess
 		sp.mu.Unlock()
@@ -487,7 +487,7 @@ func (sp *SwarmSpace) constructMember(ld agentdef.Loaded) error {
 			// nothing behind.
 			release, err := sp.startMemberSandbox(sess, name)
 			if err != nil {
-				mode.RemoveMemberWorktree(sp.ctx, sess, true)
+				worktree.Remove(sp.ctx, sess, true)
 				sp.forgetWorktree(name)
 				return fmt.Errorf("swarm: member %q: %w", name, err)
 			}
@@ -858,7 +858,7 @@ func memberWorktreeSlug(member string) string { return "swarm-" + member }
 // larger repo (workdir = <repoRoot>/services/api), the member sees the same
 // relative cwd inside its worktree rather than being dropped at the repo root.
 // A space workdir that IS the repo root maps to the worktree root.
-func memberWorkdir(sess mode.WorktreeSession, spaceWorkdir string) string {
+func memberWorkdir(sess worktree.Session, spaceWorkdir string) string {
 	if sess.RepoRoot == "" {
 		return sess.Path
 	}
@@ -871,7 +871,7 @@ func memberWorkdir(sess mode.WorktreeSession, spaceWorkdir string) string {
 
 // memberWorktree returns the live worktree session for a member, if it runs
 // under isolation (SWT).
-func (sp *SwarmSpace) memberWorktree(name string) (mode.WorktreeSession, bool) {
+func (sp *SwarmSpace) memberWorktree(name string) (worktree.Session, bool) {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 	s, ok := sp.worktrees[name]

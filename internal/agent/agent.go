@@ -19,6 +19,7 @@ import (
 	"github.com/johnny1110/evva/internal/checkpoint"
 	"github.com/johnny1110/evva/internal/logger"
 	"github.com/johnny1110/evva/internal/memdir"
+	"github.com/johnny1110/evva/internal/memdir/recall"
 	"github.com/johnny1110/evva/internal/outputstyle"
 	"github.com/johnny1110/evva/internal/question"
 	"github.com/johnny1110/evva/internal/session"
@@ -132,6 +133,9 @@ type Agent struct {
 	// doesn't have to call memdir.Load itself.
 	memSnap    memdir.Snapshot
 	memSnapSet bool
+	// memorySearcher backs the memory_search tool and the post-dream
+	// re-index. Root agent only; nil when auto-memory is off.
+	memorySearcher *recall.Searcher
 
 	// repoMap is the session-open repo-map body (built once from the LSP layer
 	// when EnableRepoMap is set, or its glob fallback) — main agent only, ""
@@ -635,6 +639,7 @@ func New(parent *Agent, profile Profile, opts ...Option) (*Agent, error) {
 		a.toolState.SetDeferredLookup(a)     // only main agent can have deferred tool lookup.
 		a.toolState.SetPlanController(a)     // only main agent can flip plan mode.
 		a.toolState.SetWorktreeController(a) // only main agent can enter/exit a worktree.
+		a.wireMemorySearch()                 // only main agent searches memory.
 	}
 
 	// Dynamic workflow (root only, and only when this profile actually

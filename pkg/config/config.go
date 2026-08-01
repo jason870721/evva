@@ -207,6 +207,21 @@ type Config struct {
 	PruneKeepTurns   int
 	PruneKeepResults int
 
+	// Semantic memory search (MEM). EmbeddingProvider names the backend that
+	// turns memory files into vectors — "" (the default) means none, and
+	// memory_search then falls back to keyword matching.
+	//
+	// This one defaults OFF, unlike Redaction and the context ladder above,
+	// and the asymmetry is deliberate. Those defaults make a session safer or
+	// cheaper without the operator doing anything. This one either spends
+	// money on an API or — with a hosted backend — sends memory bodies off
+	// the machine. Neither should happen because somebody upgraded. Keyword
+	// search needs no setup and keeps the tool useful until it is switched on.
+	//
+	// EmbeddingModel overrides the backend's default model; "" takes it.
+	EmbeddingProvider string
+	EmbeddingModel    string
+
 	// Sandboxed execution (SBX). SandboxRuntime names the container runtime
 	// backing isolation:"sandbox" — "" (off, the default), "docker" or
 	// "podman". Note this is a DIFFERENT axis from the permission gate, which
@@ -362,6 +377,8 @@ func (c *Config) Clone() *Config {
 		PruneMinBytes:           c.PruneMinBytes,
 		PruneKeepTurns:          c.PruneKeepTurns,
 		PruneKeepResults:        c.PruneKeepResults,
+		EmbeddingProvider:       c.EmbeddingProvider,
+		EmbeddingModel:          c.EmbeddingModel,
 		SandboxRuntime:          c.SandboxRuntime,
 		SandboxImage:            c.SandboxImage,
 		SandboxNetwork:          c.SandboxNetwork,
@@ -552,6 +569,33 @@ func (c *Config) GetPruneKeepResults() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.PruneKeepResults
+}
+
+// GetEmbeddingProvider returns the configured embedding backend name, or ""
+// when semantic memory search is off.
+func (c *Config) GetEmbeddingProvider() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EmbeddingProvider
+}
+
+// GetEmbeddingModel returns the embedding model override, or "" for the
+// backend's default.
+func (c *Config) GetEmbeddingModel() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EmbeddingModel
+}
+
+// SetEmbeddingProvider switches the embedding backend and persists. Takes
+// effect on the next agent boot: the searcher is built at construction, and
+// swapping models mid-session would leave the index half-written under two
+// incompatible models.
+func (c *Config) SetEmbeddingProvider(v string) error {
+	c.mu.Lock()
+	c.EmbeddingProvider = v
+	c.mu.Unlock()
+	return c.SaveFile()
 }
 
 // GetRedactionAllow returns a copy of the allowlist patterns.
@@ -1189,6 +1233,8 @@ func (c *Config) SaveFile() error {
 		PruneMinBytes:           c.PruneMinBytes,
 		PruneKeepTurns:          c.PruneKeepTurns,
 		PruneKeepResults:        c.PruneKeepResults,
+		EmbeddingProvider:       c.EmbeddingProvider,
+		EmbeddingModel:          c.EmbeddingModel,
 		SandboxRuntime:          c.SandboxRuntime,
 		SandboxImage:            c.SandboxImage,
 		SandboxNetwork:          c.SandboxNetwork,

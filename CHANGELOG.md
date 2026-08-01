@@ -14,6 +14,86 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Semantic memory recall (MEM-1..7).** Memory recall was **push-only**: at the
+  start of each user turn a cheap side-query picked up to five relevant memories
+  and injected them. If the agent realized at iteration 7 that it needed the
+  deploy notes, it had no way to ask — only to guess a filename and read it.
+
+  **`memory_search`** closes that. The model queries in natural language and gets
+  back ranked memories with names, scores and descriptions, reading full bodies
+  through the normal file path only when a hit looks worth it.
+
+  Ranking has two tiers. With `embedding_provider` set, a local vector index over
+  memory bodies matches by **meaning** — a query about "the deploy pipeline"
+  finds a memory titled "CI release flow". Without it, search falls back to
+  keyword matching and **says so in its output**, so the model knows a
+  differently-phrased note might exist that it did not find. Every embedder
+  failure — no Ollama running, a bad key, a mid-session error — degrades to
+  keyword mode rather than erroring: memory worked before vectors, and a wave
+  that turned it into a setup wall would be a regression.
+
+  `embedding_provider` is **opt-in**, the opposite polarity from `redaction` and
+  the context ladder, and deliberately so: those defaults make a session safer or
+  cheaper for free, while this one either spends money on an API or — with the
+  hosted backend — **sends memory bodies off the machine**. Neither should happen
+  because somebody upgraded. `ollama` is the private, zero-key path.
+
+  The **vector index** is a disposable sidecar at `~/.evva/memory/.index/`.
+  Hash-diffed, so touching one memory re-embeds exactly one row; corruption
+  tolerant at every level (a bad line costs one row, a truncated file costs the
+  cache); atomically written; refreshed after every dream run so consolidation
+  never leaves it stale. A cold rebuild runs in the background — the session
+  starts in keyword mode and upgrades when ready.
+
+  **Provenance.** New memories record an `origin` naming the project they were
+  written in, and `memory_search` can scope to it. The store stays global — that
+  is what makes a lesson learned in one repo reachable from another — but a
+  session can now tell *this* project's build conventions from another's.
+
+  **SDK surface:** `pkg/llm` gains an optional `Embedder` capability
+  (`Embed`, `EmbedModel`) with its own `EmbedderRegistry` /
+  `DefaultEmbedderRegistry`, plus `CosineSimilarity`. Deliberately NOT a method
+  on `Client`: most providers expose embeddings on a different endpoint with a
+  different model list, and several expose none at all — widening `Client` would
+  force every implementation, including downstream ones, to carry a method it
+  cannot honor. Backends ship for Ollama and the OpenAI-compatible surface.
+
+  The audit pass this wave began with was the most expensive yet, because **the
+  draft's central factual claim was wrong**: it described recall as "loading the
+  index into the prompt", blind to phrasing. Recall has been a model-driven
+  semantic selection since v1.4, and the draft's own worked example ("deploy
+  pipeline" vs "CI release flow") is precisely what an LLM reading descriptions
+  gets right. MEM-6 was specified backwards too — it proposed adding a global
+  memory scope to a store that `memdirpaths.go` documents as *already* global,
+  with no per-project store to add it to. And MEM-4 as written would have shipped
+  *less* than what exists, narrowing per-turn recall to session-open. What
+  survived: the tool (the real gap), the index (the real cost problem — a
+  manifest that grows on every turn), and a pre-filter that bounds what the
+  existing selector must read rather than replacing its judgment. See
+  `docs/roadmap/PRD/memory-semantic-recall.md` §0.
+
+- **`pkg/worktree` — the public git-worktree surface.** Provision a persistent,
+  deterministically-named worktree per long-lived agent; probe how far
+  ahead/behind it is; merge its committed work back under the abort-on-conflict
+  contract (a conflict aborts the merge and returns the conflicted paths — the
+  base branch is never left half-merged).
+
+  These primitives already existed and were already shared between the
+  single-agent `enter_worktree` / `exit_worktree` tools and the swarm, but they
+  lived in `internal/` and the swarm reached them by importing it directly — a
+  standing violation of the invariant that everything under `internal/swarm`
+  reaches the runtime only through `pkg/*` (`scripts/depcheck.sh`, red on `dev`
+  for some time). That rule exists so anything the multi-agent layer needs is
+  by construction available to a downstream module building its own; a facade
+  nobody outside could use would satisfy the linter and defeat the point, so
+  `examples/full-host` — a **separate Go module**, where `internal/*` imports
+  are compile errors — now exercises the full lifecycle as a compile-time proof.
+
+  The types are **aliases**, not copies, so there is exactly one
+  `WorktreeSession` in the process and no conversion at the boundary. The
+  implementation stays in `internal/tools/mode` for now; relocating it drags ten
+  unexported helpers out of a 700-line tool file and belongs in its own change.
+
 - **Context engine (CTX-1..7).** evva's context story was binary: the transcript
   grew verbatim until the compaction threshold, then one LLM call rewrote the
   whole history into a brief. Everything between "it fits" and "summarize the

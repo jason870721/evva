@@ -333,11 +333,13 @@ func autoMemoryGuidanceSection(ctx PromptContext) string {
 		"name: {{memory name}}",
 		"description: {{one-line description — used to decide relevance in future conversations, so be specific}}",
 		"type: {{" + memoryTypesList() + "}}",
+		originFrontmatterLine(ctx.MemoryOrigin),
 		"---",
 		"",
 		"{{memory content — for feedback/project types, structure as: rule/fact, then **Why:** and **How to apply:** lines}}",
 		"```",
 		"",
+		originGuidance(ctx.MemoryOrigin),
 		"**Step 2** — add a pointer to that file in `" + memoryIndexFileName + "`. `" + memoryIndexFileName + "` is an index, not a memory — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. It has no frontmatter. Never write memory content directly into `" + memoryIndexFileName + "`.",
 		"",
 		"- `" + memoryIndexFileName + "` is always loaded into your conversation context — lines after 200 will be truncated, so keep the index concise",
@@ -418,6 +420,31 @@ func memoryDirDisplay(ctx PromptContext) string {
 		home = "<APP_HOME>"
 	}
 	return home + "/memory"
+}
+
+// originFrontmatterLine renders the provenance line of the frontmatter
+// example, or "" when the origin is unknown.
+//
+// The value is substituted rather than templated as a placeholder because
+// the model cannot derive it — it is a path-derived key, and asking it to
+// guess would produce labels that never match, which is worse than no label
+// at all: a wrong origin makes scope-filtered search silently miss.
+func originFrontmatterLine(origin string) string {
+	if origin == "" {
+		return ""
+	}
+	return "origin: " + origin
+}
+
+// originGuidance explains the provenance line. Separate from the template
+// so a session with no resolvable workdir renders neither.
+func originGuidance(origin string) string {
+	if origin == "" {
+		return ""
+	}
+	return "The `origin` line records which project this memory was written in. The memory store is shared across every project, " +
+		"so a lesson learned here is reachable everywhere — origin is what lets a later session tell " +
+		"\"this project's build conventions\" from another project's. Copy it verbatim as shown above."
 }
 
 // memoryTypesList renders the comma-joined memory type names for the frontmatter

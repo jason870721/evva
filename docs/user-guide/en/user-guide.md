@@ -1212,6 +1212,8 @@ enable_auto_memory: true     # memory guidance + MEMORY.md index + write carve-o
 enable_memory_recall: true   # per-turn relevance side-query (cost lever; false keeps the index only)
 memory_recall_model: ""      # empty = cheap model in the active provider (anthropic→sonnet, deepseek→flash, openai→gpt-5.4-mini, glm→glm-4.6 @ medium; ollama→active model+effort)
 enable_auto_dream: false     # background "dream": consolidate/prune/re-index memory when idle (off by default; a real but rare token cost)
+embedding_provider: ""       # "" = keyword memory search (default) | ollama (local, private) | openai (hosted — sends memory bodies off-machine)
+embedding_model: ""          # empty = the backend's default (ollama→nomic-embed-text, openai→text-embedding-3-small)
 auto_dream_model: ""         # empty = the same cheap per-provider default as recall (auto_dream_min_hours: 24, auto_dream_min_sessions: 5 tune the gate)
 
 # Repo map (LSP-backed codebase overview injected at session start; main agent only)
@@ -1263,6 +1265,37 @@ auto-approved, so it won't prompt you for each note.
   cheap model within your active provider — Anthropic → Sonnet, DeepSeek →
   v4-flash, OpenAI → gpt-5.4-mini (all at medium effort); Ollama uses your active
   model and effort — and you can pin a specific one with `memory_recall_model`.
+- **Searching on demand (`memory_search`):** recall is *push* — evva decides
+  what to surface at the start of your turn. `memory_search` is the *pull*: when
+  it realizes mid-task that it needs something it wasn't given ("did we decide
+  how PRs get opened?"), it can go look. You never call this yourself; it is a
+  tool the agent uses.
+- **Semantic search (opt-in):** with `embedding_provider` set, memory bodies are
+  indexed as vectors and search matches by meaning — a query about "the deploy
+  pipeline" finds a memory titled "CI release flow". Without it, search still
+  works by keyword, and results say so, so evva knows a differently-phrased note
+  might exist that it did not find.
+
+  ```yaml
+  embedding_provider: ollama      # "" (off, default) | ollama | openai
+  embedding_model: ""             # "" = the backend's default
+  ```
+
+  **This is the one memory setting that defaults off, deliberately.** Turning it
+  on either spends money on an API or — with `openai` — **sends your memory
+  bodies to a third party**. `ollama` keeps everything on your machine and needs
+  no API key: `ollama pull nomic-embed-text` and set `embedding_provider: ollama`.
+
+  The vector cache lives in `~/.evva/memory/.index/`. It rebuilds incrementally
+  (only what changed), refreshes after a dream run, and is disposable — delete it
+  and it rebuilds. A cold first index happens in the background, so startup is
+  never blocked; searches before it finishes use keyword mode.
+- **Provenance:** new memories record an `origin` line naming the project they
+  were written in. The store is shared across every project — that is the point,
+  a lesson learned in one repo is reachable from another — and origin is what
+  lets a later session distinguish *this* project's build conventions from some
+  other project's. Memories written before v1.18 have no origin and are treated
+  as "unknown".
 - **Freshness:** a recalled memory older than a day is prefixed with its age and
   a caveat to verify against current code before trusting it.
 - **Background consolidation ("dream"):** with `enable_auto_dream: true` (off by

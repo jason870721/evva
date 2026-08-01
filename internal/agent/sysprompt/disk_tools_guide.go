@@ -66,12 +66,13 @@ var toolGuidelines = map[tools.ToolName]string{
 	tools.CALC:       "Evaluate a math expression exactly (+, -, *, /, %, ^, parentheses). Use it for any arithmetic you would otherwise do in your head.",
 
 	// Meta.
-	tools.AGENT:       "Delegate a focused task to a subagent running in its own context; only its final report returns to you. Brief it like a colleague — goal, relevant paths, expected output shape. Subagents cannot spawn subagents.",
-	tools.SKILL:       "Load an installed skill's full instructions by name — same as the user typing /<skill-name>. Only invoke skills from your skills list; never guess a name.",
-	tools.TOOL_SEARCH: "Fetch full schemas for deferred tools so they become callable — by exact name ({\"query\": \"select:name_a,name_b\"}) or keyword search. A fetched schema stays loaded for the rest of the session.",
-	tools.TODO_WRITE:  "Publish and maintain your task list for multi-step work; every call rewrites the full list. See the multi-step protocol below.",
-	tools.CONFIG:      "Read or change evva settings: pass `setting` alone to read, include `value` to write.",
-	tools.FEEDBACK:    "Report a bug, improvement, or tool wish to the evva developers (dev mode), with enough detail to act on without guessing.",
+	tools.AGENT:         "Delegate a focused task to a subagent running in its own context; only its final report returns to you. Brief it like a colleague — goal, relevant paths, expected output shape. Subagents cannot spawn subagents.",
+	tools.SKILL:         "Load an installed skill's full instructions by name — same as the user typing /<skill-name>. Only invoke skills from your skills list; never guess a name.",
+	tools.TOOL_SEARCH:   "Fetch full schemas for deferred tools so they become callable — by exact name ({\"query\": \"select:name_a,name_b\"}) or keyword search. A fetched schema stays loaded for the rest of the session.",
+	tools.MEMORY_SEARCH: "Search your memory directory for notes you wrote in earlier sessions. Relevant memories already arrive automatically each turn; reach for this when you realize mid-task that you need something you weren't given. Results are point-in-time notes — verify anything load-bearing.",
+	tools.TODO_WRITE:    "Publish and maintain your task list for multi-step work; every call rewrites the full list. See the multi-step protocol below.",
+	tools.CONFIG:        "Read or change evva settings: pass `setting` alone to read, include `value` to write.",
+	tools.FEEDBACK:      "Report a bug, improvement, or tool wish to the evva developers (dev mode), with enough detail to act on without guessing.",
 
 	// Solo dynamic-workflow board (mounted in place of the todo list when
 	// enable_dynamic_workflow is on). Each line stands alone per the rule
@@ -122,7 +123,7 @@ var toolGuideOrder = []tools.ToolName{
 	tools.BASH, tools.REPL, tools.MONITOR, tools.DAEMON_LIST, tools.DAEMON_OUTPUT, tools.DAEMON_STOP,
 	tools.WEB_SEARCH, tools.WEB_FETCH, tools.HTTP_REQUEST,
 	tools.JSON_QUERY, tools.CALC,
-	tools.AGENT, tools.SKILL, tools.TOOL_SEARCH, tools.TODO_WRITE, tools.CONFIG, tools.FEEDBACK,
+	tools.AGENT, tools.SKILL, tools.TOOL_SEARCH, tools.MEMORY_SEARCH, tools.TODO_WRITE, tools.CONFIG, tools.FEEDBACK,
 	tools.WF_TASK_CREATE, tools.WF_TASK_UPDATE, tools.WF_TASK_VERIFY, tools.WF_TASK_LIST, tools.WF_TASK_GET,
 	tools.ENTER_PLAN_MODE, tools.EXIT_PLAN_MODE, tools.ENTER_WORKTREE, tools.EXIT_WORKTREE, tools.WORKTREE_LIST,
 	tools.ASK_USER_QUESTION, tools.PUSH_NOTIFICATION,

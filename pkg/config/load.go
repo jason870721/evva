@@ -271,6 +271,18 @@ func Load(opts LoadOptions) (*Config, error) {
 		return nil, fmt.Errorf("config: sandbox_network must be \"allow\" or \"none\" (got %q)", fileCfg.SandboxNetwork)
 	}
 
+	// Semantic memory search is opt-in, and validated here for the same reason
+	// sandboxing is: a typo'd provider should fail at startup, not degrade
+	// silently to keyword search that the operator then mistakes for a bad
+	// embedding model. The provider's reachability is NOT checked — an
+	// unreachable Ollama is a runtime fallback, not a config error.
+	embeddingProvider := strings.ToLower(strings.TrimSpace(fileCfg.EmbeddingProvider))
+	switch embeddingProvider {
+	case "", "ollama", "openai":
+	default:
+		return nil, fmt.Errorf("config: embedding_provider must be \"ollama\" or \"openai\" (got %q); omit it to use keyword memory search", fileCfg.EmbeddingProvider)
+	}
+
 	// Checkpoint/rewind is opt-in (default off); the per-session cap normalizes a
 	// missing or non-positive value to 50 so retention always has a floor.
 	enableCheckpoints := false
@@ -348,6 +360,8 @@ func Load(opts LoadOptions) (*Config, error) {
 		PruneMinBytes:           fileCfg.PruneMinBytes,
 		PruneKeepTurns:          fileCfg.PruneKeepTurns,
 		PruneKeepResults:        fileCfg.PruneKeepResults,
+		EmbeddingProvider:       embeddingProvider,
+		EmbeddingModel:          fileCfg.EmbeddingModel,
 		SandboxRuntime:          sandboxRuntime,
 		SandboxImage:            strings.TrimSpace(fileCfg.SandboxImage),
 		SandboxNetwork:          sandboxNetwork,

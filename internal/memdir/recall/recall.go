@@ -38,6 +38,31 @@ const maxSelected = 5
 // recallMaxTokens caps the side-query output — a short filename list needs few.
 const recallMaxTokens = 256
 
+const (
+	// prefilterAbove is the store size past which the manifest is narrowed
+	// by embedding similarity before the selector sees it.
+	//
+	// The selector itself is not the problem — an LLM reading descriptions
+	// handles paraphrase well, which is why this wave kept it. The problem is
+	// that the manifest is sent on EVERY user turn and grows with the store,
+	// so a large memory directory turns a cheap side-query into a steadily
+	// more expensive one. Below this threshold the full manifest is small
+	// enough that narrowing would only add an embedding round trip.
+	prefilterAbove = 60
+
+	// prefilterKeep is how many candidates survive the narrowing. Generous
+	// relative to maxSelected: the vectors decide what the selector may
+	// consider, and being wrong at this stage is invisible — a memory pruned
+	// here can never be chosen, and nothing reports that it was dropped.
+	prefilterKeep = 30
+)
+
+// Prefilter narrows a header list before it reaches the LLM selector.
+// Implemented by *Searcher; nil is valid and means "no narrowing".
+type Prefilter interface {
+	Narrow(ctx context.Context, query string, headers []memdir.MemoryHeader, keep int) []memdir.MemoryHeader
+}
+
 // FindRelevant scans the memory dir, asks the side-query model to select the
 // memories whose name/description are clearly useful for query (≤5), and
 // returns their headers newest-first. MEMORY.md is never a candidate (the
@@ -52,6 +77,10 @@ const recallMaxTokens = 256
 // dir, a model failure, a context cancel, or a parse failure returns nil, so a
 // recall hiccup degrades to "no extra memories this turn"
 // (findRelevantMemories.ts catch parity).
+// pre may be nil. When present and the store is large, it narrows the
+// candidate list by embedding similarity BEFORE the manifest is built — the
+// selector's judgment is preserved, only the size of what it must read is
+// bounded.
 func FindRelevant(
 	ctx context.Context,
 	client llm.Client,
@@ -60,6 +89,7 @@ func FindRelevant(
 	dir string,
 	recentTools []string,
 	alreadySurfaced map[string]bool,
+	pre Prefilter,
 ) []memdir.MemoryHeader {
 	if client == nil || dir == "" {
 		return nil
@@ -67,6 +97,11 @@ func FindRelevant(
 	headers := scanFresh(dir, alreadySurfaced)
 	if len(headers) == 0 {
 		return nil
+	}
+	if pre != nil && len(headers) > prefilterAbove {
+		if narrowed := pre.Narrow(ctx, query, headers, prefilterKeep); len(narrowed) > 0 {
+			headers = narrowed
+		}
 	}
 
 	valid := make(map[string]bool, len(headers))

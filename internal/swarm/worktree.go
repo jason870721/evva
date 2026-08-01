@@ -10,15 +10,15 @@ import (
 
 	"github.com/johnny1110/evva/internal/swarm/agentdef"
 	"github.com/johnny1110/evva/internal/swarm/store"
-	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/pkg/sandbox"
+	"github.com/johnny1110/evva/pkg/worktree"
 )
 
 // MergeResult is the outcome of integrating one member's branch onto the base
 // checkout: the git-level report plus whatever the post-merge housekeeping had
 // to say.
 type MergeResult struct {
-	mode.MergeReport
+	worktree.MergeReport
 	// Member is the member whose branch was merged.
 	Member string
 	// Branch is the branch that was merged (worktree-swarm-<member>).
@@ -49,7 +49,7 @@ func (sp *SwarmSpace) MergeMemberWorktree(ctx context.Context, member string) (M
 		return MergeResult{}, fmt.Errorf("member %q does not run under worktree isolation — it edits the shared workdir directly, so there is nothing to merge", member)
 	}
 
-	report, err := mode.MergeBranch(ctx, sp.Workdir, sess.Branch)
+	report, err := worktree.Merge(ctx, sp.Workdir, sess.Branch)
 	if err != nil {
 		return MergeResult{}, err
 	}
@@ -75,7 +75,7 @@ func (sp *SwarmSpace) MergeMemberWorktree(ctx context.Context, member string) (M
 	// D4: keep the member's branch tracking the base tip so its next task does
 	// not start from a stale base. Best-effort — a member with uncommitted work
 	// in flight must never be auto-reset.
-	if rErr := mode.RefreshWorktree(ctx, sess.Path, report.BaseBranch); rErr != nil {
+	if rErr := worktree.Refresh(ctx, sess.Path, report.BaseBranch); rErr != nil {
 		res.RefreshWarning = rErr.Error()
 	}
 	return res, nil
@@ -83,14 +83,14 @@ func (sp *SwarmSpace) MergeMemberWorktree(ctx context.Context, member string) (M
 
 // worktreeGroundingFor computes a member's worktree situation for the team
 // protocol (SWT-4). Called at registerDef — one phase BEFORE the worktree is
-// provisioned — so the branch name comes from mode.MemberBranch, which derives
+// provisioned — so the branch name comes from worktree.Branch, which derives
 // it deterministically instead of reading a live session. The leader never
 // gets a branch (D8) but learns the integration half whenever the team runs
 // any worktrees.
 func (sp *SwarmSpace) worktreeGroundingFor(name string, role agentdef.Role, override string) worktreeGrounding {
 	g := worktreeGrounding{TeamIsolated: sp.teamIsolated}
 	if role != agentdef.RoleLeader && agentdef.ResolveWorktree(sp.settings.WorktreeIsolation, override) {
-		g.Branch = mode.MemberBranch(memberWorktreeSlug(name))
+		g.Branch = worktree.Branch(memberWorktreeSlug(name))
 		g.TeamIsolated = true
 	}
 	return g
@@ -115,7 +115,7 @@ func (sp *SwarmSpace) WorktreeStatusFor(name string) (WorktreeInfo, bool) {
 	if !isolated {
 		return WorktreeInfo{}, false
 	}
-	st, err := mode.MemberWorktreeStatus(sp.ctx, sess)
+	st, err := worktree.ProbeStatus(sp.ctx, sess)
 	if err != nil {
 		return WorktreeInfo{Branch: sess.Branch}, true
 	}
@@ -139,7 +139,7 @@ func (sp *SwarmSpace) forgetWorktree(name string) {
 // space nested inside a larger repo is a subdirectory of it. Mounting the root
 // and letting GuestPath map the member's workdir onto its position inside is
 // what keeps a nested space's relative paths intact.
-func (sp *SwarmSpace) startMemberSandbox(sess mode.WorktreeSession, name string) (func(), error) {
+func (sp *SwarmSpace) startMemberSandbox(sess worktree.Session, name string) (func(), error) {
 	runtime := sp.cfg.GetSandboxRuntime()
 	if runtime == "" {
 		return nil, fmt.Errorf(`sandbox requested but no container runtime configured — set sandbox_runtime to "docker" or "podman", or drop sandbox:"on" for %s`, name)
@@ -200,7 +200,7 @@ func (s *Supervisor) releaseMemberWorktree(name string) {
 		return
 	}
 	s.sp.forgetWorktree(name)
-	if removed, summary := mode.RemoveMemberWorktree(s.sp.ctx, sess, false); !removed {
+	if removed, summary := worktree.Remove(s.sp.ctx, sess, false); !removed {
 		s.notifyOps(name, "Worktree preserved for removed member "+name,
 			fmt.Sprintf("%s left the team with unintegrated work in its worktree (%s), so the worktree was KEPT "+
 				"rather than deleted.\n\nBranch: %s\nPath: %s\n\nThe work is not lost: merge the branch (or inspect "+
@@ -219,12 +219,12 @@ func (s *Supervisor) releaseMemberWorktree(name string) {
 // down (nothing is holding those checkouts open). Best-effort: each failure is
 // logged and the sweep continues. A non-repo workdir is a silent no-op.
 func ResetWorktrees(ctx context.Context, workdir string, log *slog.Logger) {
-	sessions, err := mode.ListMemberWorktrees(ctx, workdir)
+	sessions, err := worktree.List(ctx, workdir)
 	if err != nil {
 		return
 	}
 	for _, sess := range sessions {
-		if removed, summary := mode.RemoveMemberWorktree(ctx, sess, true); !removed && log != nil {
+		if removed, summary := worktree.Remove(ctx, sess, true); !removed && log != nil {
 			log.Warn("swarm: reset: worktree removal failed", "branch", sess.Branch, "detail", summary)
 		}
 	}

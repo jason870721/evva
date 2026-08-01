@@ -28,4 +28,12 @@ func init() {
 	r.MustRegister(ollama.ProviderName, ollama.Factory)
 	r.MustRegister(openai.ProviderName, openai.Factory)
 	r.MustRegister(qwen.ProviderName, qwen.Factory)
+
+	// Embedders are a SEPARATE registry because the providers that can embed
+	// are a strict subset of those that can chat. Anthropic ships no
+	// embedding endpoint at all, so registering it here would only produce a
+	// runtime failure for anyone who trusted the name being present.
+	e := llm.DefaultEmbedderRegistry()
+	e.MustRegister(ollama.ProviderName, ollama.EmbedderFactory)
+	e.MustRegister(openai.ProviderName, openai.EmbedderFactory)
 }

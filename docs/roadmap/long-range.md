@@ -83,16 +83,17 @@ opening new fronts.
 
 The solo terminal experience becomes the best-in-class reason to choose evva.
 
-> **▶ Horizon 2 started 2026-08-01** with W5. The tentative minors below have
-> drifted by two: H1 ran long (MCP pulled forward, then SBX and EVAL), so W5
-> took **v1.17** rather than v1.15. Treat the remaining numbers as ordinals,
-> as §1 already says — W6 claims whatever minor is free when it is picked up.
+> **▶ Horizon 2 started 2026-08-01.** W5 and W6 are built (v1.17, v1.18). The
+> tentative minors drifted by two — H1 ran long (MCP pulled forward, then SBX
+> and EVAL) — but the W5 → W6 dependency edge in §7 held: W6 was picked up the
+> moment W5 landed. W7 and W8 remain; treat their numbers as ordinals, as §1
+> says.
 
 | Wave | Tentative minor | Scope (tickets) | PRDs | Theme |
 |---|---|---|---|---|
 | **W5 — Context engine** ✅ | v1.17 (was v1.15) | CTX-1..7: prune-with-tombstones, span compaction, `/context` overlay, pinning. Read dedup and the status-bar gauge turned out to be **already shipped** — see the PRD's §0 audit record | 🆕 [context-engine](PRD/context-engine.md) | T1 |
-| **W6 — Memory intelligence** | v1.18 | MEM-1..7: embedding recall over the typed memory store, `memory_search`, cross-project scope, dream integration | 🆕 [memory-semantic-recall](PRD/memory-semantic-recall.md) | T1 |
-| **W7 — Session tree** | v1.19 | SES-1..7: `evva resume` picker, fork-from-checkpoint, `/sessions`, self-contained HTML transcript export | 🆕 [session-tree](PRD/session-tree.md) | T1 |
+| **W6 — Memory intelligence** ✅ | v1.18 | MEM-1..7: `memory_search` (the real gap — recall was push-only), optional `llm.Embedder` + Ollama/OpenAI backends, hash-diffed vector sidecar, pre-filter for the per-turn selector, `origin` provenance. Cross-project scope turned out to be **already shipped** — the store was always global; see the PRD's §0 | 🆕 [memory-semantic-recall](PRD/memory-semantic-recall.md) | T1 |
+| **W7 — Session tree** | v1.19 (next) | SES-1..7: `evva resume` picker, fork-from-checkpoint, `/sessions`, self-contained HTML transcript export | 🆕 [session-tree](PRD/session-tree.md) | T1 |
 | **W8 — Steering v2** | v1.20 | STE-1..6: interrupt-grade steering (cancel in-flight LLM call / running tool and fold the user in), priority lanes | 🆕 [steering-v2](PRD/steering-v2.md) | T1 |
 
 ### Horizon 3 — 2027 H1: model & modality intelligence + interop
@@ -321,18 +322,26 @@ aware of each other so it's built once, not twice.
 - **[overview.md](overview.md)** = ship-status truth, refreshed per release
   as already established. The **32** concept PRDs from these two planning
   passes (16 backbone W1–W19 + 16 batch-2 W20–W35) are tracked there as one
-  line item, not 32 rows, until they claim waves. Two have — secret-redaction
-  (v1.14) and context-engine (v1.17) — leaving 30.
+  line item, not 32 rows, until they claim waves. Three have —
+  secret-redaction (v1.14), context-engine (v1.17) and
+  memory-semantic-recall (v1.18) — leaving 29.
 - **`CLAUDE.md` wave map** = version truth. A wave's row is appended only at
   pickup, never by this document.
 - **Concept → build gate:** no concept PRD may be handed to an implementing
   agent without the audit pass (§1 step 2). Concept PRDs deliberately cite
-  packages and shipped behaviors, not line numbers. Four passes have now run
-  (SEC, SBX, EVAL, CTX) and the gate has changed the design every time;
-  overview.md §2 tabulates what each one cost. **CTX is the case to cite if
-  the gate is ever questioned** — two of its seven work items were already
-  shipped, and its headline term collided with live code that meant the
-  opposite.
+  packages and shipped behaviors, not line numbers. Five passes have now run
+  (SEC, SBX, EVAL, CTX, MEM) and the gate has changed the design every time;
+  overview.md §2 tabulates what each one cost.
+
+  **MEM is the case to cite if the gate is ever questioned.** Its premise was
+  not stale — it was false when written: the draft described evva recalling
+  memories by loading an index into the prompt, when recall has been a
+  model-driven semantic selection since v1.4, and one of its work items
+  proposed adding a global memory scope to a store that was already global.
+  These 32 drafts were written in a single pass from the roadmap's model of
+  evva rather than from the code, so **a concept PRD can be wrong on arrival,
+  not merely out of date.** Audit accordingly: verify the premise before
+  costing the work.
 
 ---
 

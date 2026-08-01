@@ -98,6 +98,14 @@ type FileConfig struct {
 	PruneKeepTurns   int   `yaml:"prune_keep_turns,omitempty"`
 	PruneKeepResults int   `yaml:"prune_keep_results,omitempty"`
 
+	// Semantic memory search. Opt-IN (empty = off): switching it on either
+	// costs API calls or, with a hosted backend, sends memory bodies off the
+	// machine. Plain strings whose zero value IS the default, so no *bool
+	// dance is needed. Validated at startup — an unknown provider is a config
+	// error rather than a silent fallback to keyword mode.
+	EmbeddingProvider string `yaml:"embedding_provider,omitempty"`
+	EmbeddingModel    string `yaml:"embedding_model,omitempty"`
+
 	// Sandboxed execution (SBX). All three are plain strings whose zero value
 	// IS the default, so omitempty round-trips correctly without the *bool
 	// dance the opt-in booleans above need. sandbox_runtime: "" = off,

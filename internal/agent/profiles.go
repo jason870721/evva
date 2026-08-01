@@ -20,6 +20,7 @@ import (
 	"github.com/johnny1110/evva/internal/outputstyle"
 	"github.com/johnny1110/evva/internal/repomap"
 	"github.com/johnny1110/evva/internal/tools/dev"
+	"github.com/johnny1110/evva/internal/tools/memory"
 	"github.com/johnny1110/evva/internal/tools/meta"
 	"github.com/johnny1110/evva/internal/tools/mode"
 	"github.com/johnny1110/evva/internal/tools/ux"
@@ -181,6 +182,16 @@ func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provid
 	// confined to the memory dir — see pkg/permission + state_machine.go). The
 	// prompt's typed-memory guidance + MEMORY.md index are gated on the same
 	// GetEnableAutoMemory() flag below, so prompt and toolset stay consistent.
+	//
+	// READS do get a tool. Per-turn recall is push-only — the agent chooses
+	// what to surface at turn start — so memory_search is how the model asks
+	// for something it only realized it needed mid-task. Active rather than
+	// deferred: needing a memory is a mid-reasoning impulse, and a
+	// tool_search round-trip is exactly the friction that stops it happening.
+	// Gated on the same flag as everything else memory-related.
+	if cfg.GetEnableAutoMemory() {
+		activeTools = append(activeTools, memory.Names()...)
+	}
 	// dev env tools for collect agent feedback
 	if cfg.IsDevelopment() {
 		activeTools = append(activeTools, dev.Names()...)
@@ -231,6 +242,7 @@ func mainProfileForDef(def sysprompt.AgentDefinition, cfg *config.Config, provid
 	ctx.WorkdirMemory = mem.WorkdirMemory
 	ctx.MemoryIndex = mem.MemoryIndex
 	ctx.EnableAutoMemory = cfg.GetEnableAutoMemory()
+	ctx.MemoryOrigin = memdir.ProjectKey(cfg.WorkDir)
 	ctx.EnableDynamicWorkflow = dynamicWorkflow
 	ctx.RepoMap = repoMap
 	ctx.DeferredTools = deferredToolSpecs(deferredTools)
@@ -355,6 +367,7 @@ func mainProfileFromDiskAgent(def sysprompt.AgentDefinition, cfg *config.Config,
 		ctx.WorkdirMemory = mem.WorkdirMemory
 		ctx.MemoryIndex = mem.MemoryIndex
 		ctx.EnableAutoMemory = cfg.GetEnableAutoMemory()
+		ctx.MemoryOrigin = memdir.ProjectKey(cfg.WorkDir)
 		// The repo map is ambient project-shape context, peer to memory — a
 		// persona that opts out of memory injection opts out of this too.
 		ctx.RepoMap = repoMap

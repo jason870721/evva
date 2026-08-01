@@ -65,7 +65,7 @@ func TestFindRelevant_FiltersToValidAndExcludesHallucinations(t *testing.T) {
 	}
 
 	fc := &fakeClient{reply: `{"selected_memories": ["a.md", "ghost.md", "MEMORY.md"]}`}
-	got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "add a test", dir, nil, nil)
+	got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "add a test", dir, nil, nil, nil)
 
 	if len(got) != 1 || got[0].Filename != "a.md" {
 		t.Fatalf("want exactly [a.md], got %+v", got)
@@ -77,7 +77,7 @@ func TestFindRelevant_ManifestShapeAndRecentTools(t *testing.T) {
 	writeMemory(t, dir, "a.md", "feedback", "integration tests hit a real db", "body")
 
 	fc := &fakeClient{reply: `{"selected_memories": []}`}
-	FindRelevant(context.Background(), fc, constant.SONNET_4_6, "fix the migration", dir, []string{"bash", "edit"}, nil)
+	FindRelevant(context.Background(), fc, constant.SONNET_4_6, "fix the migration", dir, []string{"bash", "edit"}, nil, nil)
 
 	for _, want := range []string{
 		"Query: fix the migration",
@@ -96,7 +96,7 @@ func TestFindRelevant_ClientErrorReturnsNil(t *testing.T) {
 	dir := t.TempDir()
 	writeMemory(t, dir, "a.md", "user", "x", "body")
 	fc := &fakeClient{err: errors.New("boom")}
-	if got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "q", dir, nil, nil); got != nil {
+	if got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "q", dir, nil, nil, nil); got != nil {
 		t.Fatalf("client error should yield nil, got %+v", got)
 	}
 }
@@ -104,7 +104,7 @@ func TestFindRelevant_ClientErrorReturnsNil(t *testing.T) {
 func TestFindRelevant_EmptyDirSkipsSideQuery(t *testing.T) {
 	dir := t.TempDir() // no .md files
 	fc := &fakeClient{reply: `{"selected_memories": ["a.md"]}`}
-	if got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "q", dir, nil, nil); got != nil {
+	if got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "q", dir, nil, nil, nil); got != nil {
 		t.Fatalf("empty dir should yield nil, got %+v", got)
 	}
 	if fc.calls != 0 {
@@ -119,7 +119,7 @@ func TestFindRelevant_AlreadySurfacedExcludedBeforeSelection(t *testing.T) {
 
 	fc := &fakeClient{reply: `{"selected_memories": ["a.md", "b.md"]}`}
 	got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "q", dir,
-		nil, map[string]bool{"a.md": true})
+		nil, map[string]bool{"a.md": true}, nil)
 
 	// a.md was filtered before the side-query (so it isn't even in the manifest)
 	// and can't be returned; only b.md survives.
@@ -134,11 +134,11 @@ func TestFindRelevant_AlreadySurfacedExcludedBeforeSelection(t *testing.T) {
 func TestFindRelevant_NilClientOrDir(t *testing.T) {
 	dir := t.TempDir()
 	writeMemory(t, dir, "a.md", "user", "x", "body")
-	if got := FindRelevant(context.Background(), nil, constant.SONNET_4_6, "q", dir, nil, nil); got != nil {
+	if got := FindRelevant(context.Background(), nil, constant.SONNET_4_6, "q", dir, nil, nil, nil); got != nil {
 		t.Errorf("nil client should yield nil, got %+v", got)
 	}
 	fc := &fakeClient{reply: `{"selected_memories":["a.md"]}`}
-	if got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "q", "", nil, nil); got != nil {
+	if got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "q", "", nil, nil, nil); got != nil {
 		t.Errorf("empty dir should yield nil, got %+v", got)
 	}
 }
@@ -147,7 +147,7 @@ func TestFindRelevant_ToleratesFencedJSON(t *testing.T) {
 	dir := t.TempDir()
 	writeMemory(t, dir, "a.md", "user", "x", "body")
 	fc := &fakeClient{reply: "Sure!\n```json\n{\"selected_memories\": [\"a.md\"]}\n```"}
-	got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "q", dir, nil, nil)
+	got := FindRelevant(context.Background(), fc, constant.SONNET_4_6, "q", dir, nil, nil, nil)
 	if len(got) != 1 || got[0].Filename != "a.md" {
 		t.Fatalf("should parse fenced JSON, got %+v", got)
 	}
