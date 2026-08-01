@@ -906,6 +906,43 @@ sessions, and mid-call streaming of partial results. See
 > [`sdk-stability.md`](sdk-stability.md) decision to make once they have
 > soaked, not a side effect of shipping this.
 
+## Regression-testing your own persona (`pkg/evalharness`)
+
+If you ship a custom persona, its system prompt and tool descriptions are your
+product — and they are exactly the surface no unit test covers. `pkg/evalharness`
+is public for that reason: the same fixture format, structural diff and judge
+tier that guard evva's built-in personas work against yours.
+
+The package deliberately depends on nothing from the agent loop. Driving is an
+interface:
+
+```go
+type Runner interface {
+    Run(ctx context.Context, turns []string) (RunTrace, error)
+}
+```
+
+Implement it over your own host — build your agent however you already do,
+collect tool calls from the event sink (`event.KindToolUseStart` carries the
+name and raw input; `evalharness.Summarize` reduces one to its comparable
+form) — and hand it to `evalharness.Run` along with your fixtures. Everything
+else, including `ExitCode` for CI, comes for free:
+
+```go
+fixtures, _ := evalharness.LoadDir("testdata/evalfixtures")
+rep, _ := evalharness.Run(ctx, fixtures, myRunner, evalharness.Options{})
+evalharness.WriteReport(os.Stdout, rep)
+os.Exit(evalharness.ExitCode(rep))
+```
+
+`cmd/evva/eval_runner.go` is the reference implementation — about sixty lines,
+most of it the event collector. One rule it follows and yours should too:
+construct the agent through your real construction path. A test-only shortcut
+that skips prompt assembly measures a configuration nothing in production runs.
+
+See [`docs/roadmap/PRD/agent-eval-harness.md`](../roadmap/PRD/agent-eval-harness.md)
+and `testdata/evalfixtures/README.md`.
+
 ## What you can't change
 
 These are by design — see CLAUDE.md's Phase 13 goals for the rationale.

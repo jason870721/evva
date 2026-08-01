@@ -97,6 +97,7 @@ Wave → minor map (append a row whenever a new wave is planned):
 | v1.13 | MCP server mode (MCP-1..5) — `evva mcp-serve` publishes personas + read-oriented tools to any MCP client over stdio / streamable HTTP; `mcpServe` allowlist, `<external-request>` trust framing, RP-15-style bearer auth; PRD: `docs/roadmap/PRD/mcp-server-mode.md` |
 | v1.14 | Secret redaction at the LLM egress boundary (SEC-1..6) — `pkg/redact` credential detector + stable placeholders, masking at the `execTool` choke point, `/redactions` panel, `redaction` config (default ON — the one opt-OUT gate). First half of the long-range W3 "Safety" wave. PRD: `docs/roadmap/PRD/secret-redaction.md` |
 | v1.15 | Sandboxed execution (SBX-1..7) — `isolation:"sandbox"` = worktree + a bind-mounted container, `bash` routed through `docker`/`podman exec`, devcontainer.json image resolution, `sandbox_runtime`/`sandbox_image`/`sandbox_network` config, swarm `settings.sandbox` + per-member `sandbox:` (the SWT idiom, not a `member_spawn` param). **Completes W3 "Safety"** — it was blocked, not merely unstarted, until a container runtime existed on the build machine. PRD: `docs/roadmap/PRD/sandbox-isolation.md` |
+| v1.16 | Agent eval & regression harness (EVAL-1..7) — `evva eval capture/run/list`, `pkg/evalharness` fixtures + structural tool-call diff (hard gate) + opt-in LLM judge (advisory), non-zero exit for CI/preflight. **Closes Horizon 1** — the last never-started wave from the 2026-07 design reviews. PRD: `docs/roadmap/PRD/agent-eval-harness.md` |
 
 ### The four release commands
 

@@ -1332,6 +1332,37 @@ never mistakes prose for the contract. The flag is ignored (with a warning) in
 TUI mode. SDK hosts get the same feature via `agent.WithStructuredOutput`
 (§13).
 
+### Behavioral regression testing (`evva eval`)
+
+`go test` catches broken code. It cannot catch a system-prompt edit that quietly stops the agent running your tests before it declares victory — nothing about that is a compile error, and you find out in production. `evva eval` is the missing gate.
+
+Record a session you already ran, then replay it against a changed configuration and see whether the agent's *decisions* changed:
+
+```bash
+evva eval list -sessions                                   # what you could capture
+evva eval capture <session-id> -name read-first \
+    -desc "the agent should read a file before editing it"
+evva eval run                                              # replay everything, score it
+```
+
+`evva eval run` exits non-zero on any divergence, so it works as a CI step or a preflight before cutting a release.
+
+**What it compares.** The sequence of tool calls — which tools, in what order, against which files or commands. Not text. LLM output is non-deterministic and always will be, so comparing prose would produce a gate that fails at random; comparing decisions produces one that fails when behavior actually changed. Order is part of the decision: running the tests *before* the edit instead of after is a real change even though the same calls appear.
+
+Arguments are normalized so fixtures are portable — paths reduce to base names, commands to their leading program — and arguments your baseline never recorded are ignored, so a tool gaining an optional parameter is not a false alarm.
+
+**Two tiers.** Structural diff is the default and the hard gate. `-judge` adds an advisory tier for fixtures carrying an `expected_outcome` in prose: one extra model call scores whether the run still satisfied it. That is right for behavior with no fixed shape — a refusal, an explanation — and it deliberately **never affects the exit code**. A probabilistic scorer wired straight into a release gate produces flaky failures, and flaky gates get bypassed.
+
+**When a fixture fails**, it means behavior changed — which may be exactly what you intended. Re-baseline it:
+
+```bash
+evva eval capture --update read-first
+```
+
+Fixtures live in `testdata/evalfixtures/` and are committed alongside your code. Keep them few and trimmed: every replay is real, billable model traffic multiplied by the fixture count. See `testdata/evalfixtures/README.md` for the format and the seed set.
+
+Whether `evva eval run` becomes a required step before a release is your call — evva ships the tool, not a policy.
+
 ---
 
 ## 12. Logs

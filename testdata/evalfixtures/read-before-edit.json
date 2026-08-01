@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "name": "read-before-edit",
+  "description": "The agent must read a file before editing it. This is enforced by the fs edit gate AND asserted by the system prompt; a prompt edit that drops the instruction would show up here as a missing read.",
+  "user_turns": [
+    "In parser.go, rename the function parseHeader to parseFrontMatter and update its call sites."
+  ],
+  "baseline": [
+    {
+      "name": "read",
+      "key_args": {
+        "file_path": "parser.go"
+      }
+    },
+    {
+      "name": "edit",
+      "key_args": {
+        "file_path": "parser.go"
+      }
+    }
+  ]
+}

@@ -1,9 +1,64 @@
 # PRD — Agent Eval & Regression Harness (transcript replay + regression scoring) — Implementation Plan
 
 > **Audience:** senior engineers implementing this phase.
-> **Status:** proposed.
-> **Target release:** TBD — wave-sized minor (claims its minor at planning
-> per `CLAUDE.md` → Release workflow).
+> **Status:** ✅ **BUILT** — EVAL-1..7 implemented 2026-08-01 on
+> `feature/agent-eval-harness`. The audit pass required by the concept →
+> build gate ([../long-range.md](../long-range.md) §1 step 2) was run at
+> `dev@04581c7` (v1.14.0 + SBX); the six corrections it produced are recorded
+> below and the body of this document is left as written so the delta stays
+> legible.
+> **Target release:** claims **v1.16**. This is **W4**, the last never-started
+> Horizon-1 wave — with it, every wave the 2026-07 design reviews put on the
+> table has shipped.
+>
+> ### Audit-pass corrections
+>
+> 1. **The fixture must NOT embed `session.Snapshot` verbatim** — §2 and §4.1
+>    both specify "the snapshot format, unmodified, plus a metadata sidecar",
+>    and that turns out to be the wrong container. The envelope carries
+>    `Workdir` and (added since the audit) `WorkdirSlug`, which are absolute,
+>    machine-specific paths; committing them under `testdata/` makes a fixture
+>    non-portable to any other checkout. And §4.2 immediately truncates the
+>    transcript to user turns, so storing the whole snapshot stores mostly
+>    data the replay discards. **Fixtures store the replayable input (user
+>    turns), the baseline, and portable metadata.** `FromSnapshot` derives one
+>    from a real session, so capture still rides the shipped mechanism exactly
+>    as intended — only the on-disk shape differs.
+> 2. **`newTestAgent` is the wrong seam to generalize** (§3.4). It builds a
+>    bare `&Agent{ID, logger, session, llm, cfg}` precisely *because* it
+>    bypasses `agent.New` — skipping the system-prompt assembly and tool-set
+>    construction. Those are the exact things this harness exists to
+>    regression-test, so generalizing that shortcut would replay against a
+>    configuration nothing in production uses. **The driver goes through the
+>    real construction path.**
+> 3. **Driving is an interface, not a hard dependency.** §4.2 has `Replay`
+>    build an `Agent` directly, which welds `pkg/evalharness` to
+>    `internal/agent` and makes the whole package untestable without a live
+>    provider and API key. The package instead defines a `Runner` interface;
+>    the real agent-backed runner is wired at the CLI. This costs nothing and
+>    is what actually delivers §2's goal that EX-4 be able to import the
+>    scoring layer — a scorer that drags the solo agent loop behind it is not
+>    importable by a swarm-side harness.
+> 4. **`pkg/evalharness` may import `internal/session`.** Worth stating
+>    because CLAUDE.md's pkg/internal split invites the opposite conclusion:
+>    `pkg/agent` already imports `internal/agent`, `internal/session` and
+>    `internal/memdir` across 11 sites, so this breaks no layering rule.
+> 5. **§3.1/§3.2/§3.3 verified, with one addition.** Every reference still
+>    lands: `Snapshot` `snapshot.go:30-42`, `SessionState` `:47-53`,
+>    `ToSnapshot`/`FromSnapshot` `:58`/`:73`, store `Save`/`Load`/`List`/
+>    `Delete` at `:54`/`:76`/`:111`/`:217`. `Snapshot` has since gained
+>    `WorkdirSlug` and `FirstUserPrompt` (correction 1 above). §3.2 holds
+>    exactly — still no `MockClient`/`FakeClient`/recorder anywhere, and
+>    `Message.ToolCalls` is `[]*tools.Call{ID, Name, Input json.RawMessage}`,
+>    provider-agnostic as assumed. `stubLLM` has since gained
+>    `SupportsDeferLoading`.
+> 6. **"Key args" needed a definition.** §4.3 compares "same tool names in the
+>    same order with materially similar key args" without saying what a key
+>    arg is. Left undefined it would either compare whole argument blobs
+>    (making every fixture flap on an incidental wording change) or nothing at
+>    all. Defined here as a small per-tool identity projection — the file a
+>    call touches, the command it runs — normalized so absolute paths in a
+>    recorded session still match a replay from a different checkout.
 > **Roadmap source:** 2026-07-06 web research pass — industry data on
 > agentic systems puts production agent failure rates at 5-15%, with the
 > emerging consensus being "per-stage output validation built into the

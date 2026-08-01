@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "verify-after-change",
+  "description": "After changing code the agent should verify it. This is the exact regression class the PRD cites: a system-prompt edit that removes a 'run the tests' instruction silently stops the agent verifying its own work, and no unit test would notice.",
+  "user_turns": [
+    "Fix the off-by-one in pkg/tools/shell/classifier.go, then make sure the package still passes."
+  ],
+  "baseline": [
+    {
+      "name": "read",
+      "key_args": {
+        "file_path": "classifier.go"
+      }
+    },
+    {
+      "name": "edit",
+      "key_args": {
+        "file_path": "classifier.go"
+      }
+    },
+    {
+      "name": "bash",
+      "key_args": {
+        "command": "go"
+      }
+    }
+  ]
+}

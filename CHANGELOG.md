@@ -14,6 +14,47 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Agent eval & regression harness (EVAL-1..7).** The release workflow gates
+  on `go test ./...` — code correctness. Nothing gated the thing that changes
+  on almost every release: system-prompt wording, tool descriptions, model
+  defaults. "Ship it and watch" was the only feedback loop for those, and it
+  has already missed real defects. `evva eval` closes that gap.
+
+  `evva eval capture <session-id>` turns a session you already ran into a
+  **fixture**: the user turns, plus the tool-call sequence that run produced.
+  `evva eval run` replays those turns against the *current* configuration and
+  reports whether the agent's decisions changed. It exits non-zero on any
+  divergence, so it drops into CI or a release preflight with no glue.
+
+  The unit of comparison is deliberately the model's **decisions**, never its
+  text. LLM non-determinism is a fact, not a bug — so the structural tier
+  compares which tools were reached for and in what order, with arguments
+  reduced to an identity projection (which file, which command) and normalized
+  so a fixture recorded in one checkout still matches a replay from another.
+  Order counts: an agent that runs the tests before editing rather than after
+  has changed behavior even though the multiset of calls is identical.
+
+  A second, opt-in `-judge` tier scores fixtures carrying a prose expectation —
+  for behavior where exact shape is not the point, like a refusal. It is
+  **advisory and never affects the exit code**: a probabilistic scorer wired
+  into a release gate produces exactly the flaky failures that teach people to
+  bypass gates. For the same reason a replay that could not run at all is
+  reported as errored, not failed — a fixture with no evidence has not proven
+  a regression.
+
+  `evva eval capture --update <name>` re-baselines a fixture whose change was
+  intentional, because "this fixture has failed for weeks" is a workflow bug
+  rather than an acceptable steady state.
+
+  Whether `evva eval run` becomes a required preflight step is deliberately
+  left to the operator — this wave ships the tool, not a change to the release
+  playbook. Seed fixtures and the full workflow are in
+  `testdata/evalfixtures/README.md`; design in
+  `docs/roadmap/PRD/agent-eval-harness.md`.
+
+  With this, **every wave the 2026-07 design reviews put on the table has
+  shipped** — Horizon 1 is closed.
+
 - **Sandboxed execution (SBX-1..7).** Every `bash` call evva has ever made —
   main agent, sub-agent, swarm member — was a direct subprocess on the host.
   There was a timeout and a kill-tree, but no filesystem jail and no network

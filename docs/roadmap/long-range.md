@@ -63,12 +63,19 @@ before build).
 Finish what the 2026-07 design reviews already put on the table before
 opening new fronts.
 
+> **✅ Horizon 1 closed 2026-08-01.** All four waves are built. The minors
+> drifted from the tentative column — MCP server mode was pulled forward from
+> W11 and took v1.13, pushing SEC to v1.14, SBX to v1.15 and EVAL to v1.16 —
+> but nothing was dropped. The next wave necessarily comes from H2 or the
+> batch-2 set, which means it necessarily starts with an audit pass (§1 step
+> 2); see overview.md §2 for what the three completed audits actually cost.
+
 | Wave | Tentative minor | Scope (tickets) | PRDs | Theme |
 |---|---|---|---|---|
-| **W1 — Swarm operations** | v1.11 | swarm-doctor, swarm-cost-accounting, swarm-outbound-notifications, swarm-tui-attach | 📄 [swarm-doctor](PRD/swarm-doctor.md) · 📄 [swarm-cost-accounting](PRD/swarm-cost-accounting.md) · 📄 [swarm-outbound-notifications](PRD/swarm-outbound-notifications.md) · 📄 [swarm-tui-attach](PRD/swarm-tui-attach.md) | T2, T4 |
-| **W2 — Swarm trust** | v1.12 | SWT-1..8 (worktree isolation — **resolves the empty-v1.9 anomaly**, see §9.1), swarm-verify-checks, swarm-blackboard | 📄 [swarm-worktree-isolation](PRD/swarm-worktree-isolation.md) · 📄 [swarm-verify-checks](PRD/swarm-verify-checks.md) · 📄 [swarm-blackboard](PRD/swarm-blackboard.md) | T2 |
-| **W3 — Safety** | v1.13 | SBX-1..7 (sandboxed execution), SEC-1..6 (secret redaction at the LLM egress boundary) | 📄 [sandbox-isolation](PRD/sandbox-isolation.md) · 🆕 [secret-redaction](PRD/secret-redaction.md) | T2, T4 |
-| **W4 — Quality loop** | v1.14 | EVAL-1..N (transcript replay + regression scoring), wired into the release playbooks as a gate | 📄 [agent-eval-harness](PRD/agent-eval-harness.md) | T4 |
+| **W1 — Swarm operations** ✅ | v1.11 | swarm-doctor, swarm-cost-accounting, swarm-outbound-notifications, swarm-tui-attach | 📄 [swarm-doctor](PRD/swarm-doctor.md) · 📄 [swarm-cost-accounting](PRD/swarm-cost-accounting.md) · 📄 [swarm-outbound-notifications](PRD/swarm-outbound-notifications.md) · 📄 [swarm-tui-attach](PRD/swarm-tui-attach.md) | T2, T4 |
+| **W2 — Swarm trust** ✅ | v1.12 | SWT-1..8 (worktree isolation — **resolves the empty-v1.9 anomaly**, see §9.1), swarm-verify-checks, swarm-blackboard | 📄 [swarm-worktree-isolation](PRD/swarm-worktree-isolation.md) · 📄 [swarm-verify-checks](PRD/swarm-verify-checks.md) · 📄 [swarm-blackboard](PRD/swarm-blackboard.md) | T2 |
+| **W3 — Safety** ✅ | v1.14 (SEC) + v1.15 (SBX) | SBX-1..7 (sandboxed execution), SEC-1..6 (secret redaction at the LLM egress boundary) | 📄 [sandbox-isolation](PRD/sandbox-isolation.md) · 🆕 [secret-redaction](PRD/secret-redaction.md) | T2, T4 |
+| **W4 — Quality loop** ✅ | v1.16 | EVAL-1..7 (transcript replay + regression scoring); shipped as a tool, NOT wired into the release playbooks — that remains the operator's call per the PRD's §7 open question 3 | 📄 [agent-eval-harness](PRD/agent-eval-harness.md) | T4 |
 
 ### Horizon 2 — 2026 Q4: TUI excellence (flagship #1 deepens)
 

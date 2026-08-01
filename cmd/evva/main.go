@@ -79,6 +79,9 @@ func main() {
 		case "mcp-serve":
 			runMCPServe(os.Args[2:])
 			return
+		case "eval":
+			runEval(os.Args[2:])
+			return
 		}
 	}
 
