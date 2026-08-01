@@ -296,6 +296,13 @@ type Agent struct {
 	// loaded snapshot's CreatedAt instead.
 	sessionCreatedAt time.Time
 
+	// sessionMeta carries the snapshot-envelope fields the agent does not
+	// derive on every save — the operator's title, the pin, and the fork
+	// lineage. persistSession overwrites the derived fields and keeps
+	// these, so they survive a save without being recomputed from nothing.
+	// Cleared by ClearSession, replaced wholesale by ResumeSnapshot.
+	sessionMeta session.Meta
+
 	// signalCh + rootCtx carry the event-driven side of the agent
 	// (Phase 16). Background bash tasks and Monitor goroutines write
 	// terminal results / stream events through signalCh; the signal
@@ -1078,6 +1085,7 @@ func (a *Agent) ResumeSnapshot(snap *session.Snapshot) error {
 	a.activePersona = personaName
 	a.ID = snap.SessionID
 	a.sessionCreatedAt = snap.CreatedAt
+	a.sessionMeta = snap.Meta
 	a.toolState.TodoStore().Clear()
 	// Re-scope checkpoints to the resumed session's namespace so /rewind lists
 	// that session's history (not the pre-resume one).
@@ -1180,6 +1188,10 @@ func (a *Agent) ClearSession() error {
 	a.session = session.New()
 	a.ID = common.GenUUID()
 	a.sessionCreatedAt = time.Time{}
+	// A cleared session is a new session, not a retitled one: title, pin
+	// and fork lineage belong to the transcript that was just set aside
+	// (which stays on disk, listed under its own name in /resume).
+	a.sessionMeta = session.Meta{}
 	a.toolState.TodoStore().Clear()
 	// /clear starts a fresh checkpoint namespace under the new session id.
 	a.checkpoints.SetSession(a.ID)
@@ -1739,21 +1751,48 @@ func (a *Agent) ListSessions() ([]ui.SessionInfo, []string) {
 		a.logger.Warn("session.list", "err", err, "slug", slug)
 		return nil, []string{err.Error()}
 	}
+	return sessionInfos(entries), warnings
+}
+
+// ListAllSessions enumerates persisted sessions across EVERY workdir, not
+// just this agent's. Implements ui.Controller — the /resume picker's
+// all-workdirs toggle. A session's home directory is where it was started,
+// which is not always where the operator is standing when they go looking
+// for it.
+func (a *Agent) ListAllSessions() ([]ui.SessionInfo, []string) {
+	if a.IsSubagent() || a.cfg == nil {
+		return nil, nil
+	}
+	entries, warnings, err := session.ListAll(a.cfg.AppHome)
+	if err != nil {
+		a.logger.Warn("session.listall", "err", err)
+		return nil, []string{err.Error()}
+	}
+	return sessionInfos(entries), warnings
+}
+
+// sessionInfos maps store headers to the UI DTO. One converter so the
+// per-workdir and machine-wide listings can never render differently.
+func sessionInfos(entries []session.Header) []ui.SessionInfo {
 	out := make([]ui.SessionInfo, 0, len(entries))
 	for _, e := range entries {
-		s := e.Snapshot
 		out = append(out, ui.SessionInfo{
-			ID:              s.SessionID,
-			FirstUserPrompt: s.FirstUserPrompt,
+			ID:              e.SessionID,
+			FirstUserPrompt: e.FirstUserPrompt,
+			Title:           e.Title,
+			Label:           e.Label(),
+			ParentID:        e.ParentID,
+			Pinned:          e.Pinned,
+			Workdir:         e.Workdir,
 			UpdatedAt:       e.MTime,
-			CreatedAt:       s.CreatedAt.UnixNano(),
-			Profile:         s.Profile,
-			Provider:        s.Provider,
-			Model:           s.Model,
-			MessageCount:    len(s.Session.Messages),
+			CreatedAt:       e.CreatedAt.UnixNano(),
+			Profile:         e.Profile,
+			Provider:        e.Provider,
+			Model:           e.Model,
+			MessageCount:    e.MessageCount,
 		})
 	}
-	return out, warnings
+	return out
 }
 
 // ResumeSession loads the snapshot with `id` off disk and swaps the
@@ -1767,13 +1806,29 @@ func (a *Agent) ResumeSession(id string) error {
 	if a.cfg == nil || a.workdir == "" {
 		return fmt.Errorf("agent: cannot resume without cfg + workdir")
 	}
-	slug := a.sessionSlug()
-	if slug == "" {
-		return fmt.Errorf("agent: cannot derive workdir slug")
+	slug, err := a.resolveSession(id)
+	if err != nil {
+		return err
 	}
 	snap, err := session.Load(a.cfg.AppHome, slug, id)
 	if err != nil {
 		return fmt.Errorf("agent: load session %q: %w", id, err)
+	}
+	// A session resumed from another project moves the agent to that
+	// project. Anything else hands the model a conversation about files
+	// that are not under its feet — the history would name paths the tools
+	// cannot reach. Best-effort: a workdir that no longer exists resumes
+	// in place with a warning rather than refusing the session outright,
+	// since the transcript is still worth reading.
+	if snap.Workdir != "" && snap.Workdir != a.Workdir() {
+		if fi, statErr := os.Stat(snap.Workdir); statErr == nil && fi.IsDir() {
+			if err := a.SwitchWorkdir(snap.Workdir); err != nil {
+				a.logger.Warn("resume: could not switch workdir", "want", snap.Workdir, "err", err)
+			}
+		} else {
+			a.logger.Warn("resume: session's workdir is gone; resuming in place",
+				"want", snap.Workdir, "here", a.Workdir())
+		}
 	}
 	return a.ResumeSnapshot(snap)
 }

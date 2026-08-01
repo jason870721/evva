@@ -83,18 +83,20 @@ opening new fronts.
 
 The solo terminal experience becomes the best-in-class reason to choose evva.
 
-> **▶ Horizon 2 started 2026-08-01.** W5 and W6 are built (v1.17, v1.18). The
-> tentative minors drifted by two — H1 ran long (MCP pulled forward, then SBX
-> and EVAL) — but the W5 → W6 dependency edge in §7 held: W6 was picked up the
-> moment W5 landed. W7 and W8 remain; treat their numbers as ordinals, as §1
-> says.
+> **▶ Horizon 2 started 2026-08-01.** W5, W6 and W7 are built (v1.17–v1.19).
+> The tentative minors drifted by two — H1 ran long (MCP pulled forward, then
+> SBX and EVAL) — but the W5 → W6 dependency edge in §7 held: W6 was picked up
+> the moment W5 landed. **W8 is the last of this horizon**; treat its number as
+> an ordinal, as §1 says. W7's audit is the one to read if you want the cheap
+> version of the argument for the gate: it deleted a work item by *measuring*
+> it rather than by reading the code (§0.4 of that PRD).
 
 | Wave | Tentative minor | Scope (tickets) | PRDs | Theme |
 |---|---|---|---|---|
 | **W5 — Context engine** ✅ | v1.17 (was v1.15) | CTX-1..7: prune-with-tombstones, span compaction, `/context` overlay, pinning. Read dedup and the status-bar gauge turned out to be **already shipped** — see the PRD's §0 audit record | 🆕 [context-engine](PRD/context-engine.md) | T1 |
 | **W6 — Memory intelligence** ✅ | v1.18 | MEM-1..7: `memory_search` (the real gap — recall was push-only), optional `llm.Embedder` + Ollama/OpenAI backends, hash-diffed vector sidecar, pre-filter for the per-turn selector, `origin` provenance. Cross-project scope turned out to be **already shipped** — the store was always global; see the PRD's §0 | 🆕 [memory-semantic-recall](PRD/memory-semantic-recall.md) | T1 |
-| **W7 — Session tree** | v1.19 (next) | SES-1..7: `evva resume` picker, fork-from-checkpoint, `/sessions`, self-contained HTML transcript export | 🆕 [session-tree](PRD/session-tree.md) | T1 |
-| **W8 — Steering v2** | v1.20 | STE-1..6: interrupt-grade steering (cancel in-flight LLM call / running tool and fold the user in), priority lanes | 🆕 [steering-v2](PRD/steering-v2.md) | T1 |
+| **W7 — Session tree** ✅ | v1.19 | SES-1..7: `evva resume` / `-c`, fork, `/title`, pin/delete/all-workdirs in `/resume`, `evva sessions prune`, self-contained HTML export. The catalog was **measured out of the design** and the in-TUI picker turned out to be **already shipped** — the gap was the pre-TUI entry; see the PRD's §0 | 🆕 [session-tree](PRD/session-tree.md) | T1 |
+| **W8 — Steering v2** | v1.20 (next) | STE-1..6: interrupt-grade steering (cancel in-flight LLM call / running tool and fold the user in), priority lanes | 🆕 [steering-v2](PRD/steering-v2.md) | T1 |
 
 ### Horizon 3 — 2027 H1: model & modality intelligence + interop
 
@@ -222,7 +224,7 @@ is left. Full detail lives in that PRD; the riding plan:
 | Event schema versioning (`pkg/event` payloads become externally consumable) | W11 (interop) | MCP-server/ACP clients are the first external event consumers |
 | Config layering (global → project `.evva/` → session) | W13 or earlier | every wave adds knobs; layering stops the flag sprawl |
 | claude/glm engine dedupe (glm is a documented self-contained copy) | any H3 wave touching `pkg/llm` | cheapest debt in the codebase; pure consolidation |
-| Session store backend interface (jsonl today, pluggable later) | W7 (session tree) | the session catalog work opens this file anyway |
+| ~~Session store backend interface (jsonl today, pluggable later)~~ | ~~W7~~ → W19 | **premise was wrong** — the store is one JSON file per session, not jsonl, and W7's audit cut the catalog, so nothing new opened this seam. Parked for the v2.0 sweep |
 
 ---
 
@@ -322,16 +324,22 @@ aware of each other so it's built once, not twice.
 - **[overview.md](overview.md)** = ship-status truth, refreshed per release
   as already established. The **32** concept PRDs from these two planning
   passes (16 backbone W1–W19 + 16 batch-2 W20–W35) are tracked there as one
-  line item, not 32 rows, until they claim waves. Three have —
-  secret-redaction (v1.14), context-engine (v1.17) and
-  memory-semantic-recall (v1.18) — leaving 29.
+  line item, not 32 rows, until they claim waves. Four have —
+  secret-redaction (v1.14), context-engine (v1.17),
+  memory-semantic-recall (v1.18) and session-tree (v1.19) — leaving 28.
 - **`CLAUDE.md` wave map** = version truth. A wave's row is appended only at
   pickup, never by this document.
 - **Concept → build gate:** no concept PRD may be handed to an implementing
   agent without the audit pass (§1 step 2). Concept PRDs deliberately cite
-  packages and shipped behaviors, not line numbers. Five passes have now run
-  (SEC, SBX, EVAL, CTX, MEM) and the gate has changed the design every time;
-  overview.md §2 tabulates what each one cost.
+  packages and shipped behaviors, not line numbers. Six passes have now run
+  (SEC, SBX, EVAL, CTX, MEM, SES) and the gate has changed the design every
+  time; overview.md §2 tabulates what each one cost.
+
+  **SES adds a second failure mode worth naming: a work item can be
+  unjustified rather than wrong.** Its catalog was coherent, buildable, and
+  solved a real problem — enumeration cost — that turned out to measure
+  110 ms on a real store. Nothing in the code contradicted the design; only a
+  measurement did. **Audit passes should measure, not only read.**
 
   **MEM is the case to cite if the gate is ever questioned.** Its premise was
   not stale — it was false when written: the draft described evva recalling

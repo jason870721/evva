@@ -267,12 +267,48 @@ type Controller interface {
 	// surface them as hints or ignore them.
 	ListSessions() ([]SessionInfo, []string)
 
+	// ListAllSessions enumerates persisted sessions across every workdir on
+	// the machine, newest first — the picker's all-workdirs toggle. Same
+	// contract as ListSessions otherwise.
+	ListAllSessions() ([]SessionInfo, []string)
+
 	// ResumeSession swaps the live agent's state with the session
 	// identified by id. Returns ErrRunInProgress (via the agent layer)
 	// when a Run is in flight, or an error when the file is missing or
 	// unreadable. Successful resume invalidates the prior transcript;
 	// the TUI re-renders from Session().Messages.
+	//
+	// Resolves across every workdir, not just the agent's own, so a row
+	// picked from the all-workdirs view resumes rather than reporting a
+	// missing file. The resumed session keeps writing to its original
+	// slug — resuming a session does not move it.
 	ResumeSession(id string) error
+
+	// ForkSession branches the LIVE session: the current history is copied
+	// into a new session id whose ParentID is the current one, the agent
+	// continues in the child, and the parent's snapshot stays on disk
+	// exactly as it was at the fork point.
+	//
+	// The child gets a fresh checkpoint namespace, which is what makes a
+	// fork's /rewind unable to reach past the fork point — that invariant
+	// is structural, not enforced. Returns the child's id.
+	ForkSession() (string, error)
+
+	// SetSessionTitle names a persisted session. An empty title clears it,
+	// restoring the first-user-prompt preview as the picker's label.
+	// Naming the LIVE session also updates the in-memory envelope so the
+	// next auto-save does not overwrite it.
+	SetSessionTitle(id, title string) error
+
+	// PinSession marks a persisted session exempt from `evva sessions
+	// prune`. Returns the resulting state so a toggling caller does not
+	// have to re-list.
+	PinSession(id string, pinned bool) error
+
+	// DeleteSession removes a persisted session's snapshot. Refuses to
+	// delete the live session — the operator would be deleting the file
+	// the next auto-save immediately recreates.
+	DeleteSession(id string) error
 
 	// Checkpoints returns the current session's rewind checkpoints (per user
 	// turn), newest first, for the /rewind picker. Returns nil when
@@ -362,6 +398,11 @@ type RedactionInfo struct {
 type SessionInfo struct {
 	ID              string // session-id (matches the JSON file basename)
 	FirstUserPrompt string // up to 200 chars; picker truncates to 150 for display
+	Title           string // operator-set name (/title); empty when never named
+	Label           string // what to render: Title, else FirstUserPrompt, else a placeholder
+	ParentID        string // session this was forked from; empty for a root session
+	Pinned          bool   // exempt from `evva sessions prune`
+	Workdir         string // absolute directory the session was started in
 	UpdatedAt       int64  // unix nano of last save (file mtime); resume picker sorts desc
 	CreatedAt       int64  // unix nano of first save
 	Profile         string // persona name at save time

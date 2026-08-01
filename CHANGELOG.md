@@ -14,6 +14,64 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ### Added
 
+- **Session tree (SES-1..7).** Inside evva, `/resume` has always reached every
+  past conversation. From a fresh terminal there was no way in at all — no
+  `evva resume`, no `--continue`, no way to hand a transcript to a colleague.
+  This wave closes that asymmetry and turns sessions into things you curate
+  rather than a directory that accumulates.
+
+  **From the shell:** `evva resume` opens a numbered picker, `evva resume <id>`
+  thaws a named one, and `evva -c` / `--continue` reopens the newest session in
+  the current directory with no prompt at all. Ids accept any **unique prefix**
+  — the ids stay UUIDs (they name files, and the swarm keys transcripts by them)
+  while `4cafec5d` is enough to type. Resuming a session that belongs to another
+  project moves evva to that project first: a conversation about files that are
+  not under the agent's feet is worse than a directory change you asked for.
+
+  **Forking.** `/fork` branches the live session — the conversation continues
+  under a new id and the original stays on disk exactly as it was at the branch
+  point. `evva resume <id> -fork` does the same from outside without touching
+  the parent. A fork starts with an **empty checkpoint namespace**, so its
+  `/rewind` cannot reach past the fork point; that is not a rule evva enforces,
+  it falls out of checkpoints being keyed by session id.
+
+  **Curation.** `/title <text>` names a session so the picker shows it by name
+  instead of by first prompt. `/resume` grew verbs: `p` pins (exempt from
+  pruning), `d` deletes after a confirming second press, `a` widens the view to
+  every workdir on the machine, and forks render indented under the session they
+  branched from.
+
+  **Export.** `evva export <id>` writes a self-contained HTML transcript — one
+  file, inline CSS, zero network requests, readable offline, light and dark. Tool
+  calls collapse, errors are marked, usage is footnoted. **Secrets are scrubbed
+  unconditionally**, independent of the `redaction` setting: export is the moment
+  a transcript stops being local, and an operator who turned masking off for
+  their own terminal has said nothing about what they want leaving the machine.
+  The API has no way to skip it, so no call site can get it wrong. The system
+  prompt is omitted — it is not conversation, and it would leak a persona's full
+  instructions into a shared file.
+
+  **Retention.** `evva sessions list` and `evva sessions prune [-days N]
+  [-keep N] [-all]` — a **dry run by default**, `-apply` required to delete,
+  pinned sessions exempt and not consuming a keep slot. Caps default to 0
+  (unlimited) and nothing prunes automatically, unlike checkpoints: a checkpoint
+  is a derived before-image, a transcript is the operator's own writing.
+  Optional `session_retention_days` / `session_retention_max` in the config file
+  supply the caps when the flags do not.
+
+  **No session catalog.** The concept PRD specified a derived index to make
+  enumeration cheap. Measured on a real store — 93 sessions, 14 MB, 14 workdirs
+  — parsing every snapshot on the machine takes 110 ms, so the index would have
+  bought ~100 ms in exchange for a second store and a drift class. Listing
+  instead decodes a header that omits the message bodies (66 ms vs 107 ms), and
+  the fields a catalog would have held (title, parent, pin) live in the snapshot
+  envelope, which is already the source of truth.
+
+  **SDK surface:** `ui.Controller` gains `ListAllSessions`, `ForkSession`,
+  `SetSessionTitle`, `PinSession`, `DeleteSession`; `ui.SessionInfo` gains
+  `Title`, `Label`, `ParentID`, `Pinned`, `Workdir`. A UI that attaches a
+  controller already holding a conversation now renders it on the first frame.
+
 - **Semantic memory recall (MEM-1..7).** Memory recall was **push-only**: at the
   start of each user turn a cheap side-query picked up to five relevant memories
   and injected them. If the agent realized at iteration 7 that it needed the
@@ -255,6 +313,22 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   session-level boolean, so after a single pass every subsequent compaction
   escalated to a full LLM summarization. Pruning now re-runs whenever there is
   new material to reclaim.
+
+- **`session.List` returns headers, not full snapshots.** `session.ListEntry`
+  is replaced by `session.Header` (the snapshot envelope + message count +
+  mtime), and `Snapshot`'s envelope fields moved into an embedded
+  `session.Meta`. The on-disk JSON is unchanged — the embedding is flattened by
+  `encoding/json`, and a test asserts it — but code constructing a `Snapshot`
+  literal by field name now needs `Snapshot{Meta: Meta{...}, Session: ...}`.
+  Both types are `internal/`, so this is not an SDK break.
+
+### Fixed
+
+- **Session previews no longer split multi-byte characters.** The stored
+  first-prompt preview, the `/resume` row label, and `evva eval list -sessions`
+  all truncated by byte offset, so any CJK prompt ended in a replacement glyph
+  — and the stored preview kept it permanently. All three now cut on a rune
+  boundary.
 
 ## [v1.14.0] — 2026-08-01
 

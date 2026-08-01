@@ -9,7 +9,11 @@
   - [/profile — 切換人格](#profile--切換人格)
   - [/output-style — 溝通風格](#output-style--溝通風格)
   - [/effort — 思考強度](#effort--思考強度)
-  - [/resume — 還原先前的工作階段](#resume--還原先前的工作階段)
+  - [/resume — 瀏覽、還原與整理工作階段](#resume--瀏覽還原與整理工作階段)
+  - [/title — 替目前的階段命名](#title--替目前的階段命名)
+  - [/fork — 把對話分支出去](#fork--把對話分支出去)
+  - [從命令列操作工作階段](#從命令列操作工作階段)
+  - [evva export — 一份可以直接寄給別人的對話紀錄](#evva-export--一份可以直接寄給別人的對話紀錄)
   - [/rewind — 時光倒帶](#rewind--時光倒帶)
   - [/context 與 /compact — 上下文階梯](#context-與-compact--上下文階梯)
   - [內建技能](#內建技能)
@@ -106,7 +110,9 @@
 | `/effort` | 設定思考強度（low / medium / high / ultra） |
 | `/compact` | 壓縮對話紀錄 — 選擇上下文階梯的其中一階 |
 | `/context` | 檢視 prompt 的重量分佈 — 可釘選區塊加以保護 |
-| `/resume` | 還原此工作目錄下先前的工作階段 |
+| `/resume` | 瀏覽過去的工作階段 — 還原、釘選或刪除 |
+| `/fork` | 把此階段分支出去；原本那個仍可還原 |
+| `/title` | 替此階段命名，讓 `/resume` 用名字顯示它 |
 | `/rewind` | 回復先前的回合 — 還原程式碼、對話，或兩者 |
 | `/redactions` | 本次工作階段中被遮蔽的密鑰 — 按 `r` 顯示原值 |
 | `/clear` | 開啟新工作階段 — 清空歷史/用量/待辦；舊階段仍可由 `/resume` 還原 |
@@ -320,27 +326,28 @@ Respond like a 17th-century pirate captain. Refer to the codebase as "the ship".
 
 各提供者會把這四個等級對應到自己的旋鈕——Anthropic 的 effort 等級、DeepSeek 的 thinking 開關 + 等級、OpenAI 的 reasoning effort、GLM 的兩段 thinking 等級（low/medium → High、high/ultra → Max）等。對於只有粗略開/關開關的提供者，`low` → 關閉，其餘 → 開啟。所選的等級會儲存為 `default_effort`，並顯示在狀態列上（`▸ model · ⚡high`）。
 
-### /resume — 還原先前的工作階段
+### /resume — 瀏覽、還原與整理工作階段
 
-從目前的工作目錄還原先前的工作階段。每次迭代的狀態都會持久化到 `~/.evva/sessions/<workdir-slug>/<session-id>.json`，所以關閉 TUI 再重新開啟並不會遺失工作——`/resume` 會把對話帶回你離開時的狀態。
+每次迭代的狀態都會持久化到 `~/.evva/sessions/<workdir-slug>/<session-id>.json`，所以關閉 TUI 再重新開啟並不會遺失工作——`/resume` 會把對話帶回你離開時的狀態，同時也是你替累積下來的階段命名、釘選、刪除的地方。
 
-選單以每頁 10 筆、依最後寫入時間遞減排序的方式列出最近活動的工作階段。每一列以一行預覽顯示該階段的第一個使用者提示，並附上人格、訊息數量與模型：
+選單每頁 10 筆，最新的在前。每一列顯示該階段的**標籤**——你命名過就顯示名稱，否則顯示第一個使用者提示——並附上人格、訊息數量與模型：
 
 ```
 ┌─ /RESUME ────────────────────────────────────────────────────┐
-│ 還原先前的工作階段 — 僅限同一工作目錄，依最近寫入時間遞減。  │
+│ 還原先前的工作階段 — 此工作目錄，依最近寫入時間遞減。        │
 │ 還原會清除目前的對話畫面，並以儲存的版本取代。               │
 │                                                              │
-│ ▶ 串接 /resume slash 指令與 overlay                          │
+│ ▶📌parser 移植                                               │
 │     5m ago · evva · 42 msgs · claude-opus-4-8                │
-│   移植型別化記憶目錄 + 相關性召回                            │
-│     2h ago · evva · 87 msgs · claude-opus-4-8                │
+│     ⑂ 試試 streaming 的做法                                  │
+│       2m ago · evva · 44 msgs · claude-opus-4-8              │
 │   驗證跨平台 release 工作流                                  │
 │     1d ago · evva · 18 msgs · deepseek-v4-pro                │
 │   …                                                          │
 │                                                              │
 │ page 1 / 3                                                   │
-│ [↑↓] 游標 · [←→] 翻頁 · [Enter] 還原 · [Esc] 取消             │
+│ [↑↓] 游標 · [←→] 翻頁 · [Enter] 還原 · [p] 釘選 ·             │
+│ [d] 刪除 · [a] 全部目錄 · [Esc] 取消                          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -349,7 +356,12 @@ Respond like a 17th-century pirate captain. Refer to the codebase as "the ship".
 | `↑` / `↓` | 在當前頁面移動游標 |
 | `←` / `→` | 切換到前一頁／下一頁（每頁 10 筆） |
 | `Enter` | 還原所選的工作階段 |
+| `p` | 釘選／取消釘選——被釘選的階段（`📌`）永遠不會被 `evva sessions prune` 刪除 |
+| `d` | 刪除——在同一列按兩次才會執行；按任何其他鍵都會取消待確認狀態 |
+| `a` | 把清單擴大到整台機器的所有工作目錄，再按一次還原 |
 | `Esc` | 取消 |
+
+**分支**（`⑂`）會縮排顯示在它分出來的那個階段底下。如果它的母階段不在目前的檢視中（已被清除，或在其他工作目錄而清單只看本目錄），它會以頂層項目顯示，而不是消失。
 
 **還原時會還原什麼：**
 
@@ -357,8 +369,9 @@ Respond like a 17th-century pirate captain. Refer to the codebase as "the ship".
 - 該階段使用的人格、提供者與模型。若這些已不存在（人格被刪除、目前的 build 沒有該模型），則會回退到 `evva` 或目前的預設，並在日誌中記錄警告。
 - session-id——後續儲存會覆蓋同一個檔案而非新增，所以還原後的階段在選單中仍維持單一條目。
 - 狀態列上的累計用量（usage）與 context 條。
+- **工作目錄**——如果你還原的是其他專案的階段。一份談論 evva 碰不到的檔案的對話，比一次你主動要求的目錄切換更糟。若該目錄已不存在，則會就地還原並記錄警告。
 
-**作用範圍：** 工作階段以發起時的工作目錄為界。在不同目錄下執行 `evva` 會顯示該目錄的工作階段；全部的工作階段儲存在 `~/.evva/sessions/`，並依 workdir slug 分類（例如 `-Users-alice-lab-myrepo`）。
+**作用範圍：** 工作階段儲存在 `~/.evva/sessions/`，依 workdir slug 分類（例如 `-Users-alice-lab-myrepo`）。選單開啟時只看目前目錄，按 `a` 看全部。還原後的階段會繼續寫回它原本建立時的 slug，所以從隔壁目錄還原是更新那個階段，而不是複製出第二份。
 
 **儲存頻率：** 每次迴圈迭代（即每次工具來回）後都會重寫檔案，所以即使 evva 崩潰，最多只會遺失一次 LLM 呼叫的工作量。
 
@@ -367,6 +380,80 @@ Respond like a 17th-century pirate captain. Refer to the codebase as "the ship".
 **子代理：** 只有根代理的工作階段會被持久化。透過 Agent 工具產生的子代理依設計為短暫的，永遠不會出現在 `/resume` 中。
 
 若有執行中的任務則無法還原；請先按 Esc 取消任務，再輸入 `/resume`。
+
+### /title — 替目前的階段命名
+
+```
+/title parser 移植
+```
+
+選單預設顯示第一個使用者提示，這對「修一下那個 flaky test」很夠用，對三週後你要回來找的那個階段則毫無幫助。`/title` 給它一個名字，這個名字會出現在 `/resume` 和 `evva sessions list` 裡。單獨輸入 `/title` 會清除名稱，回到顯示提示預覽。
+
+### /fork — 把對話分支出去
+
+```
+/fork
+```
+
+分支會把目前的對話一分為二。到目前為止的內容全部複製到一個**新的工作階段**；你在子階段繼續走，母階段則以分支當下的樣子留在磁碟上，用它自己的名字列在 `/resume` 裡。
+
+適合用在你可能會想放棄的實驗之前：在分支裡做那個有風險的重構，如果走歪了就還原母階段，而不是回頭拆解。
+
+- 對話畫面不會變——對話是延續的，只是換了一個名字繼續。只有狀態列上的 session id 會變。
+- **分支起始時沒有任何 checkpoint**，所以在分支裡執行 `/rewind` 無法越過分支點。這不是 evva 特別去限制的規則；checkpoint 本來就以 session id 分開存放，而子階段的 id 是新的。
+- 分支會繼承母階段的人格、提供者與模型——但不會繼承它的標題與釘選。在你另外指定之前，分支就是個實驗。
+- `evva resume <id> -fork` 可以在不開啟母階段的情況下，從 shell 做同一件事。
+
+### 從命令列操作工作階段
+
+在 evva 裡面，`/resume` 早就能拿到所有過去的對話。以下是從一個全新終端機進去的方式。
+
+```bash
+evva resume                    # 編號選單，本目錄
+evva resume -all               # ⋯⋯整台機器的所有目錄
+evva resume 4cafec5d           # 用 id — 任何唯一前綴都可以
+evva resume -fork 4cafec5d     # 先分支再進去；原本那個不受影響
+evva -c                        # 直接開啟本目錄最新的階段，不問
+evva --continue                # 完整寫法
+
+evva sessions list             # 這裡有什麼
+evva sessions list -all        # 整台機器有什麼
+evva sessions prune -keep 20   # 列出「將會」刪掉哪些（試跑）
+evva sessions prune -keep 20 -apply
+evva sessions prune -days 90 -all -apply
+
+evva export 4cafec5d                     # → evva-4cafec5d.html
+evva export 4cafec5d -o review.html -full
+```
+
+**id 是 UUID，任何唯一前綴都可以。** 清單印出來的前 8 個字元幾乎永遠夠用；前綴有歧義時它會告訴你比對到哪些，而不是自己猜。
+
+**`-c` 在空目錄不會報錯。** 沒有可還原的階段時它會這樣告訴你，然後開一個新的。
+
+**清除預設是試跑。** `evva sessions prune` 會完整列出它會刪掉哪些然後停下；要真的刪除必須加 `-apply`。**釘選的階段是豁免的**，而且不佔用 `-keep` 名額——在 `-keep 10` 下釘選三個，活下來的是十個未釘選的，不是七個。`-keep` 是**依工作目錄**計算的，所以一個很忙的專案不會把安靜專案的歷史擠掉。
+
+沒有任何東西會自動清除。Checkpoint 會自己清理，因為 checkpoint 是 evva 代你產生的檔案前影；對話紀錄則是你自己寫的東西。如果你不想每次都打旗標，可以在 `~/.evva/config/evva-config.yml` 設上限：
+
+```yaml
+session_retention_days: 90   # 0 = 不限年齡（預設）
+session_retention_max: 20    # 每個工作目錄；0 = 不限數量（預設）
+```
+
+之後 `evva sessions prune -apply` 就會用這組設定。
+
+### evva export — 一份可以直接寄給別人的對話紀錄
+
+```bash
+evva export 4cafec5d -o review.html
+```
+
+把整個工作階段寫成**單一自包含的 HTML 檔**：CSS 內嵌，沒有 script，不從任何地方抓字型或圖片。斷網也能開，而且會跟隨閱讀者的淺色／深色偏好。工具呼叫與結果收在可展開的摺疊區塊裡，失敗的呼叫會標示出來，token 用量放在頁尾。
+
+**密鑰一律遮蔽**——即使你為了自己的終端機設了 `redaction: false` 也一樣。匯出正是一份對話紀錄不再只屬於本機的那一刻，而你為自己關掉遮蔽，並不代表你對「什麼東西可以離開這台機器」表達了任何意見。頁尾會回報遮蔽了幾個值。沒有任何旗標可以略過這一步。
+
+**系統提示不會被匯出**：它不是對話的一部分，而且會把一個人格的完整指令放進你正要寄出去的檔案裡。
+
+預設工具結果會截斷在 2 KB，並註明省略了多少——足以看懂推理過程，又不會把一個長階段變成一坨資料。要完整保存請加 `-full`。
 
 ### /rewind — 時光倒帶
 

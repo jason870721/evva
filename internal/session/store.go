@@ -93,12 +93,29 @@ func Load(appHome, workdirSlug, sessionID string) (*Snapshot, error) {
 	return &snap, nil
 }
 
-// ListEntry is one row in the resume picker: the snapshot plus the file
-// mtime List uses to sort. The picker only needs a small subset of the
-// snapshot fields — exposed separately so the picker can stay shallow.
-type ListEntry struct {
-	Snapshot *Snapshot
-	MTime    int64 // unix nano of file mtime; List sorts by this desc
+// Header is one row in a session picker: the snapshot envelope, the
+// message count, and the file mtime List sorts by.
+//
+// Listing decodes into this rather than into a full Snapshot. Messages
+// dominate a snapshot's bytes — the envelope is a few hundred of them and
+// the conversation is the rest — so a picker that materialized every
+// message body to render a preview line would pay for the whole store to
+// show a dozen rows. Measured on a real store (93 sessions, 14 MB across
+// 14 workdirs): 66 ms header-only against 107 ms full. That margin is why
+// v1.19 could add machine-wide listing without adding an index.
+type Header struct {
+	Meta
+	MessageCount int   // len(session.messages), counted without decoding bodies
+	MTime        int64 // unix nano of file mtime; List sorts by this desc
+}
+
+// headerRow is the decode target: the envelope, plus messages as raw
+// json so len() is available without unmarshalling a single message.
+type headerRow struct {
+	Meta
+	Session struct {
+		Messages []json.RawMessage `json:"messages"`
+	} `json:"session"`
 }
 
 // List enumerates every session under <SessionsDir>/<workdir-slug>/,
@@ -108,7 +125,7 @@ type ListEntry struct {
 //
 // Returns an empty slice (not an error) when the directory does not
 // exist yet — that's the normal "no prior sessions" state.
-func List(appHome, workdirSlug string) ([]ListEntry, []string, error) {
+func List(appHome, workdirSlug string) ([]Header, []string, error) {
 	dir := SessionsDir(appHome, workdirSlug)
 	if dir == "" {
 		return nil, nil, nil
@@ -120,17 +137,63 @@ func List(appHome, workdirSlug string) ([]ListEntry, []string, error) {
 		}
 		return nil, nil, fmt.Errorf("session: read dir %s: %w", dir, err)
 	}
+	out, warnings := readHeaders(dir, entries)
+	sort.Slice(out, func(i, j int) bool { return out[i].MTime > out[j].MTime })
+	return out, warnings, nil
+}
+
+// ListAll enumerates sessions across EVERY workdir slug, newest first.
+//
+// The machine-wide view behind `evva sessions list` and the picker's
+// all-workdirs toggle: a session's home directory is where it was started,
+// which is not always where the operator is standing when they go looking
+// for it. A slug directory that cannot be read is skipped rather than
+// failing the whole listing — one unreadable project must not hide the
+// other fourteen.
+func ListAll(appHome string) ([]Header, []string, error) {
+	if appHome == "" {
+		return nil, nil, nil
+	}
+	root := filepath.Join(appHome, SessionsSubdir)
+	slugs, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("session: read sessions root %s: %w", root, err)
+	}
+	var (
+		out      []Header
+		warnings []string
+	)
+	for _, slug := range slugs {
+		if !slug.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, slug.Name())
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("session: read dir %s: %v", dir, err))
+			continue
+		}
+		rows, warn := readHeaders(dir, entries)
+		out = append(out, rows...)
+		warnings = append(warnings, warn...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].MTime > out[j].MTime })
+	return out, warnings, nil
+}
+
+// readHeaders decodes every *.json in dir into a Header. Unsorted — both
+// callers sort, and ListAll must sort across directories anyway.
+func readHeaders(dir string, entries []os.DirEntry) ([]Header, []string) {
 	var warnings []string
-	out := make([]ListEntry, 0, len(entries))
+	out := make([]Header, 0, len(entries))
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() || filepath.Ext(e.Name()) != sessionFileSuffix {
 			continue
 		}
-		name := e.Name()
-		if filepath.Ext(name) != sessionFileSuffix {
-			continue
-		}
-		path := filepath.Join(dir, name)
+		path := filepath.Join(dir, e.Name())
 		info, err := e.Info()
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("session: stat %s: %v", path, err))
@@ -141,20 +204,23 @@ func List(appHome, workdirSlug string) ([]ListEntry, []string, error) {
 			warnings = append(warnings, fmt.Sprintf("session: read %s: %v", path, err))
 			continue
 		}
-		var snap Snapshot
-		if err := json.Unmarshal(data, &snap); err != nil {
+		var row headerRow
+		if err := json.Unmarshal(data, &row); err != nil {
 			warnings = append(warnings, fmt.Sprintf("session: parse %s: %v", path, err))
 			continue
 		}
-		if snap.Version > SnapshotVersion {
+		if row.Version > SnapshotVersion {
 			warnings = append(warnings, fmt.Sprintf("session: %s has version %d (skipping; this evva supports up to %d)",
-				path, snap.Version, SnapshotVersion))
+				path, row.Version, SnapshotVersion))
 			continue
 		}
-		out = append(out, ListEntry{Snapshot: &snap, MTime: info.ModTime().UnixNano()})
+		out = append(out, Header{
+			Meta:         row.Meta,
+			MessageCount: len(row.Session.Messages),
+			MTime:        info.ModTime().UnixNano(),
+		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].MTime > out[j].MTime })
-	return out, warnings, nil
+	return out, warnings
 }
 
 // CountTouchedSince counts persisted sessions across ALL workdir slugs whose

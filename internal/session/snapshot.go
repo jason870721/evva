@@ -18,7 +18,13 @@ const SnapshotVersion = 1
 // truncation never produces a half-word in the visible window.
 const PreviewMaxBytes = 200
 
-// Snapshot is the JSON shape of one persisted session.
+// Meta is the snapshot envelope: everything about a session except the
+// conversation itself.
+//
+// Split out from Snapshot (v1.19) so listing can decode the envelope
+// WITHOUT materializing message bodies — see store.go's Header. Embedded
+// anonymously below, so encoding/json flattens it and the on-disk layout is
+// byte-identical to pre-v1.19 files.
 //
 // SessionID identifies the file on disk and equals the live agent's UUID
 // at the moment the session was first saved; the agent overwrites its own
@@ -27,18 +33,81 @@ const PreviewMaxBytes = 200
 // Profile + Provider + Model capture the agent setup at save time so the
 // resume code can rebuild the right persona and LLM client even if the
 // user's defaults have changed since.
+type Meta struct {
+	Version         int       `json:"version"`
+	SessionID       string    `json:"session_id"`
+	Workdir         string    `json:"workdir"`
+	WorkdirSlug     string    `json:"workdir_slug"`
+	Profile         string    `json:"profile"`
+	Provider        string    `json:"provider"`
+	Model           string    `json:"model"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	FirstUserPrompt string    `json:"first_user_prompt"`
+
+	// Title is the operator's own name for this session (/title). Empty
+	// means the picker falls back to FirstUserPrompt, which is what every
+	// session showed before v1.19 — so an absent title is not a missing
+	// title, it is the default one.
+	Title string `json:"title,omitempty"`
+
+	// ParentID names the session this one was forked from; empty for a
+	// root session. The picker indents children under their parent.
+	ParentID string `json:"parent_id,omitempty"`
+
+	// ForkedAtLen is len(Messages) at the moment of the fork — how much
+	// history the child inherited. Display only; the child owns its copy.
+	ForkedAtLen int `json:"forked_at_len,omitempty"`
+
+	// Pinned exempts this session from `evva sessions prune`. Retention
+	// caps ignore pinned sessions entirely rather than counting them.
+	Pinned bool `json:"pinned,omitempty"`
+}
+
+// Label is what a picker row should call this session: the operator's
+// title when they set one, else the first-prompt preview, else a plain
+// marker so a row is never blank.
+func (m Meta) Label() string {
+	if m.Title != "" {
+		return m.Title
+	}
+	if m.FirstUserPrompt != "" {
+		return m.FirstUserPrompt
+	}
+	return "(no user prompt yet)"
+}
+
+// Snapshot is the JSON shape of one persisted session: the envelope plus
+// the conversation.
 type Snapshot struct {
-	Version          int          `json:"version"`
-	SessionID        string       `json:"session_id"`
-	Workdir          string       `json:"workdir"`
-	WorkdirSlug      string       `json:"workdir_slug"`
-	Profile          string       `json:"profile"`
-	Provider         string       `json:"provider"`
-	Model            string       `json:"model"`
-	CreatedAt        time.Time    `json:"created_at"`
-	UpdatedAt        time.Time    `json:"updated_at"`
-	FirstUserPrompt  string       `json:"first_user_prompt"`
-	Session          SessionState `json:"session"`
+	Meta
+	Session SessionState `json:"session"`
+}
+
+// ForkMeta derives a child session's envelope from its parent's.
+//
+// The child is a new session in every way that matters — its own id, its
+// own creation time, its own checkpoint namespace (which is what makes the
+// PRD's "a fork's rewind cannot cross the fork point" true for free) — and
+// inherits only the parent's setup: workdir, persona, provider, model, and
+// the first-prompt preview that names the branch it came from.
+//
+// atLen records how much history was copied. It is display metadata; the
+// caller does the copying.
+func ForkMeta(parent Meta, childID string, atLen int, now time.Time) Meta {
+	child := parent
+	child.SessionID = childID
+	child.ParentID = parent.SessionID
+	child.ForkedAtLen = atLen
+	child.CreatedAt = now
+	child.UpdatedAt = now
+	// A fork is an experiment until the operator says otherwise: neither
+	// the parent's pin nor its title carries over, or every branch would
+	// inherit protection from retention and they would all read alike in
+	// the picker.
+	child.Pinned = false
+	child.Title = ""
+	return child
 }
 
 // SessionState carries the live conversation fields persisted alongside
@@ -110,7 +179,11 @@ func FirstUserPromptPreview(msgs []llm.Message) string {
 		body = strings.ReplaceAll(body, "\r", " ")
 		body = collapseSpaces(body)
 		if len(body) > PreviewMaxBytes {
-			body = body[:PreviewMaxBytes]
+			// The cap is a byte budget, but the cut must land on a rune
+			// boundary — a truncated multi-byte character is stored in the
+			// snapshot forever and renders as a replacement glyph in every
+			// picker that shows it. ToValidUTF8 drops the partial tail.
+			body = strings.ToValidUTF8(body[:PreviewMaxBytes], "")
 		}
 		return body
 	}

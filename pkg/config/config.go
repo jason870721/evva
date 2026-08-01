@@ -222,6 +222,17 @@ type Config struct {
 	EmbeddingProvider string
 	EmbeddingModel    string
 
+	// Session retention caps for `evva sessions prune` (SES-6). Both default
+	// to 0 — unlimited — and nothing prunes sessions automatically.
+	//
+	// The asymmetry with checkpoints, which DO self-prune, is on purpose: a
+	// checkpoint is a derived before-image evva made on the operator's
+	// behalf, while a session transcript is the operator's own writing. Only
+	// an explicit `evva sessions prune -apply` deletes one, and pinned
+	// sessions are exempt even then.
+	SessionRetentionDays int
+	SessionRetentionMax  int
+
 	// Sandboxed execution (SBX). SandboxRuntime names the container runtime
 	// backing isolation:"sandbox" — "" (off, the default), "docker" or
 	// "podman". Note this is a DIFFERENT axis from the permission gate, which
@@ -379,6 +390,8 @@ func (c *Config) Clone() *Config {
 		PruneKeepResults:        c.PruneKeepResults,
 		EmbeddingProvider:       c.EmbeddingProvider,
 		EmbeddingModel:          c.EmbeddingModel,
+		SessionRetentionDays:    c.SessionRetentionDays,
+		SessionRetentionMax:     c.SessionRetentionMax,
 		SandboxRuntime:          c.SandboxRuntime,
 		SandboxImage:            c.SandboxImage,
 		SandboxNetwork:          c.SandboxNetwork,
@@ -569,6 +582,21 @@ func (c *Config) GetPruneKeepResults() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.PruneKeepResults
+}
+
+// GetSessionRetentionDays returns the session age cap in days (0 = none).
+func (c *Config) GetSessionRetentionDays() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.SessionRetentionDays
+}
+
+// GetSessionRetentionMax returns the per-workdir session count cap
+// (0 = none).
+func (c *Config) GetSessionRetentionMax() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.SessionRetentionMax
 }
 
 // GetEmbeddingProvider returns the configured embedding backend name, or ""
@@ -1235,6 +1263,8 @@ func (c *Config) SaveFile() error {
 		PruneKeepResults:        c.PruneKeepResults,
 		EmbeddingProvider:       c.EmbeddingProvider,
 		EmbeddingModel:          c.EmbeddingModel,
+		SessionRetentionDays:    c.SessionRetentionDays,
+		SessionRetentionMax:     c.SessionRetentionMax,
 		SandboxRuntime:          c.SandboxRuntime,
 		SandboxImage:            c.SandboxImage,
 		SandboxNetwork:          c.SandboxNetwork,

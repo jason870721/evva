@@ -106,6 +106,11 @@ type FileConfig struct {
 	EmbeddingProvider string `yaml:"embedding_provider,omitempty"`
 	EmbeddingModel    string `yaml:"embedding_model,omitempty"`
 
+	// Session retention (SES-6). Both 0 (unlimited) by default; consulted
+	// only by `evva sessions prune`, which never deletes without -apply.
+	SessionRetentionDays int `yaml:"session_retention_days,omitempty"`
+	SessionRetentionMax  int `yaml:"session_retention_max,omitempty"`
+
 	// Sandboxed execution (SBX). All three are plain strings whose zero value
 	// IS the default, so omitempty round-trips correctly without the *bool
 	// dance the opt-in booleans above need. sandbox_runtime: "" = off,
