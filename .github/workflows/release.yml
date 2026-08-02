@@ -31,10 +31,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: "1.25"
 
@@ -62,7 +62,12 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        # Leave `archive` at its default (true). v7 added direct (unzipped)
+        # uploads, and turning them on here would make the artifact BE the
+        # .tar.gz/.zip — which download-artifact then unzips on Content-Type,
+        # landing bare `evva` / `evva.exe` in dist/ instead of the archives
+        # whose exact names pkg/update resolves.
+        uses: actions/upload-artifact@v7
         with:
           name: evva-${{ matrix.goos }}-${{ matrix.goarch }}
           path: evva-${{ matrix.goos }}-${{ matrix.goarch }}.*
@@ -73,13 +78,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
 
       - name: Publish
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
