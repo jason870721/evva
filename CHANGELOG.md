@@ -330,6 +330,27 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
   — and the stored preview kept it permanently. All three now cut on a rune
   boundary.
 
+- **The status bar no longer stacks ghost copies of itself mid-run.** The HUD
+  set `Width(terminalWidth)` over a background with horizontal padding, and
+  lipgloss hard-wraps content wider than that before padding it — so once the
+  cells outgrew the terminal, the bar rendered as two or three full-width,
+  background-filled rows. Bubble Tea only repaints rows that differ from the
+  previous frame and only erases below the frame when it shrinks, so the extra
+  rows stuck around as ghosts while the transcript above them held still. It
+  showed up during the agent loop because that is when the bar is widest and
+  changing: the state label grows (`READY` → `EXECUTING` → `COMPACTING`) and the
+  token counters widen (`0` → `8.0k` → `1.2M`) across the wrap threshold. At 120
+  columns the default HUD wrapped as soon as a non-default permission mode was
+  showing; at 60 it wrapped into three rows. The bar is now fitted to the
+  terminal before rendering — cells drop lowest-priority-first (session id,
+  persona name, spend, context meter, model, permission stance) with the
+  run-state pill pinned — and is one row tall at every width.
+
+- **Multi-line hints no longer push the frame off the top of the screen.** Hints
+  are built from arbitrary error text, a wrapped error can carry newlines, and
+  the layout budgets the footer at exactly two rows. `ResolveHint` now flattens
+  to a single row.
+
 ## [v1.14.0] — 2026-08-01
 
 ### Added

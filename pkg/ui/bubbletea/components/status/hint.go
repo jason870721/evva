@@ -1,5 +1,7 @@
 package status
 
+import "strings"
+
 // HintProvider is anything that can contribute a one-line
 // contextual hint to the status row above the input. The App walks
 // the focus stack to find the topmost provider; if none yields a
@@ -50,15 +52,28 @@ func DefaultHint(s RunState) string {
 // missing layers.
 func ResolveHint(state *State, focus HintProvider) string {
 	if state != nil && state.Hint() != "" {
-		return state.Hint()
+		return oneLine(state.Hint())
 	}
 	if focus != nil {
 		if h := focus.Hint(); h != "" {
-			return h
+			return oneLine(h)
 		}
 	}
 	if state == nil {
 		return DefaultHint(StateIdle)
 	}
 	return DefaultHint(state.Current())
+}
+
+// oneLine flattens a hint onto a single row. Hints are routinely built
+// from arbitrary error text ("clear: " + err.Error()) and a wrapped
+// error can carry newlines; the layout budgets the footer at exactly
+// two rows, so a hint that spans two pushes the frame past the terminal
+// height and the renderer starts dropping rows off the top of the frame.
+func oneLine(s string) string {
+	if !strings.ContainsAny(s, "\r\n") {
+		return s
+	}
+	flat := strings.NewReplacer("\r\n", " · ", "\n", " · ", "\r", " · ").Replace(s)
+	return strings.Join(strings.Fields(flat), " ")
 }

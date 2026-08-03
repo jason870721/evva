@@ -92,28 +92,100 @@ func (s *StatusBar) SetAgentName(name string) { s.agentName = name }
 //	‹⠋ STATE› ◆ EVVA ◆ ▸ model ◆ IN n  OUT m ◆ CTX ▰▰▱…▱ pct ◆ SID 1234abcd
 //
 // Each cell is separated by a violet diamond. Cells collapse when
-// their underlying data is empty.
+// their underlying data is empty, and cells that don't fit the
+// terminal are dropped lowest-rank-first (see fitCells) so the bar is
+// always exactly one row tall.
 func (s *StatusBar) Compose(width int, th *theme.Theme) string {
 	if width <= 0 {
 		return ""
 	}
 	sep := th.StatusSep.Render(" ◆ ")
 
-	parts := []string{
-		renderStatePill(s.state, th),
-		th.UserPrompt.Render(agentNameOrDefault(s.agentName)),
-		th.StatusKey.Render("▸ ") + th.StatusValue.Render(modelOrDash(s.model)) + renderEffort(s.effort, th),
-		renderSpend(s.usage, s.model, th),
-		renderContextBar(s.contextUsed, s.contextLimit, th),
-	}
-	if cell := renderPermissionMode(s.permMode, th); cell != "" {
-		parts = append(parts, cell)
-	}
+	var sid string
 	if id := shortAgentID(s.agentID); id != "" {
-		parts = append(parts, th.StatusKey.Render("SID ")+th.StatusValue.Render(id))
+		sid = th.StatusKey.Render("SID ") + th.StatusValue.Render(id)
 	}
-	body := strings.Join(parts, sep)
-	return th.StatusBar.Width(width).Render(body)
+	cells := []hudCell{
+		{renderStatePill(s.state, th), rankPinned},
+		{th.UserPrompt.Render(agentNameOrDefault(s.agentName)), rankAgentName},
+		{th.StatusKey.Render("▸ ") + th.StatusValue.Render(modelOrDash(s.model)) + renderEffort(s.effort, th), rankModel},
+		{renderSpend(s.usage, s.model, th), rankSpend},
+		{renderContextBar(s.contextUsed, s.contextLimit, th), rankContext},
+		{renderPermissionMode(s.permMode, th), rankPermMode},
+		{sid, rankSID},
+	}
+
+	body := fitCells(cells, sep, max(width-th.StatusBar.GetHorizontalPadding(), 1))
+	// MaxHeight is the brace to fitCells' belt: the one-row invariant is
+	// load-bearing for the whole frame, so it gets enforced twice.
+	return th.StatusBar.Width(width).MaxWidth(width).MaxHeight(1).Render(body)
+}
+
+// hudCell is one status-bar segment plus the rank at which it gets
+// dropped when the bar would otherwise overflow the terminal.
+type hudCell struct {
+	text string
+	rank int
+}
+
+// Drop ranks, lowest dropped first. The order encodes what a user loses
+// least by not seeing: the session id and persona name are also in the
+// banner, spend has /cost and the utilization meter has /context behind
+// it. The permission stance outranks even the model id because it only
+// renders at all once the user has left the default stance — it exists
+// to warn, so it is the last thing worth trading away.
+const (
+	rankSID = iota + 1
+	rankAgentName
+	rankSpend
+	rankContext
+	rankModel
+	rankPermMode
+	rankPinned
+)
+
+// fitCells joins the non-empty cells with sep, dropping the
+// lowest-ranked one at a time until the result fits budget columns.
+//
+// Fitting is not cosmetic. th.StatusBar carries a background and a
+// Width(), and lipgloss hard-wraps over-wide content before padding it,
+// so an overflowing bar renders as two or three full-width,
+// background-filled rows — which is to say, as a stack of status bars.
+// Bubble Tea's renderer then only repaints lines that differ from the
+// previous frame and only erases below the frame when it shrinks, so
+// those extra rows linger as ghosts for as long as the transcript above
+// them holds still.
+func fitCells(cells []hudCell, sep string, budget int) string {
+	live := make([]hudCell, 0, len(cells))
+	for _, c := range cells {
+		if c.text != "" {
+			live = append(live, c)
+		}
+	}
+
+	body := joinCells(live, sep)
+	for lipgloss.Width(body) > budget {
+		victim := -1
+		for i, c := range live {
+			if c.rank != rankPinned && (victim < 0 || c.rank < live[victim].rank) {
+				victim = i
+			}
+		}
+		if victim < 0 {
+			return lipgloss.NewStyle().MaxWidth(budget).Render(body)
+		}
+		live = append(live[:victim], live[victim+1:]...)
+		body = joinCells(live, sep)
+	}
+	return body
+}
+
+func joinCells(cells []hudCell, sep string) string {
+	parts := make([]string, len(cells))
+	for i, c := range cells {
+		parts[i] = c.text
+	}
+	return strings.Join(parts, sep)
 }
 
 // renderStatePill builds the leftmost HUD cell: animated braille
