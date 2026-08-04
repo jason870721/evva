@@ -12,6 +12,8 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+## [v1.20.0-beta.1] — 2026-08-04
+
 ### Added
 
 - **Steering v2 (STE-1..6).** evva has accepted typing mid-run for a long
@@ -2848,7 +2850,8 @@ Initial published tag — Phase 13 SDK split + Phase 14 session storage +
 Phase 15 friday proof of concept. See `EVVA.md` for the per-phase
 deliverables.
 
-[Unreleased]: https://github.com/johnny1110/evva/compare/v1.19.0-beta.1...HEAD
+[Unreleased]: https://github.com/johnny1110/evva/compare/v1.20.0-beta.1...HEAD
+[v1.20.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.19.0-beta.1...v1.20.0-beta.1
 [v1.19.0-beta.1]: https://github.com/johnny1110/evva/compare/v1.14.0...v1.19.0-beta.1
 [v1.14.0]: https://github.com/johnny1110/evva/compare/v1.11.0...v1.14.0
 [v1.11.0]: https://github.com/johnny1110/evva/compare/v1.11.0-beta.4...v1.11.0
