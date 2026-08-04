@@ -83,27 +83,30 @@ opening new fronts.
 
 The solo terminal experience becomes the best-in-class reason to choose evva.
 
-> **▶ Horizon 2 started 2026-08-01.** W5, W6 and W7 are built (v1.17–v1.19).
+> **✅ Horizon 2 closed 2026-08-04.** All four waves are built (v1.17–v1.20).
 > The tentative minors drifted by two — H1 ran long (MCP pulled forward, then
 > SBX and EVAL) — but the W5 → W6 dependency edge in §7 held: W6 was picked up
-> the moment W5 landed. **W8 is the last of this horizon**; treat its number as
-> an ordinal, as §1 says. W7's audit is the one to read if you want the cheap
-> version of the argument for the gate: it deleted a work item by *measuring*
-> it rather than by reading the code (§0.4 of that PRD).
+> the moment W5 landed. Two of these audits are worth reading before costing
+> any later wave, because they fail in opposite directions. **W7** deleted a
+> work item by *measuring* it rather than by reading the code (§0.4 of that
+> PRD). **W8** did the reverse: it found that the two pieces of infrastructure
+> the design planned to build *on* — a per-phase cancellation seam, and a free
+> keybinding for the new gesture — did not exist, so the audit **added** the
+> largest item in the wave rather than removing one.
 
 | Wave | Tentative minor | Scope (tickets) | PRDs | Theme |
 |---|---|---|---|---|
 | **W5 — Context engine** ✅ | v1.17 (was v1.15) | CTX-1..7: prune-with-tombstones, span compaction, `/context` overlay, pinning. Read dedup and the status-bar gauge turned out to be **already shipped** — see the PRD's §0 audit record | 🆕 [context-engine](PRD/context-engine.md) | T1 |
 | **W6 — Memory intelligence** ✅ | v1.18 | MEM-1..7: `memory_search` (the real gap — recall was push-only), optional `llm.Embedder` + Ollama/OpenAI backends, hash-diffed vector sidecar, pre-filter for the per-turn selector, `origin` provenance. Cross-project scope turned out to be **already shipped** — the store was always global; see the PRD's §0 | 🆕 [memory-semantic-recall](PRD/memory-semantic-recall.md) | T1 |
 | **W7 — Session tree** ✅ | v1.19 | SES-1..7: `evva resume` / `-c`, fork, `/title`, pin/delete/all-workdirs in `/resume`, `evva sessions prune`, self-contained HTML export. The catalog was **measured out of the design** and the in-TUI picker turned out to be **already shipped** — the gap was the pre-TUI entry; see the PRD's §0 | 🆕 [session-tree](PRD/session-tree.md) | T1 |
-| **W8 — Steering v2** | v1.20 (next) | STE-1..6: interrupt-grade steering (cancel in-flight LLM call / running tool and fold the user in), priority lanes | 🆕 [steering-v2](PRD/steering-v2.md) | T1 |
+| **W8 — Steering v2** ✅ | v1.20 | STE-1..6: interrupt-grade steering — a per-phase cancel-with-cause seam (which **had to be built**; the loop owned one context per run), `Ctrl+G` interject, partial-answer capture, paired interrupted tool results, `/queue`, swarm `urgency:"interject"`. The draft's "double-Esc abort" did not exist — a single Esc has always aborted; see the PRD's §0 | 🆕 [steering-v2](PRD/steering-v2.md) | T1 |
 
 ### Horizon 3 — 2027 H1: model & modality intelligence + interop
 
 | Wave | Tentative minor | Scope (tickets) | PRDs | Theme |
 |---|---|---|---|---|
-| **W9 — Model intelligence** | v1.19 | RTE-1..8: provider failover chains, role-tier routing, budget enforcement, cache parity beyond Anthropic | 🆕 [model-routing](PRD/model-routing.md) | T4 |
-| **W10 — Vision completion** | v1.20 | VIS-1..7: TUI image paste/attach, screenshot tool, provider vision parity, see-then-verify flows | 🆕 [vision-completion](PRD/vision-completion.md) | T1, T3 |
+| **W9 — Model intelligence** | v1.21 (next) | RTE-1..8: provider failover chains, role-tier routing, budget enforcement, cache parity beyond Anthropic | 🆕 [model-routing](PRD/model-routing.md) | T4 |
+| **W10 — Vision completion** | v1.22 | VIS-1..7: TUI image paste/attach, screenshot tool, provider vision parity, see-then-verify flows | 🆕 [vision-completion](PRD/vision-completion.md) | T1, T3 |
 | **W11 — Interop A: protocols** | v1.21 | MCP server mode + ACP-1..6 (Agent Client Protocol — evva inside Zed and other ACP editors) | 📄 [mcp-server-mode](PRD/mcp-server-mode.md) · 🆕 [acp-editor-integration](PRD/acp-editor-integration.md) | T3 |
 | **W12 — Interop B: CI** | v1.22 | CIH-1..7: GitHub Action, `@evva` PR review bot, SARIF/JSON findings, budget-capped headless runs | 🆕 [ci-headless-runner](PRD/ci-headless-runner.md) | T3 |
 | **W13 — Browser tools** | v1.23 | BRW-1..7: CDP-driven `browser_*` tool family (navigate/read/screenshot/interact/console) | 🆕 [browser-tools](PRD/browser-tools.md) | T3 |
@@ -324,14 +327,15 @@ aware of each other so it's built once, not twice.
 - **[overview.md](overview.md)** = ship-status truth, refreshed per release
   as already established. The **32** concept PRDs from these two planning
   passes (16 backbone W1–W19 + 16 batch-2 W20–W35) are tracked there as one
-  line item, not 32 rows, until they claim waves. Four have —
+  line item, not 32 rows, until they claim waves. Five have —
   secret-redaction (v1.14), context-engine (v1.17),
-  memory-semantic-recall (v1.18) and session-tree (v1.19) — leaving 28.
+  memory-semantic-recall (v1.18), session-tree (v1.19) and steering-v2
+  (v1.20) — leaving 27.
 - **`CLAUDE.md` wave map** = version truth. A wave's row is appended only at
   pickup, never by this document.
 - **Concept → build gate:** no concept PRD may be handed to an implementing
   agent without the audit pass (§1 step 2). Concept PRDs deliberately cite
-  packages and shipped behaviors, not line numbers. Six passes have now run
+  packages and shipped behaviors, not line numbers. Seven passes have now run
   (SEC, SBX, EVAL, CTX, MEM, SES) and the gate has changed the design every
   time; overview.md §2 tabulates what each one cost.
 
@@ -340,6 +344,16 @@ aware of each other so it's built once, not twice.
   solved a real problem — enumeration cost — that turned out to measure
   110 ms on a real store. Nothing in the code contradicted the design; only a
   measurement did. **Audit passes should measure, not only read.**
+
+  **STE adds a third: a draft can be wrong about the ground it stands on.**
+  Its diagnosis was sharp and its three-level design shipped essentially as
+  drawn — but §3 asserted "the loop already owns a per-iteration context"
+  (there was exactly one context for the whole run, which is *why* abort was
+  the only mid-turn gesture) and §1 listed abort as "double-Esc (existing,
+  unchanged)" (a single Esc has always aborted, so the natural interject key
+  was taken). Every prior audit *removed* scope; this one added the wave's
+  largest item. **Cost a wave from the code, never from the PRD's account of
+  the code.**
 
   **MEM is the case to cite if the gate is ever questioned.** Its premise was
   not stale — it was false when written: the draft described evva recalling

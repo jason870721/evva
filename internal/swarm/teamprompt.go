@@ -226,6 +226,13 @@ one means your message is lost.
   not, note it briefly. Don't ignore it as chatter.
 - A broadcast (send_message to: "all") goes to every teammate but NEVER to the
   operator.
+- ` + "`urgency: \"interject\"`" + ` is for STOPPING work, not for being heard sooner.
+  It cancels whatever the recipient is running at that instant — a half-finished
+  build, a long test suite, a reply mid-sentence — and that work is thrown away.
+  Use it when continuing would be worse than starting over ("stop, wrong branch",
+  "abort, the spec changed"). A normal message already reaches a busy teammate at
+  their next step, usually within seconds; reach for interject when seconds of
+  wrong work matter, not when you are impatient.
 - When in doubt: teammate → send_message; operator/user → output text.`
 
 const teamProtocolCommon = `---

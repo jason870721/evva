@@ -30,6 +30,9 @@ func (publicOnlyController) TodoStore() *todo.TodoStore                         
 func (publicOnlyController) DaemonState() *daemon.DaemonState                      { return nil }
 func (publicOnlyController) WorkflowTasks() *workflow.Store                        { return nil }
 func (publicOnlyController) EnqueueUserPrompt(string)                              {}
+func (publicOnlyController) InterjectUserPrompt(string) error                      { return nil }
+func (publicOnlyController) PendingPrompts() []ui.PendingPrompt                    { return nil }
+func (publicOnlyController) RevokePendingPrompt(string) bool                       { return false }
 func (publicOnlyController) Logger() *slog.Logger                                  { return nil }
 func (publicOnlyController) Model() string                                         { return "" }
 func (publicOnlyController) AgentID() string                                       { return "" }

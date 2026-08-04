@@ -34,9 +34,22 @@ type Message struct {
 	ReadAt    *int64
 	ClaimedAt *int64
 	CreatedAt int64
+	// Urgency is how hard the message asks to be read: "" / UrgencyNormal is
+	// the historical behaviour (folded at the recipient's next iteration
+	// boundary), UrgencyInterject additionally cuts the recipient's in-flight
+	// step short (STE-5). It changes WHEN a message lands, never what it
+	// says — the body reaches the recipient identically either way.
+	Urgency string
 }
 
-const msgCols = `id, sender, recipient, subject, body, ref_task, read_at, claimed_at, created_at`
+// Message urgency levels. Anything unrecognised is treated as normal: an
+// unknown word must never be more disruptive than the default.
+const (
+	UrgencyNormal    = "normal"
+	UrgencyInterject = "interject"
+)
+
+const msgCols = `id, sender, recipient, subject, body, ref_task, read_at, claimed_at, created_at, urgency`
 
 // PutMessage durably stores a message. The caller supplies the id (a UUID; see
 // pkg/common.GenUUID). CreatedAt defaults to now when zero.
@@ -55,10 +68,10 @@ func (s *Store) PutMessage(m Message) error {
 	defer s.mu.Unlock()
 
 	_, err := s.db.Exec(
-		`INSERT INTO messages (id, sender, recipient, subject, body, ref_task, read_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO messages (id, sender, recipient, subject, body, ref_task, read_at, created_at, urgency)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.Sender, m.Recipient, nullableStr(m.Subject), m.Body,
-		nullableInt(m.RefTask), nullableInt(m.ReadAt), m.CreatedAt,
+		nullableInt(m.RefTask), nullableInt(m.ReadAt), m.CreatedAt, m.Urgency,
 	)
 	if err != nil {
 		return fmt.Errorf("store: put message %s: %w", m.ID, err)
@@ -103,10 +116,10 @@ func (s *Store) PutMessageIfNew(m Message, key string) (inserted bool, existingI
 	}
 
 	if _, err := s.db.Exec(
-		`INSERT INTO messages (id, sender, recipient, subject, body, ref_task, read_at, created_at, idempotency_key)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO messages (id, sender, recipient, subject, body, ref_task, read_at, created_at, idempotency_key, urgency)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.Sender, m.Recipient, nullableStr(m.Subject), m.Body,
-		nullableInt(m.RefTask), nullableInt(m.ReadAt), m.CreatedAt, key,
+		nullableInt(m.RefTask), nullableInt(m.ReadAt), m.CreatedAt, key, m.Urgency,
 	); err != nil {
 		return false, "", fmt.Errorf("store: put message (idempotent) %s: %w", m.ID, err)
 	}
@@ -205,10 +218,12 @@ func scanMessage(sc rowScanner) (Message, error) {
 		refTask   sql.NullInt64
 		readAt    sql.NullInt64
 		claimedAt sql.NullInt64
+		urgency   sql.NullString
 	)
-	if err := sc.Scan(&m.ID, &m.Sender, &m.Recipient, &subject, &m.Body, &refTask, &readAt, &claimedAt, &m.CreatedAt); err != nil {
+	if err := sc.Scan(&m.ID, &m.Sender, &m.Recipient, &subject, &m.Body, &refTask, &readAt, &claimedAt, &m.CreatedAt, &urgency); err != nil {
 		return Message{}, err
 	}
+	m.Urgency = urgency.String
 	m.Subject = subject.String
 	if refTask.Valid {
 		v := refTask.Int64

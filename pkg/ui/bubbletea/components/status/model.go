@@ -41,6 +41,14 @@ type StatusBar struct {
 	effort    string
 	permMode  string
 	agentName string
+
+	// queued is how many mid-run messages are waiting to be delivered, and
+	// interjecting how many of those will cut the current phase short. The
+	// pair exists because "I typed something and it vanished" is the whole
+	// failure mode a mid-run queue creates: the text leaves the composer and
+	// nothing on screen says it is still coming.
+	queued       int
+	interjecting int
 }
 
 // New constructs a StatusBar bound to the given run-state machine.
@@ -86,6 +94,14 @@ func (s *StatusBar) SetPermissionMode(mode string) { s.permMode = mode }
 // the pre-attach state still renders something sensible.
 func (s *StatusBar) SetAgentName(name string) { s.agentName = name }
 
+// SetQueued stores the pending mid-run message counts. total is every
+// queued message; interjects is the subset that will cut the running phase.
+// The cell collapses at zero, which is the overwhelmingly common case.
+func (s *StatusBar) SetQueued(total, interjects int) {
+	s.queued = total
+	s.interjecting = interjects
+}
+
 // Compose returns the rendered HUD as one styled line, padded to
 // width. Layout (left → right):
 //
@@ -112,6 +128,7 @@ func (s *StatusBar) Compose(width int, th *theme.Theme) string {
 		{renderSpend(s.usage, s.model, th), rankSpend},
 		{renderContextBar(s.contextUsed, s.contextLimit, th), rankContext},
 		{renderPermissionMode(s.permMode, th), rankPermMode},
+		{renderQueued(s.queued, s.interjecting, th), rankQueued},
 		{sid, rankSID},
 	}
 
@@ -141,6 +158,10 @@ const (
 	rankContext
 	rankModel
 	rankPermMode
+	// rankQueued sits just under the pinned state pill: a message the user
+	// typed and cannot see is worse to lose than any other cell here, and
+	// the cell is absent entirely unless something is actually waiting.
+	rankQueued
 	rankPinned
 )
 
@@ -429,6 +450,23 @@ func renderPermissionMode(mode string, th *theme.Theme) string {
 	}
 	style := lipgloss.NewStyle().Foreground(color).Bold(true)
 	return th.StatusKey.Render("⛨ ") + style.Render(mode)
+}
+
+// renderQueued builds the pending-message cell: "✉ 2" for two waiting
+// politely, "✉ 2!" when one of them will cut the running phase short. The
+// bang rather than a second number because the distinction the user needs
+// at a glance is binary — is something about to interrupt, or not.
+func renderQueued(total, interjects int, th *theme.Theme) string {
+	if total <= 0 {
+		return ""
+	}
+	label := fmt.Sprintf("%d", total)
+	style := th.StatusValue
+	if interjects > 0 {
+		label += "!"
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B35")).Bold(true)
+	}
+	return th.StatusKey.Render("✉ ") + style.Render(label)
 }
 
 // ContextLimitFor returns the model's context window from the

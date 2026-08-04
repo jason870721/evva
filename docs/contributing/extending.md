@@ -195,6 +195,18 @@ to a busy member mid-run (its supervisor clears the run-start batch's stale
 hints first, so a message folded at run start isn't re-folded by the drainer).
 `Drainer` is **Experimental** — the contract may evolve in a minor release.
 
+**Bringing the boundary forward.** A drainer delivers at the next iteration
+boundary, which is soon — unless the agent is four minutes into a `bash`
+call. `Agent.InterjectSignal(src)` cuts the in-flight LLM call or tool batch
+so the loop reaches that boundary immediately; the turn survives, and the
+transcript records honestly that the step was cut short and by whom.
+
+Deliberately **no message argument**: your drainer already owns delivery, and
+passing the body here too would deliver it twice. Call it *after* your message
+is durable, and treat its error (no run in flight) as the healthy idle case —
+the drainer will pick the message up when the agent next wakes. This is how
+the swarm's `send_message urgency:"interject"` works.
+
 ### Custom UI
 
 `pkg/ui.UI` is the surface a custom UI satisfies. Implement `Emit`,

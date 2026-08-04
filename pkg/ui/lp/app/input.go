@@ -12,7 +12,10 @@ import (
 
 // placeholder shown when the input is empty — doubles as the key hint so
 // lp needs no separate help line for the common keys.
-const placeholder = "enter send · ctrl+j newline · ctrl+o fold · shift+tab mode"
+const (
+	placeholder        = "enter send · ctrl+j newline · ctrl+o fold · shift+tab mode"
+	placeholderRunning = "enter queue · ctrl+g interject now · ctrl+j newline · esc abort"
+)
 
 // SubmitMsg is dispatched when the user presses Enter on non-empty input.
 // lp keeps a single text form (no paste-chip compaction in v1), so ForAgent
@@ -114,6 +117,21 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 // submit produces a SubmitMsg from the current input and records history.
 // Reset is the App's responsibility (it peeks Value() to detect slash
 // commands before clearing).
+// SubmitCmd emits a SubmitMsg for the current input, exactly as Enter
+// would. Used by the interject key when nothing is running.
+func (i *Input) SubmitCmd() tea.Cmd { return i.submit() }
+
+// SetRunning switches the placeholder between lp's idle and running key
+// hints — the running one names the queue-vs-interject choice, which only
+// exists while the agent works.
+func (i *Input) SetRunning(running bool) {
+	if running {
+		i.ta.Placeholder = placeholderRunning
+		return
+	}
+	i.ta.Placeholder = placeholder
+}
+
 func (i *Input) submit() tea.Cmd {
 	text := i.ta.Value()
 	i.appendHistory(text)

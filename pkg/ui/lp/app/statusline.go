@@ -28,6 +28,11 @@ type StatusLine struct {
 	effort   string
 	permMode string
 	workdir  string
+	// queued / interjecting mirror the bubbletea HUD's ✉ cell: how many
+	// typed messages are still waiting to reach the model, and whether any
+	// of them will cut the current step short.
+	queued       int
+	interjecting int
 }
 
 // NewStatusLine binds the line to lp's run-state machine and captures the
@@ -45,6 +50,12 @@ func (s *StatusLine) SetContext(used, limit int) { s.ctxUsed, s.ctxLimit = used,
 func (s *StatusLine) SetModel(m string)          { s.model = m }
 func (s *StatusLine) SetEffort(e string)         { s.effort = e }
 func (s *StatusLine) SetPermissionMode(m string) { s.permMode = m }
+
+// SetQueued stores the pending mid-run message counts; the cell collapses
+// at zero.
+func (s *StatusLine) SetQueued(total, interjects int) {
+	s.queued, s.interjecting = total, interjects
+}
 
 // Render composes the one-line HUD, padded to width. When the terminal is
 // too narrow for the right cluster, only the left cluster is shown.
@@ -64,6 +75,9 @@ func (s *StatusLine) Render(width int, th *theme.Theme) string {
 		th.StatusKey.Render(" OUT ") + th.StatusValue.Render(humanTokens(s.usage.OutputTokens)) +
 		sep + ctxCell(s.ctxUsed, s.ctxLimit, th)
 	if cell := modeCell(s.permMode, th); cell != "" {
+		right += sep + cell
+	}
+	if cell := queuedCell(s.queued, s.interjecting, th); cell != "" {
 		right += sep + cell
 	}
 
@@ -164,4 +178,19 @@ func humanTokens(n int) string {
 	default:
 		return fmt.Sprintf("%d", n)
 	}
+}
+
+// queuedCell renders the pending-message count: "✉ 2", with a bang when one
+// of them will interject. Empty at zero, which is nearly always.
+func queuedCell(total, interjects int, th *theme.Theme) string {
+	if total <= 0 {
+		return ""
+	}
+	label := fmt.Sprintf("%d", total)
+	style := th.StatusValue
+	if interjects > 0 {
+		label += "!"
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B35")).Bold(true)
+	}
+	return th.StatusKey.Render("✉ ") + style.Render(label)
 }

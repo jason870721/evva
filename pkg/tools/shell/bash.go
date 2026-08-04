@@ -267,7 +267,18 @@ func (t *BashTool) Execute(ctx context.Context, logger *slog.Logger, input json.
 	if errors.Is(ctx.Err(), context.Canceled) {
 		// Caller cancellation — propagate via Go error so the loop returns
 		// llm.ErrInterrupted to the CLI.
-		return tools.Result{IsError: true, Content: "bash: cancelled"}, ctx.Err()
+		//
+		// The partial output rides along (STE-3). The kill tree has already
+		// fired, so whatever is in the buffer is everything the command
+		// managed to say; discarding it costs the model the one piece of
+		// evidence about how far a four-minute build actually got. The
+		// agent layer caps it — see interruptedPartialCap — because that is
+		// where the interject-vs-abort distinction is known.
+		msg := "bash: cancelled"
+		if out != "" {
+			msg += "\n--- partial output ---\n" + out
+		}
+		return tools.Result{IsError: true, Content: msg}, ctx.Err()
 	}
 
 	if err != nil {

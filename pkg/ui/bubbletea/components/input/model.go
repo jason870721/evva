@@ -32,8 +32,14 @@ import (
 	"github.com/johnny1110/evva/pkg/ui/bubbletea/theme"
 )
 
-// Placeholder text shown when the input is empty. Mirrors v1.
-const placeholder = "<Enter> send · <Ctrl+J> newline · <Ctrl+O> toggle tool results"
+// Placeholder text shown when the input is empty, in each of the two
+// composer modes. The running variant leads with the choice the user
+// actually has to make while the agent works — wait or cut in — because
+// that is the only moment the distinction exists.
+const (
+	placeholder        = "<Enter> send · <Ctrl+J> newline · <Ctrl+O> toggle tool results"
+	placeholderRunning = "<Enter> queue for next turn · <Ctrl+G> interject now · <Ctrl+J> newline"
+)
 
 // SubmitMsg is dispatched as a tea.Cmd return when the user presses
 // Enter with non-empty content. The App handles this message: routes
@@ -89,6 +95,16 @@ func New(th *theme.Theme) *Input {
 		th:         th,
 		historyIdx: -1,
 	}
+}
+
+// SetRunning switches the composer between its idle and running
+// placeholders. The App calls it on every run-state transition.
+func (i *Input) SetRunning(running bool) {
+	if running {
+		i.ta.Placeholder = placeholderRunning
+		return
+	}
+	i.ta.Placeholder = placeholder
 }
 
 // SetWidth updates the textarea's visible column count. Called on
@@ -183,15 +199,31 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+// Compose expands the paste buffer into the two prompt forms and records
+// the raw text in history — everything a submission does except deciding
+// what happens next. Exposed so a caller that is NOT going through the
+// SubmitMsg round-trip (the Ctrl+G interject, which must hand the text to
+// the agent synchronously) gets identical paste and history handling
+// instead of a second, divergent copy of it.
+func (i *Input) Compose() (forAgent, forView string) {
+	text := i.ta.Value()
+	forAgent = expandForAgent(text, i.pasted)
+	forView = expandForView(text, i.pasted, i.th)
+	i.appendHistory(text)
+	return forAgent, forView
+}
+
+// SubmitCmd emits a SubmitMsg for the current input, exactly as Enter
+// would. Used by the interject key when nothing is running: with no turn
+// to cut into, the honest thing is an ordinary submit.
+func (i *Input) SubmitCmd() tea.Cmd { return i.submit() }
+
 // submit produces a SubmitMsg from the current input, expands
 // pastes, and records the prompt in history. Empty submissions
 // emit a SubmitMsg with empty ForAgent — the App decides what
 // "empty submit" means (iter-limit continue, or no-op).
 func (i *Input) submit() tea.Cmd {
-	text := i.ta.Value()
-	forAgent := expandForAgent(text, i.pasted)
-	forView := expandForView(text, i.pasted, i.th)
-	i.appendHistory(text)
+	forAgent, forView := i.Compose()
 	// NB: Reset is the App's responsibility — it might want to
 	// peek at Value() before clearing (e.g. to detect a slash
 	// command before the submission round-trips).

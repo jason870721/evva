@@ -167,6 +167,17 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 			return "", a.interrupted(err)
 		}
 
+		// Drop any armed steer before the drains run. A steer that arrived
+		// between phases needs no phase cancelled: the drains below are
+		// about to deliver it anyway, at the earliest point it could
+		// possibly land. Letting the arming survive to the next phase would
+		// cut an LLM call that had not started when the user pressed the
+		// key, and then tell the model it had been "interrupted" — a note
+		// about an event that never happened. Arming only survives past
+		// this point when the steer lands AFTER the drains, which is
+		// exactly the window it exists to cover.
+		a.phase.disarm()
+
 		// 2 levels of compacting: micro, full.
 		a.compact(ctx, a.session)
 
@@ -202,7 +213,28 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 		a.drainInbox(ctx)
 
 		a.logger.Debug("turn.start", "iter", iter, "messages", len(a.session.Messages))
-		resp, err := a.thinking(ctx, iter)
+		// The LLM call runs inside a phase so an interject can cut it
+		// without ending the turn (STE-2). closeThinking is idempotent and
+		// clears the handle, so no phase stays live past this block.
+		thinkCtx, closeThinking := a.phase.begin(ctx)
+		resp, err := a.thinking(thinkCtx, iter)
+		// err != nil is part of the condition, not an optimisation: a steer
+		// that lands in the instant between the provider returning a WHOLE
+		// response and this check must not discard it — tool calls and all.
+		// The queued message is still delivered, one boundary later, which
+		// is exactly what "polite" already means.
+		interjected := err != nil && phaseInterjected(ctx, thinkCtx)
+		closeThinking()
+		if interjected {
+			// Steered mid-answer. Keep the partial text — the user watched it
+			// arrive, and a transcript that silently drops it would leave the
+			// model denying it ever said what is still on the user's screen —
+			// then let the drains at the top of the next iteration deliver
+			// the message that caused the cut.
+			a.foldInterject(resp.Content, interjectNoteLLM(a.phase.source()))
+			a.persistSession()
+			continue
+		}
 		if err != nil {
 			if errors.Is(err, llm.ErrInterrupted) {
 				return "", a.interrupted(err)
@@ -276,19 +308,41 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 			return out, nil // break loop.
 		}
 
-		// Dispatch every tool call from this turn in parallel. Tool results
-		// are collected in call order so the resulting RoleTool message lines
-		// up with the assistant's ToolCalls by index.
-		toolResults, toolErr := a.dispatchToolCalls(ctx, resp.ToolCalls)
+		// Dispatch every tool call from this turn in parallel, inside a phase
+		// so an interject can kill the batch mid-run (STE-3). One phase for
+		// the whole batch, not one per call: the tools of a turn are a unit
+		// the model dispatched together, and cancelling half of a parallel
+		// fan-out would leave the model reasoning about a split reality.
+		toolCtx, closeTools := a.phase.begin(ctx)
+		toolResults, toolErr := a.dispatchToolCalls(toolCtx, resp.ToolCalls)
+		toolInterjected := phaseInterjected(ctx, toolCtx)
+		closeTools()
 
 		// Append a single RoleTool message carrying every result. Providers
 		// fan this out on the wire as they require (Anthropic: one user
 		// message with N tool_result blocks; OpenAI-style: N tool-role
 		// messages).
+		//
+		// This append is unconditional, and that is the pairing discipline:
+		// the assistant turn carrying the tool_use blocks is already in
+		// history, so a return that skipped this would leave them dangling
+		// and every subsequent provider call would 400. An interrupted call
+		// still gets a result — it just says so.
 		a.session.Append(llm.Message{
 			Role:        llm.RoleTool,
 			ToolResults: toolResults,
 		})
+
+		if toolInterjected {
+			// The batch was cut. Results above are paired and honest; record
+			// what happened and let the next iteration's drains deliver the
+			// message. toolErr is deliberately not consulted: a cancelled
+			// tool's transport error is the interject, not a failure, and
+			// crushing the run here would turn "steer" into "abort".
+			a.foldInterject("", interjectNoteTool(a.phase.source(), interruptedToolNames(resp.ToolCalls, toolResults)))
+			a.persistSession()
+			continue
+		}
 
 		// After TOOL_SEARCH returns matches, register the discovered
 		// tools so they appear in a.exposeTools on the next LLM call.
@@ -321,6 +375,13 @@ func (a *Agent) runLoop(ctx context.Context) (string, error) {
 		}
 
 		if toolErr != nil {
+			// A tool that failed because the USER cancelled the run is not a
+			// crash. Report it as the interrupt it is — otherwise Esc during
+			// a long bash parks the TUI in the sticky error state, and the
+			// transcript records a failure that never happened.
+			if ctx.Err() != nil {
+				return "", a.interrupted(ctx.Err())
+			}
 			// Go-level tool failures abort (panics, IO, etc.). Result.IsError
 			// from a tool is already handled inside dispatchToolCalls —
 			// returned as nil error here so the loop continues.
@@ -384,6 +445,11 @@ func (a *Agent) done(iter int, resp llm.Response) string {
 // user-facing text events at all (see state_machine.go:text). The final
 // Response is identical in shape either way, so the downstream loop is
 // unchanged.
+//
+// On error the returned Response is NOT empty: it carries whatever text
+// had already streamed (STE-2). Callers must still check err first — the
+// partial exists so an interject can keep the words the user already
+// watched arrive, not so a failure can be mistaken for a success.
 func (a *Agent) llmCall(ctx context.Context) (llm.Response, error) {
 	a.logger.Debug("llm.call",
 		"profile", a.profile.Type.String(),
@@ -393,20 +459,22 @@ func (a *Agent) llmCall(ctx context.Context) (llm.Response, error) {
 	)
 
 	var (
-		resp llm.Response
-		err  error
+		resp    llm.Response
+		err     error
+		adapter *chunkAdapter
 	)
 	if a.profile.Stream {
 		var sink = llm.DiscardChunks
 		if !a.IsSubagent() {
-			sink = a.newChunkAdapter()
+			adapter = a.newChunkAdapter()
+			sink = adapter
 		}
 		resp, err = a.llm.Stream(ctx, a.session.Messages, a.exposeTools, sink)
 	} else {
 		resp, err = a.llm.Complete(ctx, a.session.Messages, a.exposeTools)
 	}
 	if err != nil {
-		return llm.Response{}, err
+		return llm.Response{Content: adapter.Partial()}, err
 	}
 
 	a.logger.Debug("llm.ok",

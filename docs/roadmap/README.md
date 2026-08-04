@@ -17,7 +17,7 @@ user documentation (see [../user-guide/](../user-guide/README.md) for that).
 | [roadmap_healthcheck.md](roadmap_healthcheck.md) | Codebase + design-gap audit (must-have vs nice-to-have). |
 | [v1/](v1/) | Phase plans for the v1.x line — hooks, OpenAI provider, MCP, bundled skills, config tool. |
 | [design/](design/) | Subsystem designs — agent runtime, daemon model, task ledger, LSP, fs-edit gate parity. |
-| [PRD/](PRD/) | Feature PRDs — Windows support, typed memory, build-agent skill, output styles, structured output, alarm tool, sandbox isolation, MCP server mode, agent eval harness, and the swarm `v1.11+` candidates. |
+| [PRD/](PRD/) | Feature PRDs — Windows support, typed memory, build-agent skill, output styles, structured output, alarm tool, sandbox isolation, MCP server mode, agent eval harness, the context/memory/session/steering H2 quartet, and the swarm `v1.11+` candidates. |
 | [evva-sdk/](evva-sdk/) | SDK hardening notes (the v1.0 "harden to stable" effort). |
 | [veronica/](veronica/README.md) | The Veronica multi-agent swarm project — design, PRDs, 5 refinement waves, explore spikes. |
 

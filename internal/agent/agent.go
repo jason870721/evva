@@ -318,6 +318,12 @@ type Agent struct {
 	signalCh   chan AgentSignal
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
+
+	// phase is steering v2's mid-turn cancellation seam (STE-2): a
+	// cancel-with-cause child scoped to the LLM call or the tool batch
+	// currently in flight, so Interject can cut exactly one phase without
+	// tearing the turn down. See interject.go.
+	phase phase
 }
 
 // New constructs an agent with a fresh ID, a per-agent logger, and the given

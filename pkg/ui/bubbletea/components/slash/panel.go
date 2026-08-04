@@ -54,6 +54,7 @@ var builtins = []Command{
 	{Name: "/fork", Desc: "branch this session · the original stays resumable"},
 	{Name: "/title", Desc: "name this session so /resume shows it by name"},
 	{Name: "/rewind", Desc: "undo a prior turn · restore code, conversation, or both"},
+	{Name: "/queue", Desc: "messages waiting to reach the model · review or revoke"},
 	{Name: "/redactions", Desc: "secrets masked out of tool results this session"},
 	{Name: "/update", Desc: "check for updates and install the latest version"},
 	{Name: "/clear", Desc: "start a new session · old one stays in /resume"},

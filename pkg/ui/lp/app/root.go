@@ -263,6 +263,7 @@ func (a *App) handleAgentEvent(e event.Event) (tea.Model, tea.Cmd) {
 			a.controller.LastTurnInputTokens(),
 			status.ContextLimitFor(a.controller.Model()),
 		)
+		a.refreshQueued()
 	}
 
 	var cmd tea.Cmd
@@ -325,6 +326,8 @@ func (a *App) transcriptWidth() int {
 
 func (a *App) handleRunDone(err error) (tea.Model, tea.Cmd) {
 	a.runCancel = nil
+	a.input.SetRunning(false)
+	a.refreshQueued()
 	interrupted := a.interrupted
 	a.interrupted = false
 	if errors.Is(err, llm.ErrInterrupted) {
@@ -401,6 +404,11 @@ func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		return a, tea.Quit
+
+	case "ctrl+g":
+		// Interject — see the bubbletea root for why this is its own key
+		// rather than a composer mode.
+		return a.handleInterject()
 
 	case "ctrl+o":
 		a.transcript.ToggleExpand()
@@ -552,6 +560,8 @@ func (a *App) handleSubmit(m SubmitMsg) (tea.Model, tea.Cmd) {
 		return a.openOverlay(overlays.NewEffort(a.controller))
 	case "/resume":
 		return a.openOverlay(overlays.NewResume(a.controller))
+	case "/queue":
+		return a.openOverlay(overlays.NewQueue(a.controller))
 	case "/fork":
 		a.input.Reset()
 		a.slash.Reset()
@@ -600,7 +610,8 @@ func (a *App) handleSubmit(m SubmitMsg) (tea.Model, tea.Cmd) {
 		a.transcript.AppendUserPrompt(m.ForView)
 		a.input.Reset()
 		a.controller.EnqueueUserPrompt(m.ForAgent)
-		a.state.SetHint("queued — will land at next iteration")
+		a.refreshQueued()
+		a.state.SetHint("queued — lands at the next iteration · ctrl+g sends now · /queue to review")
 		a.view.MarkDirty()
 		return a, nil
 	}
@@ -610,6 +621,51 @@ func (a *App) handleSubmit(m SubmitMsg) (tea.Model, tea.Cmd) {
 	a.view.MarkDirty()
 	a.startRun(m.ForAgent)
 	return a, nil
+}
+
+// handleInterject sends the composed text as an interject, cutting the
+// agent's in-flight step. Mirrors the bubbletea root: with nothing running
+// it degrades to an ordinary submit.
+func (a *App) handleInterject() (tea.Model, tea.Cmd) {
+	if a.controller == nil {
+		a.state.SetHint("no controller attached")
+		return a, nil
+	}
+	text := strings.TrimSpace(a.input.Value())
+	if a.runCancel == nil {
+		if text == "" {
+			return a, nil
+		}
+		return a, a.input.SubmitCmd()
+	}
+	if text == "" {
+		a.state.SetHint("nothing to interject — type a message first")
+		return a, nil
+	}
+	if err := a.controller.InterjectUserPrompt(text); err != nil {
+		a.controller.EnqueueUserPrompt(text)
+	}
+	a.transcript.AppendUserPrompt(text)
+	a.input.Reset()
+	a.refreshQueued()
+	a.state.SetHint("interjected — cutting in now")
+	a.view.MarkDirty()
+	return a, nil
+}
+
+// refreshQueued re-reads the pending-message counts into the status line.
+func (a *App) refreshQueued() {
+	if a.controller == nil {
+		return
+	}
+	pending := a.controller.PendingPrompts()
+	interjects := 0
+	for _, p := range pending {
+		if p.Level == "interject" {
+			interjects++
+		}
+	}
+	a.status.SetQueued(len(pending), interjects)
 }
 
 // openOverlay pushes a Focusable overlay (or surfaces a hint when the
@@ -633,6 +689,7 @@ func (a *App) startRun(prompt string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.runCancel = cancel
 	a.state.OnSubmit()
+	a.input.SetRunning(true)
 
 	p := a.program
 	go func() {
@@ -650,6 +707,7 @@ func (a *App) startContinue() {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.runCancel = cancel
 	a.state.OnSubmit()
+	a.input.SetRunning(true)
 
 	p := a.program
 	go func() {

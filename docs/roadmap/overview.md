@@ -4,9 +4,8 @@
 > just a proposal" across everything under `docs/roadmap/`. The individual PRD
 > files' own `Status:` headers drift once shipped (see §6) — **this file is
 > the source of truth going forward**, refreshed at each release.
-> **As of:** 2026-08-01, `main` @ **v1.14.0 stable**; `dev` carries five
-> unreleased waves (SBX → v1.15, EVAL → v1.16, CTX → v1.17, MEM → v1.18,
-> SES → v1.19).
+> **As of:** 2026-08-04, `main` @ **v1.14.0 stable**, `pre-release` @
+> **v1.19.0-beta.1**; `dev` carries STE → v1.20 on top of it.
 
 ---
 
@@ -15,14 +14,8 @@
 | Branch | Version | State |
 |---|---|---|
 | `main` (stable / GitHub "Latest") | **v1.14.0** | promoted 2026-08-01 at `7ae8d7a`. Carries everything through secret redaction: the v1.11 swarm batch, SWT worktree isolation (v1.12), MCP server mode (v1.13), SEC redaction (v1.14) |
-| `pre-release` (beta) | **v1.14.0-beta.1** | promoted verbatim to v1.14.0; converges at its next cut from dev |
-| `dev` (integration) | unreleased | `main` + **SBX-1..7** (claims v1.15, merged 2026-08-01 at `023dc87`, PR #66) + **EVAL-1..7** (claims v1.16, merged 2026-08-01 at `e8f8089`, PR #67) + **CTX-1..7** (claims v1.17, merged 2026-08-01 at `c02eb8e`, PR #68) + **MEM-1..7** (claims v1.18, merged 2026-08-01 at `db47629`, PR #69) + **SES-1..7** (claims v1.19, PR open) |
-
-**Five unreleased waves are stacked on `dev`.** Per the base-version decision
-in `CLAUDE.md`, a single `pre-release feature` cut would ship them together
-and take the newest never-shipped wave's minor — **v1.19.0-beta.1**. The
-v1.15–v1.18 rows stay in the wave map regardless: they record which wave the
-work belongs to, not which tag carried it.
+| `pre-release` (beta) | **v1.19.0-beta.1** | cut 2026-08-03 at `6cd486e`. A five-wave base jump — SBX (v1.15), EVAL (v1.16), CTX (v1.17), MEM (v1.18) and SES (v1.19) shipped together, so v1.15–v1.18 will never exist as tags. The rows stay in the wave map regardless: they record which wave the work belongs to, not which tag carried it |
+| `dev` (integration) | unreleased | `pre-release` + **STE-1..6** (claims **v1.20**, built 2026-08-04) |
 
 **✅ Horizon 1 is closed.** With SBX and EVAL built, every wave the 2026-07
 design reviews put on the table has been implemented — W1 swarm operations
@@ -31,8 +24,19 @@ loop (EVAL v1.16), plus MCP server mode pulled forward from W11 into v1.13.
 There is no remaining *designed-but-unbuilt* surface; what is left is
 long-range concept drafts (§5), each of which still needs its audit pass.
 
-**▶ Horizon 2 has started.** W5 — the context engine (CTX-1..7, claims v1.17)
-— is the first long-range concept PRD taken through the full
+**✅ Horizon 2 is closed.** W8 — steering v2 (STE-1..6, claims v1.20) — is
+the last of the TUI-excellence quartet, and its audit is the counterweight to
+CTX's and SES's: where those *subtracted* work, this one **added** it. The
+draft built on two pieces of infrastructure that did not exist — it described
+abort as a double-Esc gesture (a single Esc has always aborted, so the obvious
+key was taken) and the loop as owning a per-iteration context (there was
+exactly one context per run, which is *why* abort was the only mid-run
+gesture). The seam had to be built before the feature could exist. The
+lesson generalises the gate rather than the drafts: **a concept PRD can be
+wrong about the ground it stands on, not only about the ground it covers.**
+
+**▶ Horizon 2's history.** W5 — the context engine (CTX-1..7, claims v1.17)
+— was the first long-range concept PRD taken through the full
 audit-then-build gate. It is also the strongest evidence yet for why that
 gate is non-negotiable: **two of its seven work items were already shipped**
 (CTX-3 read dedup, and the status-bar half of CTX-5), and the draft's central
@@ -56,9 +60,9 @@ rather than mysterious.
 
 ---
 
-## 2. Feature PRDs (`docs/roadmap/PRD/`) — 29 tracked
+## 2. Feature PRDs (`docs/roadmap/PRD/`) — 30 tracked
 
-**Tally: 24 stable · 5 built-but-unreleased (sandbox isolation → v1.15, agent eval harness → v1.16, context engine → v1.17, memory semantic recall → v1.18, session tree → v1.19) · 0 proposed.**
+**Tally: 24 stable · 5 in beta (sandbox isolation → v1.15, agent eval harness → v1.16, context engine → v1.17, memory semantic recall → v1.18, session tree → v1.19 — all riding the single `v1.19.0-beta.1` tag) · 1 built-but-untagged (steering v2 → v1.20) · 0 proposed.**
 
 | # | PRD | Status | Shipped in | Notes |
 |---|---|---|---|---|
@@ -83,27 +87,29 @@ rather than mysterious.
 | 19 | [swarm-outbound-notifications.md](PRD/swarm-outbound-notifications.md) | ✅ Stable | v1.11.0 | v1.11+ candidate, same review |
 | 20 | [swarm-tui-attach.md](PRD/swarm-tui-attach.md) | ✅ Stable | v1.11.0 | v1.11+ candidate, same review |
 | 21 | [swarm-verify-checks.md](PRD/swarm-verify-checks.md) | ✅ Stable | v1.11.0 | CHK-1..6 implemented 2026-07-10 (`feature/swarm-verify-checks`); minor unclaimed — operator assigns at wave confirmation |
-| 22 | [sandbox-isolation.md](PRD/sandbox-isolation.md) | 🟡 **Built — merged to `dev`, untagged** | — (claims **v1.15**) | SBX-1..7, 2026-08-01: `isolation:"sandbox"` = worktree + bind-mounted container, `bash` via `docker`/`podman exec`, devcontainer.json image resolution, `sandbox_runtime`/`sandbox_image`/`sandbox_network`, swarm `settings.sandbox` + per-member `sandbox:`. **Was blocked, not merely unstarted** — its acceptance criteria need a container runtime, and there now is one (Docker 28.1.1), so they were met against real containers. Six audit corrections in its header; two changed the design. Completes W3 "Safety" |
+| 22 | [sandbox-isolation.md](PRD/sandbox-isolation.md) | 🟡 Beta — `v1.19.0-beta.1` | — (claims **v1.15**) | SBX-1..7, 2026-08-01: `isolation:"sandbox"` = worktree + bind-mounted container, `bash` via `docker`/`podman exec`, devcontainer.json image resolution, `sandbox_runtime`/`sandbox_image`/`sandbox_network`, swarm `settings.sandbox` + per-member `sandbox:`. **Was blocked, not merely unstarted** — its acceptance criteria need a container runtime, and there now is one (Docker 28.1.1), so they were met against real containers. Six audit corrections in its header; two changed the design. Completes W3 "Safety" |
 | 23 | [mcp-server-mode.md](PRD/mcp-server-mode.md) | ✅ Stable | v1.13.0 | MCP-1..5, 2026-07-30: `evva mcp-serve` over stdio / streamable HTTP, `mcpServe` allowlist (startup-validated, read-only tools only), whole-persona invocation with `<external-request>` trust framing, RP-15-style bearer auth. Two PRD corrections recorded in its header: the persona adapter's placement was an import cycle, and the RP-21 envelope was the wrong framing |
-| 24 | [agent-eval-harness.md](PRD/agent-eval-harness.md) | 🟡 **Built — merged to `dev`, untagged** | — (claims **v1.16**) | EVAL-1..7, 2026-08-01: `evva eval capture/run/list`, `pkg/evalharness` fixtures + structural tool-call diff (hard gate, non-zero exit) + opt-in LLM judge (advisory). Six audit corrections; fixtures deliberately do NOT embed `session.Snapshot` (machine-specific paths), and driving is a `Runner` interface so the scoring layer stays free of the agent loop. **Closes Horizon 1** |
+| 24 | [agent-eval-harness.md](PRD/agent-eval-harness.md) | 🟡 Beta — `v1.19.0-beta.1` | — (claims **v1.16**) | EVAL-1..7, 2026-08-01: `evva eval capture/run/list`, `pkg/evalharness` fixtures + structural tool-call diff (hard gate, non-zero exit) + opt-in LLM judge (advisory). Six audit corrections; fixtures deliberately do NOT embed `session.Snapshot` (machine-specific paths), and driving is a `Runner` interface so the scoring layer stays free of the agent loop. **Closes Horizon 1** |
 | 25 | [solo-dynamic-workflow.md](PRD/solo-dynamic-workflow.md) | ✅ Stable | v1.11.0 | SDW-1..8: DWF execution model for solo TUI — `wf_task_*` board, engine auto-dispatch of subagent workers, `enable_dynamic_workflow` flag |
 | 26 | [secret-redaction.md](PRD/secret-redaction.md) | ✅ Stable | v1.14.0 | SEC-1..6, 2026-07-30: `pkg/redact` credential detector + stable content-derived placeholders, masking at the `execTool` choke point (covers provider payload, snapshot and TUI in one insertion), `/redactions` panel, `redaction` config defaulting **ON** — evva's only opt-OUT gate. First long-range **concept draft** to go through the audit pass; five corrections recorded in its header, incl. SEC-4 collapsing into SEC-2 and operator input being scoped out. Half of W3 — its sibling SBX stays blocked on a container runtime |
-| 27 | [context-engine.md](PRD/context-engine.md) | 🟡 **Built — merged to `dev`, untagged** | — (claims **v1.17**) | CTX-1..7, 2026-08-01: block ledger (`internal/session/ledger.go`) + a three-rung ladder — prune with recovery tombstones → span compaction → full compaction — plus `/context` overlay and pinning. **First Horizon 2 wave.** Seven audit corrections; the two expensive ones are that **CTX-3 and half of CTX-5 were already shipped**, and that the draft's "microcompaction" named the opposite of evva's shipped `microCompact`. Also repaired two live defects the draft's own safety rules exposed: auto-compaction was destroying error text, and the cheap tier could only run once per session |
-| 28 | [memory-semantic-recall.md](PRD/memory-semantic-recall.md) | 🟡 **Built — merged to `dev`, untagged** | — (claims **v1.18**) | MEM-1..7, 2026-08-01: `memory_search` tool (closes push-only recall), optional `llm.Embedder` capability with Ollama + OpenAI-compatible backends, hash-diffed vector sidecar, embedding pre-filter for the per-turn selector, `origin` provenance. **The most expensive audit yet — the draft's premise was false, not stale:** recall was never "load the index into the prompt", and MEM-6 proposed adding a global scope to a store that is already global. MEM-4 as written would have shipped less than what existed |
-| 29 | [session-tree.md](PRD/session-tree.md) | 🟡 **Built — PR open against `dev`, unreleased** | — (claims **v1.19**) | SES-1..7, 2026-08-01: `evva resume` / `-c` / `resume <id>` (unique-prefix ids), `evva sessions list|prune` (dry-run by default, pin-exempt), `evva export` (self-contained HTML, secrets scrubbed unconditionally), `/fork`, `/title`, and `/resume` grown into the curation surface (pin, delete-with-confirm, all-workdirs, fork-tree indentation). Nine audit corrections. **The instructive one is SES-1: its catalog was cut on measured evidence** — a machine-wide scan of 93 sessions / 14 MB takes 110 ms, so the index bought ~100 ms for a second store; the fields it would have held moved into the snapshot envelope instead. Half of SES-2/SES-4 was already shipped |
+| 27 | [context-engine.md](PRD/context-engine.md) | 🟡 Beta — `v1.19.0-beta.1` | — (claims **v1.17**) | CTX-1..7, 2026-08-01: block ledger (`internal/session/ledger.go`) + a three-rung ladder — prune with recovery tombstones → span compaction → full compaction — plus `/context` overlay and pinning. **First Horizon 2 wave.** Seven audit corrections; the two expensive ones are that **CTX-3 and half of CTX-5 were already shipped**, and that the draft's "microcompaction" named the opposite of evva's shipped `microCompact`. Also repaired two live defects the draft's own safety rules exposed: auto-compaction was destroying error text, and the cheap tier could only run once per session |
+| 28 | [memory-semantic-recall.md](PRD/memory-semantic-recall.md) | 🟡 Beta — `v1.19.0-beta.1` | — (claims **v1.18**) | MEM-1..7, 2026-08-01: `memory_search` tool (closes push-only recall), optional `llm.Embedder` capability with Ollama + OpenAI-compatible backends, hash-diffed vector sidecar, embedding pre-filter for the per-turn selector, `origin` provenance. **The most expensive audit yet — the draft's premise was false, not stale:** recall was never "load the index into the prompt", and MEM-6 proposed adding a global scope to a store that is already global. MEM-4 as written would have shipped less than what existed |
+| 29 | [session-tree.md](PRD/session-tree.md) | 🟡 Beta — `v1.19.0-beta.1` | — (claims **v1.19**) | SES-1..7, 2026-08-01: `evva resume` / `-c` / `resume <id>` (unique-prefix ids), `evva sessions list|prune` (dry-run by default, pin-exempt), `evva export` (self-contained HTML, secrets scrubbed unconditionally), `/fork`, `/title`, and `/resume` grown into the curation surface (pin, delete-with-confirm, all-workdirs, fork-tree indentation). Nine audit corrections. **The instructive one is SES-1: its catalog was cut on measured evidence** — a machine-wide scan of 93 sessions / 14 MB takes 110 ms, so the index bought ~100 ms for a second store; the fields it would have held moved into the snapshot envelope instead. Half of SES-2/SES-4 was already shipped |
+
+| 30 | [steering-v2.md](PRD/steering-v2.md) | 🟡 **Built — merged to `dev`, untagged** | — (claims **v1.20**) | STE-1..6, 2026-08-04: `internal/agent.phase` — a per-phase cancel-with-cause seam that did not previously exist — plus `Ctrl+G` interject (cancel the in-flight LLM stream or tool batch, keep the turn), provider-agnostic partial-answer capture in `chunkAdapter`, paired-and-honest interrupted tool results, `✉ N` status cell, `/queue` review-and-revoke, and swarm `send_message urgency:"interject"` (migration 0008). Eight audit corrections. **The instructive one is the inverse of CTX's and SES's: the audit ADDED work.** The draft described abort as a double-Esc (a single Esc has always aborted, so the obvious key was taken) and the loop as owning a per-iteration context (it owned exactly one for the whole run) — both premises the design leaned on, neither true. Two pre-existing defects fell out on the way: a UI↔loop data race on the lazily-allocated prompt queues, and an Esc-during-`bash` being recorded as a crash. **Closes Horizon 2** |
 
 **Status legend:** ✅ Stable (in a promoted `vX.Y.Z` on `main`) · 🟡 Beta (built,
 in a `-beta.N` on `pre-release`, not yet promoted) · ⚠️ Anomaly (wave claimed
 in CLAUDE.md, no implementation) · 📝 Proposed (PRD written, no wave claimed,
 no code).
 
-**Plus 29 long-range concept PRDs** (32 were added 2026-07-06 by the
+**Plus 28 long-range concept PRDs** (32 were added 2026-07-06 by the
 [long-range.md](long-range.md) planning pass, in two batches; they are not
-duplicated as rows here until they claim waves, and three — secret-redaction,
-context-engine and memory-semantic-recall — have since done so and moved into
-the table above):
+duplicated as rows here until they claim waves, and four — secret-redaction,
+context-engine, memory-semantic-recall and steering-v2 — have since done so
+and moved into the table above):
 
-- *Backbone (W1–W19):* session-tree, steering-v2, model-routing,
+- *Backbone (W1–W19):* model-routing,
   vision-completion, acp-editor-integration, ci-headless-runner,
   browser-tools, swarm-federation, swarm-leader-takeover, workflow-scripts,
   gardener, persona-ecosystem, arch-v2.
@@ -127,11 +133,12 @@ has changed the design every time:
 | CTX (2026-08-01) | 7 | **two of seven work items were already shipped**, and the draft's central term named the opposite of the live code |
 | MEM (2026-08-01) | 9 | **the draft's central factual claim was wrong** — it described a subsystem evva does not have |
 | SES (2026-08-01) | 9 | **a work item was deleted by measurement, not by reading** — the catalog solved a real problem that turned out to cost 110 ms |
+| STE (2026-08-04) | 8 | **the audit ADDED work** — the design leaned on a cancellation seam that did not exist, and on a keybinding that was already taken |
 
-Four cases are instructive for anyone picking up a later wave. Read as a
+Five cases are instructive for anyone picking up a later wave. Read as a
 sequence they describe an escalating failure mode: a claim that went stale, a
-claim that was overtaken, a claim that was never true, and a claim that was
-true but did not matter.
+claim that was overtaken, a claim that was never true, a claim that was true
+but did not matter — and a claim about the *ground the design stood on*.
 
 **SBX** — the PRD's central claim ("swarm clones are the least-supervised
 bash path, because `constructMember` never reassigns `WorkDir`") was simply
@@ -178,11 +185,26 @@ second store and the drift class the PRD's own risk table listed. It was cut,
 and the fields it would have held moved into the snapshot envelope.
 **Audit passes should measure, not only read.**
 
+**STE** — the one that inverts the pattern. Every audit before it *removed*
+scope; this one found the opposite problem. The draft's §3 says "the loop
+already owns a per-iteration context" and §1 lists abort as "double-Esc
+(existing abort, unchanged)". Neither was true: there was exactly one context
+for an entire run (which is *why* the only mid-run gesture was abort), and a
+single Esc has always aborted (so the natural interject key was occupied).
+The design was not wrong about what to build — the diagnosis was sharp and
+the three-level model shipped essentially as drawn — it was wrong about what
+it had to build *on*. Costing it from the PRD alone would have missed the
+largest item in the wave. Read alongside MEM: **verify the premise, and
+verify the substrate.**
+
 The lesson is not "the drafts decay". It is that these 32 concept PRDs were
 written from the **roadmap's model of evva**, in one pass, without reading the
 code — so a wave can be wrong on arrival, not merely out of date, and a wave
 can be right on arrival and still not worth building. The audit gate is what
-catches both; MEM is the case to cite for the first and SES for the second.
+catches both; MEM is the case to cite for the first and SES for the second,
+and STE for a third — a wave can be right about the problem and wrong about
+the machinery, which is the failure mode that costs schedule rather than
+scope.
 
 Full sequencing lives in long-range §3 (backbone) and §3b (batch 2).
 
@@ -239,9 +261,10 @@ Everything with no code yet, grouped by what it needs from the operator:
 - ~~**`context-engine.md`**~~ — **resolved 2026-08-01.** Built (CTX-1..7) and merged to `dev` at `c02eb8e` (PR #68), claims **v1.17**. **W5 — the first Horizon 2 wave**, and the first pickup where the audit gate deleted work rather than merely adjusting it: CTX-3 and half of CTX-5 were already shipped. Unblocks W6 (memory semantic recall).
 - ~~**Old, non-swarm, never slotted**~~ — **cleared.** All three shipped stable in v1.11.0.
 - ~~**Swarm v1.11+ candidates**~~ — **cleared.** All six from the 2026-07-04/05 design review shipped stable in v1.11.0 (blackboard, cost accounting, doctor, outbound notifications, TUI attach, verify checks).
+- ~~**`steering-v2.md`**~~ — **resolved 2026-08-04.** Built (STE-1..6), claims **v1.20**; merged to `dev`. W8, the last of Horizon 2. Its audit is the one to read when estimating a wave from a concept draft: the two things it planned to build *on* did not exist.
 - **Nothing designed remains unbuilt.** Every PRD in §2 is now stable or built-and-awaiting-a-cut. Every further wave comes from the long-range set below, which means every further piece of work starts with an audit pass.
 - **Un-graduated explore spikes** (no PRD at all yet, just a hypothesis): EX-2 (remote persona — graduation path drafted as `swarm-federation.md`), EX-3 (leader takeover — drafted as `swarm-leader-takeover.md`), EX-5 (wake jitter). **EX-4 (replay/eval harness) is now partly answered:** the shipped `pkg/evalharness` provides the scoring layer EX-4 would otherwise have had to invent, so if EX-4 is ever built its remaining scope is swarm event-log *capture* only — see the boundary in `agent-eval-harness.md` §3.3.
-- **Long-range concept PRDs** (2026-07-06, **29 still unbuilt** of the original 32 — see the note under §2 and [long-range.md](long-range.md) §3 for the full sequenced list): concept-grade drafts for horizons W7–W35; each requires a live-source audit pass before build. The nearest are the rest of H2's TUI quartet — session-tree (W7) and steering-v2 (W8) — which long-range §4 argues should be batched with W5/W6 (now built), since they share the status bar, overlays and session store. **W7 is the natural next pickup**; it has no unmet dependency in long-range §7.
+- **Long-range concept PRDs** (2026-07-06, **28 still unbuilt** of the original 32 — see the note under §2 and [long-range.md](long-range.md) §3 for the full sequenced list): concept-grade drafts for horizons W9–W35; each requires a live-source audit pass before build. With W8 built, **Horizon 2 is closed** — the next pickup comes from Horizon 3 (W9 model routing is its head, and long-range §4 argues for it before the waves that add expensive modalities) or from the batch-2 set tagged for H2/H3.
 
 Nothing in the remaining backlog has claimed a wave/minor. Per `CLAUDE.md`,
 that happens at planning time when an operator picks it up — this document
@@ -255,7 +278,7 @@ Individual PRD files' `Status:` headers are **not** reliably updated after
 shipping — most of the 24 stable PRDs in §2 still read "proposed" despite
 having been live in `main` for weeks or months. Chasing 20+ files on every
 release isn't worth it. The exception worth keeping is the *audit-pass
-record*: waves that went through the concept → build gate (SEC, SBX, EVAL, CTX, MEM, SES)
+record*: waves that went through the concept → build gate (SEC, SBX, EVAL, CTX, MEM, SES, STE)
 carry their corrections in their own headers, because that delta is the only
 place the reasoning for a design change survives. Going forward:
 

@@ -16,8 +16,10 @@
   - [evva export — a transcript you can send someone](#evva-export--a-transcript-you-can-send-someone)
   - [/rewind — Time-Travel Undo](#rewind--time-travel-undo)
   - [/context and /compact — the context ladder](#context-and-compact--the-context-ladder)
+  - [/queue — Messages waiting to reach the model](#queue--messages-waiting-to-reach-the-model)
   - [Bundled skills](#bundled-skills)
 - [3. Keybindings](#3-keybindings)
+- [3b. Steering a Running Turn](#3b-steering-a-running-turn)
 - [4. Yank Mode — Copying from the Transcript](#4-yank-mode--copying-from-the-transcript)
 - [5. Transcript Search](#5-transcript-search)
 - [6. Permission System](#6-permission-system)
@@ -563,6 +565,35 @@ prune_keep_results: 12        # trailing live results kept regardless of turn
 
 Both rung toggles are opt-*out*, on the same reasoning as redaction: a session that quietly stays under budget beats one that hits full compaction and loses the transcript. The three integers treat `0` as "use the default", so a partially-filled block degrades to safe values rather than to a policy that prunes the session out from under the model.
 
+### /queue — Messages waiting to reach the model
+
+Typing while evva works sends your message somewhere you cannot see, and
+"did that send?" is otherwise only answerable by waiting. `/queue` answers
+it, and lets you take a message back before the model ever reads it.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ ▰ /QUEUE — messages waiting to reach the model                │
+│                                                               │
+│ pending · 2 message(s), delivered top-first                   │
+│                                                               │
+│ ▸ [interject] stop, the tests live in ./scripts                │
+│   [queued]    also bump the version while you are in there     │
+│                                                               │
+│ [d] revoke · [↑/↓] move · [Esc] close                          │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Rows render in the order the model will read them — interjects first. Press
+`d` to revoke the highlighted one. Revoking is **best-effort by design**: if
+the agent drained the message between the frame you are looking at and your
+keypress, the panel says `too late — already delivered` rather than
+pretending it succeeded.
+
+The queue is deliberately **not persisted**. A message evva never read is one
+you can retype; saving it would resurrect stale instructions the next time
+you resume the session.
+
 ### Bundled skills
 
 evva ships five **bundled skills** out of the box — first-party instruction documents the agent can invoke. The model uses them automatically when a request matches, and you can invoke any of them yourself by typing `/<name>`:
@@ -583,10 +614,11 @@ Bundled skills are the **lowest-precedence** tier: drop your own `SKILL.md` at `
 
 | key | effect |
 | --- | --- |
-| `Enter` | submit |
+| `Enter` | submit — or, while evva is working, **queue** for the next step (see §3b) |
+| `Ctrl+G` | **interject** — cut the running step short and land your message now (see §3b) |
 | `Ctrl+J` / `Alt+Enter` | insert newline (multi-line composition) |
 | `↑` / `↓` | walk prompt history (when input empty or already navigating) |
-| `Esc` | cancel running task / dismiss panel |
+| `Esc` | **abort** the whole turn / dismiss panel |
 | `Ctrl+C` | once: cancel running task · idle: quit |
 | `Ctrl+D` | quit (when input is empty) |
 | `Ctrl+O` | toggle expand-all tool results (fold/unfold long bash + read output) |
@@ -595,6 +627,54 @@ Bundled skills are the **lowest-precedence** tier: drop your own `SKILL.md` at `
 | `Shift+Tab` | cycle the **permission mode** — `default → accept_edits → plan → bypass → …` |
 | `PgUp` / `PgDown` / `Home` / `End` | scroll transcript |
 | mouse wheel | scroll transcript |
+
+---
+
+## 3b. Steering a Running Turn
+
+evva accepts input while it works. What you press decides **when** your
+message lands — and how much of the agent's current work survives.
+
+| you press | what happens | use it when |
+| --- | --- | --- |
+| `Enter` | **Queue.** The message waits for the current step to finish, then lands as your next turn. Nothing is cancelled. | Most of the time. A busy agent reaches the next boundary in seconds. |
+| `Ctrl+G` | **Interject.** Whatever is running right now — the reply being streamed, the command being run — is cancelled, and your message lands immediately. The turn continues. | The agent is doing the wrong thing and continuing would waste four minutes. |
+| `Esc` | **Abort.** The whole turn stops. Nothing continues. | You want it to stop entirely and you will decide what is next yourself. |
+
+The status bar shows `✉ 2` while messages are waiting, and `✉ 2!` when one of
+them is an interject. Press `Ctrl+G` with an empty composer and nothing
+happens; press it when evva is idle and it behaves as an ordinary `Enter` —
+there is nothing to interrupt.
+
+### What an interject leaves behind
+
+An interject is **honest about what it destroyed**, because the model has to
+reason about it:
+
+- A cancelled reply keeps the text you already watched stream in. It is
+  marked as partial, and the tool calls it was about to make were never
+  issued.
+- A cancelled command's result reads `[interrupted by user before
+  completion]` and carries the tail of whatever output it had produced —
+  enough to see how far a build got.
+- A system note records that the interrupt happened, and **that any side
+  effects already caused are not undone**. A killed `npm install` leaves
+  its half-written `node_modules` exactly where it was. Use `/rewind` if
+  files need restoring; a killed shell command's other effects are yours to
+  clean up.
+
+Interject deliberately costs a *different key* rather than a mode, because a
+cancelled call is real tokens and real work thrown away. Queue is the
+default for a reason.
+
+### Interjecting in a swarm
+
+Swarm members steer each other the same way. `send_message` takes
+`urgency: "interject"`, which cancels whatever the recipient is running at
+that instant. It is for **stopping** work ("wrong branch", "the spec
+changed"), not for jumping the queue — a normal message already reaches a
+busy teammate within seconds. Only the exact word arms it; anything else is
+delivered normally.
 
 ---
 

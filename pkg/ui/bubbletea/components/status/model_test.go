@@ -168,3 +168,49 @@ func TestResolveHintLeavesSingleLineAlone(t *testing.T) {
 		t.Errorf("ResolveHint mangled a single-line hint: %q", got)
 	}
 }
+
+// TestRenderQueuedCollapsesAtZero — the cell must be absent, not "0", in the
+// case that is true almost all of the time.
+func TestRenderQueuedCollapsesAtZero(t *testing.T) {
+	th := theme.Default()
+	if got := renderQueued(0, 0, th); got != "" {
+		t.Errorf("renderQueued(0,0) = %q, want empty", got)
+	}
+}
+
+// TestRenderQueuedMarksInterjects: the bang is the only thing distinguishing
+// "two messages waiting politely" from "something is about to cut in".
+func TestRenderQueuedMarksInterjects(t *testing.T) {
+	th := theme.Default()
+	polite := renderQueued(2, 0, th)
+	if !strings.Contains(polite, "2") {
+		t.Errorf("polite cell = %q, want the count", polite)
+	}
+	if strings.Contains(polite, "!") {
+		t.Errorf("polite cell should carry no bang: %q", polite)
+	}
+	urgent := renderQueued(2, 1, th)
+	if !strings.Contains(urgent, "2!") {
+		t.Errorf("urgent cell = %q, want a banged count", urgent)
+	}
+}
+
+// TestQueuedCellSurvivesANarrowBar pins the drop rank: a message the user
+// typed and cannot otherwise see must outlive every cell that has a slash
+// command behind it.
+func TestQueuedCellSurvivesANarrowBar(t *testing.T) {
+	th := theme.Default()
+	bar := New(NewState())
+	bar.SetModel("claude-opus-5")
+	bar.SetAgentID("abcdef0123456789")
+	bar.SetUsage(llm.Usage{InputTokens: 12345, OutputTokens: 6789})
+	bar.SetContext(50000, 200000)
+	bar.SetQueued(3, 1)
+	out := bar.Compose(46, th)
+	if !strings.Contains(out, "3!") {
+		t.Errorf("queued cell dropped from a narrow bar:\n%q", out)
+	}
+	if strings.Count(out, "\n") != 0 {
+		t.Errorf("status bar must stay one row:\n%q", out)
+	}
+}

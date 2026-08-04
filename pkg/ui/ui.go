@@ -127,6 +127,27 @@ type Controller interface {
 	// starting a second concurrent Run.
 	EnqueueUserPrompt(prompt string)
 
+	// InterjectUserPrompt is the urgent form of EnqueueUserPrompt: it
+	// cancels whatever the agent has in flight — the LLM stream or the
+	// running tool batch — so the message lands now rather than after a
+	// four-minute command finishes. The TURN survives; the cancelled phase
+	// leaves a paired, honest record in the transcript and the loop keeps
+	// going with the new instruction in hand.
+	//
+	// Returns an error when no run is in flight; the caller should start a
+	// normal Run instead. A blank prompt is a no-op, not an error.
+	InterjectUserPrompt(prompt string) error
+
+	// PendingPrompts lists the mid-run messages that are queued but not yet
+	// delivered, in the order the model will receive them. Cheap enough to
+	// call every frame — the status bar badges its length.
+	PendingPrompts() []PendingPrompt
+
+	// RevokePendingPrompt drops a queued message before delivery. False
+	// means the loop already took it: the model has it, and unsending is no
+	// longer possible.
+	RevokePendingPrompt(id string) bool
+
 	// Logger exposes the agent's structured logger so the UI can emit
 	// records that share its context.
 	Logger() *slog.Logger
@@ -409,6 +430,16 @@ type SessionInfo struct {
 	Provider        string // LLM provider name at save time
 	Model           string // LLM model id at save time
 	MessageCount    int    // length of Session.Messages — picker shows "<n> msgs"
+}
+
+// PendingPrompt is one queued mid-run message as the /queue panel renders
+// it. Level is the wire name of how it was sent — "queue" (waits for the
+// current iteration to end) or "interject" (cut the phase short) — kept as
+// a string so the ui package stays free of internal enums.
+type PendingPrompt struct {
+	ID    string
+	Text  string
+	Level string
 }
 
 // CheckpointInfo is one row in the /rewind picker — a per-user-turn checkpoint.

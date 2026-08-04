@@ -154,6 +154,9 @@ in `pkg/ui/ui.go`):
 Run(ctx context.Context, prompt string) (string, error)  // one user turn
 Continue(ctx context.Context) (string, error)            // resume after iter-limit pause
 EnqueueUserPrompt(prompt string)                          // queue a prompt typed mid-run
+InterjectUserPrompt(prompt string) error                  // cut the running step; land it NOW
+PendingPrompts() []ui.PendingPrompt                       // what's queued, in delivery order
+RevokePendingPrompt(id string) bool                       // unsend — false means too late
 ```
 
 **Read-models (for rendering — cheap, call every frame)**
@@ -527,6 +530,35 @@ global Esc/Ctrl+C handler interrupt mid-flight.
 Mid-run prompts don't start a second `Run` (that errors on every provider).
 Instead the App calls `controller.EnqueueUserPrompt`; the agent drains the
 queue at the next iteration boundary.
+
+There are **three** things a UI can do with input while a turn is in flight,
+and they are genuinely different:
+
+| | call | effect |
+|---|---|---|
+| queue | `EnqueueUserPrompt` | lands at the next iteration boundary; nothing is cancelled |
+| interject | `InterjectUserPrompt` | cancels the in-flight LLM stream or tool batch, lands at once, **turn continues** |
+| abort | `runCancel()` | the stored cancel func; the turn ends |
+
+`InterjectUserPrompt` returns an error when no run is in flight — the caller
+should `Run` instead, since there is nothing to interrupt. It never returns
+an error for a blank prompt (that is a no-op) and it never blocks: the agent
+cancels its current phase, records an honest note in the transcript, and
+picks the message up at the drain the cut brings forward.
+
+Both UIs bind interject to **Ctrl+G**, deliberately a separate key rather
+than a composer mode: a cancelled call is real tokens and real work thrown
+away, so it should cost a distinct keystroke every time. When nothing is
+running, the same key degrades to an ordinary submit.
+
+`PendingPrompts` is cheap enough to call every frame — the status bar badges
+its length. Each entry carries a `Level` of `"queue"` or `"interject"` and a
+stable `ID` for `RevokePendingPrompt`. Revoke returning `false` is normal,
+not an error: the loop drained the message between the frame you rendered
+and the keypress. Say so rather than pretending the unsend worked.
+
+A UI that ignores all three of these is still correct — it simply behaves as
+evva did before v1.20, refusing input while a run is in flight.
 
 ### 6.5 The event → message bridge
 

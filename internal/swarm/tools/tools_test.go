@@ -569,3 +569,45 @@ func TestTaskListMarksStaleTasks(t *testing.T) {
 		t.Errorf("pending tasks must not be tagged:\n%s", res.Content)
 	}
 }
+
+// STE-5: only the exact word "interject" arms an interject. A model that
+// invents "urgent" or "high" must get normal delivery — an unrecognised
+// urgency has to be LESS disruptive, never more, or a typo silently throws
+// away a teammate's in-flight work.
+func TestSendMessageUrgencyCanonicalisation(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{`{"to":"leader","body":"b"}`, store.UrgencyNormal},
+		{`{"to":"leader","body":"b","urgency":"normal"}`, store.UrgencyNormal},
+		{`{"to":"leader","body":"b","urgency":"interject"}`, store.UrgencyInterject},
+		{`{"to":"leader","body":"b","urgency":"  Interject "}`, store.UrgencyInterject},
+		{`{"to":"leader","body":"b","urgency":"urgent"}`, store.UrgencyNormal},
+		{`{"to":"leader","body":"b","urgency":"high"}`, store.UrgencyNormal},
+		{`{"to":"leader","body":"b","urgency":""}`, store.UrgencyNormal},
+	} {
+		t.Run(tc.in, func(t *testing.T) {
+			sp := liteSpace(t)
+			tool := newSendMessage(workerMC(sp, "worker-a"))
+			res := exec(t, tool, tc.in)
+			if res.IsError {
+				t.Fatalf("send_message: %s", res.Content)
+			}
+			unread, _ := sp.Store.UnreadFor("leader")
+			if len(unread) != 1 {
+				t.Fatalf("leader unread = %d, want 1", len(unread))
+			}
+			m, _ := sp.Store.GetMessage(unread[0])
+			if m.Urgency != tc.want {
+				t.Errorf("stored urgency = %q, want %q", m.Urgency, tc.want)
+			}
+			// The tool's own reply must not claim work was cancelled when the
+			// message went out at normal urgency.
+			says := strings.Contains(res.Content, "interject")
+			if says != (tc.want == store.UrgencyInterject) {
+				t.Errorf("result %q disagrees with urgency %q", res.Content, tc.want)
+			}
+		})
+	}
+}

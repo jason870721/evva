@@ -505,8 +505,20 @@ editing, schedules, skills, memory, proposals, and metrics stay web-only.
   - If the recipient is **idle**, it wakes up, reads the message, acts on it
     (*drain A*).
   - If the recipient is **busy** mid-run, the message is folded into its current
-    reasoning at the next step, so urgent mail ("stop now") lands immediately
-    (*drain B*).
+    reasoning at the next step (*drain B*) — usually within seconds.
+  - `send_message {to, body, urgency: "interject"}` goes further: it **cancels
+    whatever the recipient is running at that instant** — a half-finished
+    build, a test suite, a reply mid-sentence — so the message lands without
+    waiting for that step at all. The recipient's turn continues; only the
+    running step dies, and its transcript records honestly that it was cut
+    short and by whom.
+
+    Reach for it to **stop** work that is going wrong ("wrong branch",
+    "abort, the spec changed"), not to jump a queue. The cancelled work is
+    thrown away, and side effects it already caused are **not** undone. Only
+    the exact word `interject` arms it; any other value is delivered
+    normally, so a model inventing `"urgent"` cannot accidentally destroy a
+    teammate's work.
 - **Timer wake.** A member with a `schedule` in its `profile.yml` is Run on that
   cadence (a heartbeat / self-check). Members with no wake source sit idle and
   **burn no tokens**.

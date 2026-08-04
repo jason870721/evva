@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -227,6 +228,9 @@ func NewSpace(id string, m agentdef.Manifest, loaded []agentdef.Loaded, ts ToolS
 		loader:    agentdef.NewLoader(),
 	}
 	sp.Bus = bus.New(st, sp.Roster)
+	// Urgent mail cuts the recipient's in-flight step (STE-5). The hook is
+	// installed here, at construction, so it is live before any member runs.
+	sp.Bus.SetUrgentHook(sp.interjectMember)
 
 	// Worktree isolation preflight (SWT §5.2): if ANY member resolves to "on",
 	// the space workdir must be a git repo with a HEAD. Fail the register here
@@ -884,6 +888,33 @@ func (sp *SwarmSpace) memberWorktree(name string) (worktree.Session, bool) {
 const memoryWakeReminderCap = 16 * 1024
 
 // memoryWakeReminder renders the block the scheduler hangs inside a member's
+// interjectMember cuts a recipient's in-flight LLM call or tool batch so
+// urgent mail lands at once rather than at its next iteration boundary
+// (STE-5). The message body is NOT passed here — it is already durable in
+// the store, and the member's own inbox drainer folds it at the boundary the
+// cut brings forward. Handing it over twice would deliver it twice.
+//
+// Every failure mode is a silent no-op on purpose: an idle member has
+// nothing to interrupt, a frozen or unknown one has no controller, and in
+// all of those cases the mail is already persisted and still arrives. Urgency
+// is an optimisation on WHEN, never a condition for WHETHER.
+func (sp *SwarmSpace) interjectMember(recipient, sender string) {
+	ctl, ok := sp.Roster.Controller(recipient)
+	if !ok || ctl == nil {
+		return
+	}
+	type interjecter interface{ InterjectSignal(src string) error }
+	ic, ok := ctl.(interjecter)
+	if !ok {
+		return
+	}
+	if err := ic.InterjectSignal(sender); err != nil {
+		// ErrNoRunToInterject is the common, healthy case: the member was
+		// idle, so the mail simply wakes it the ordinary way.
+		slog.Debug("swarm: urgent mail did not interrupt", "recipient", recipient, "sender", sender, "err", err)
+	}
+}
+
 // wake <system-reminder> (RP-25): the member's own MEMORY.md index, labeled
 // with its on-disk path so the model knows where the linked files live. ""
 // when the member has no index yet (or it is empty/unreadable) — a member

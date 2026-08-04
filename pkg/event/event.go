@@ -153,6 +153,23 @@ const (
 	// that lets a busy agent react to an incoming message mid-run. Payload
 	// carries how many messages were folded on this boundary.
 	KindDrainInbox Kind = "drain_inbox"
+
+	// KindInterject fires the moment a user (or a swarm leader) steers into
+	// a RUNNING turn — the in-flight LLM call or tool batch is being cut
+	// short so the message can land now rather than at the next natural
+	// boundary. It is emitted from the caller's goroutine, BEFORE the loop
+	// notices, so a UI can acknowledge the keystroke immediately.
+	//
+	// Distinct from KindRunCancelled, which means the turn is over. An
+	// interject is mid-turn steering; the run continues.
+	KindInterject Kind = "interject"
+
+	// KindInterjectFolded fires when the loop has finished absorbing an
+	// interject: the truncated assistant turn (if any) and the honest
+	// system note are in the transcript, and the next LLM call will see the
+	// user's message. Payload carries how much partial assistant text
+	// survived the cut.
+	KindInterjectFolded Kind = "interject_folded"
 )
 
 // Event is the envelope. Exactly one of the *Payload fields is non-nil per
@@ -191,6 +208,29 @@ type Event struct {
 	DrainBackgroundTask *DrainBackgroundTaskPayload `json:",omitempty"`
 	DrainMonitorEvents  *DrainMonitorEventsPayload  `json:",omitempty"`
 	DrainInbox          *DrainInboxPayload          `json:",omitempty"`
+	Interject           *InterjectPayload           `json:",omitempty"`
+}
+
+// InterjectPayload describes a mid-turn steer. It is shared by
+// KindInterject (the request) and KindInterjectFolded (the loop's
+// absorption of it); each kind populates the field that is meaningful to
+// it and leaves the other zero.
+type InterjectPayload struct {
+	// CutPhase reports whether a phase was actually in flight to cancel.
+	// False means the loop was already between phases — the message still
+	// lands at the next drain, just without anything being cut short.
+	// KindInterject only.
+	CutPhase bool
+	// PartialBytes is how much assistant text had already streamed when the
+	// cut landed and was preserved in the transcript. Zero for a
+	// non-streaming call, where the provider returns nothing until the
+	// response is whole and there is genuinely nothing to keep.
+	// KindInterjectFolded only.
+	PartialBytes int
+	// Source names who steered — "the user" from a TUI, a swarm member name
+	// when urgent mail did it. Carried on the event so an observability
+	// surface can attribute an interrupt without re-reading the transcript.
+	Source string
 }
 
 // ModeChangedPayload reports a permission-mode transition. PrevMode is the

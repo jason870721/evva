@@ -276,6 +276,18 @@ func newCancelledBlock() *SystemBlock {
 	}
 }
 
+// newInterjectBlock marks the point where the user cut in. It renders even
+// though the steer text itself is already echoed as a user prompt, because
+// what the transcript would otherwise show is an assistant turn that simply
+// stops mid-sentence — and nothing saying why.
+func newInterjectBlock() *SystemBlock {
+	return &SystemBlock{
+		id: allocID(), rev: 1,
+		text:    "◇ INTERJECTED — the running step was cut short",
+		styleFn: func(th *theme.Theme) lipgloss.Style { return th.Draining },
+	}
+}
+
 func newIterLimitBlock(reached int) *SystemBlock {
 	return &SystemBlock{
 		id: allocID(), rev: 1,

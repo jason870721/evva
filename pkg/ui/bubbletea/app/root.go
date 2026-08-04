@@ -447,6 +447,9 @@ func (a *App) handleAgentEvent(e event.Event) (tea.Model, tea.Cmd) {
 		a.transcript.HideThinkingSprite()
 		a.view.MarkDirty()
 	}
+	if newState.IsActive() != prevState.IsActive() {
+		a.input.SetRunning(newState.IsActive())
+	}
 
 	if e.Kind == event.KindApprovalNeeded && e.ApprovalNeeded != nil {
 		if o := overlays.NewApproval(a.controller, *e.ApprovalNeeded); o != nil {
@@ -485,6 +488,7 @@ func (a *App) handleAgentEvent(e event.Event) (tea.Model, tea.Cmd) {
 			a.controller.LastTurnInputTokens(),
 			status.ContextLimitFor(a.controller.Model()),
 		)
+		a.refreshQueued()
 	}
 
 	var cmd tea.Cmd
@@ -576,6 +580,8 @@ func (a *App) transcriptWidth() int {
 // machine and resets the cancel handle.
 func (a *App) handleRunDone(err error) (tea.Model, tea.Cmd) {
 	a.runCancel = nil
+	a.input.SetRunning(false)
+	a.refreshQueued()
 	interrupted := a.interrupted
 	a.interrupted = false
 
@@ -676,6 +682,13 @@ func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		return a, tea.Quit
+
+	case "ctrl+g":
+		// Interject: send the composed text NOW, cutting whatever the agent
+		// has in flight. Deliberately a separate key from Enter rather than a
+		// mode — cancelling a running call costs real tokens and real work, so
+		// it should take a distinct, deliberate keystroke every time.
+		return a.handleInterject()
 
 	case "ctrl+o":
 		a.transcript.ToggleExpand()
@@ -975,6 +988,16 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.state.SetHint("no controller attached")
 		}
 		return a, nil
+	case "/queue":
+		a.input.Reset()
+		a.slash.Reset()
+		if o := overlays.NewQueue(a.controller); o != nil {
+			a.focus.Push(o)
+			a.relayout()
+		} else {
+			a.state.SetHint("no controller attached")
+		}
+		return a, nil
 	case "/redactions":
 		a.input.Reset()
 		a.slash.Reset()
@@ -1018,7 +1041,8 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 		a.transcript.AppendUserPrompt(m.ForView)
 		a.input.Reset()
 		a.controller.EnqueueUserPrompt(m.ForAgent)
-		a.state.SetHint("queued — will land at next iteration")
+		a.refreshQueued()
+		a.state.SetHint("queued — lands at the next iteration · Ctrl+G sends now · /queue to review")
 		a.view.MarkDirty()
 		return a, nil
 	}
@@ -1030,6 +1054,59 @@ func (a *App) handleSubmit(m input.SubmitMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// handleInterject sends the composed text as an interject: the agent
+// cancels its in-flight LLM call or tool batch and folds the message in at
+// once. With nothing running it degrades to a normal submit, because
+// "there is nothing to interrupt" is not an error the user should have to
+// think about — it just means this is the next turn.
+func (a *App) handleInterject() (tea.Model, tea.Cmd) {
+	if a.controller == nil {
+		a.state.SetHint("no controller attached")
+		return a, nil
+	}
+	text := strings.TrimSpace(a.input.Value())
+	if a.runCancel == nil {
+		if text == "" {
+			return a, nil
+		}
+		return a, a.input.SubmitCmd()
+	}
+	if text == "" {
+		a.state.SetHint("nothing to interject — type a message first")
+		return a, nil
+	}
+	forAgent, forView := a.input.Compose()
+	if err := a.controller.InterjectUserPrompt(forAgent); err != nil {
+		// The run ended between the keystroke and this call. Queue it
+		// instead of dropping it — the text was typed on purpose.
+		a.controller.EnqueueUserPrompt(forAgent)
+	}
+	a.transcript.AppendUserPrompt(forView)
+	a.input.Reset()
+	a.refreshQueued()
+	a.state.SetHint("interjected — cutting in now")
+	a.view.MarkDirty()
+	return a, nil
+}
+
+// refreshQueued re-reads the pending-message counts into the status bar.
+// Called wherever the queue could have changed: on submit, on interject,
+// and on every agent event (the loop drains between iterations, and the
+// badge must clear itself when it does).
+func (a *App) refreshQueued() {
+	if a.controller == nil {
+		return
+	}
+	pending := a.controller.PendingPrompts()
+	interjects := 0
+	for _, p := range pending {
+		if p.Level == "interject" {
+			interjects++
+		}
+	}
+	a.status.SetQueued(len(pending), interjects)
+}
+
 // startRun kicks off a Run in a goroutine and transitions the state
 // machine to running.
 func (a *App) startRun(prompt string) {
@@ -1039,6 +1116,7 @@ func (a *App) startRun(prompt string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.runCancel = cancel
 	a.state.OnSubmit()
+	a.input.SetRunning(true)
 	a.transcript.ShowThinkingSprite()
 
 	p := a.program
@@ -1060,6 +1138,7 @@ func (a *App) startContinue() {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.runCancel = cancel
 	a.state.OnSubmit()
+	a.input.SetRunning(true)
 	a.transcript.ShowThinkingSprite()
 
 	p := a.program

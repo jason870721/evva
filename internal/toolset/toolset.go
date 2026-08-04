@@ -153,7 +153,18 @@ type ToolState struct {
 }
 
 func NewToolState() *ToolState {
-	return &ToolState{}
+	return &ToolState{
+		// The two cross-goroutine queues are allocated eagerly, unlike every
+		// other store here, because they are the only ones written by a
+		// goroutine that is not the agent loop: the UI's submit handler and
+		// the alarm scheduler. Lazy allocation put an unsynchronised pointer
+		// write on those paths racing the loop's own read — the race
+		// detector catches it the moment anything steers mid-run (STE-2).
+		// A mutex would work; not writing after construction is simpler, and
+		// two empty structs per agent cost nothing.
+		userPromptQueue: NewUserPromptQueue(),
+		wakeupQueue:     meta.NewWakeupQueue(),
+	}
 }
 
 // RegisterStore plugs a TaskGroup into the unified change stream. ToolState
@@ -384,19 +395,18 @@ func (s *ToolState) StructuredSink() structured.Sink {
 	return s.structuredSink
 }
 
-// HasWakeupQueue reports whether a WakeupQueue has already been allocated.
-// The agent loop uses this to skip the drain call in runs that never built
-// the SCHEDULE_WAKEUP tool (avoids the lazy allocation just to peek at an
-// empty queue).
+// HasWakeupQueue reports whether a WakeupQueue is present — true for
+// anything NewToolState built. See HasUserPromptQueue for why these two
+// are no longer lazy.
 func (s *ToolState) HasWakeupQueue() bool { return s.wakeupQueue != nil }
 
-// WakeupQueue returns the SCHEDULE_WAKEUP side-channel, allocating one on
-// first use. WakeupTool Enqueue's the prompt here when its sleep finishes;
-// the agent loop Drain's the queue at the top of every iteration and
-// appends each entry as a RoleUser message.
+// WakeupQueue returns the SCHEDULE_WAKEUP side-channel. WakeupTool and the
+// alarm scheduler enqueue prompts here from their own goroutines; the
+// agent loop Drain's the queue at the top of every iteration and appends
+// each entry as a RoleUser message.
 func (s *ToolState) WakeupQueue() *meta.WakeupQueue {
 	if s.wakeupQueue == nil {
-		s.wakeupQueue = meta.NewWakeupQueue()
+		return meta.NewWakeupQueue()
 	}
 	return s.wakeupQueue
 }
@@ -607,20 +617,23 @@ func (s *ToolState) SetMcpManager(m *mcp.Manager) {
 	s.mcpManager = m
 }
 
-// HasUserPromptQueue reports whether a UserPromptQueue has already been
-// allocated. The agent loop uses this to skip the drain in runs that
-// never had user input queued (avoids forcing the lazy allocation just
-// to peek at an empty queue).
+// HasUserPromptQueue reports whether a UserPromptQueue is present. True
+// for anything built by NewToolState; the check survives for the
+// zero-value &ToolState{} that Describe constructs to read static tool
+// metadata, which has no queues and never runs a loop.
 func (s *ToolState) HasUserPromptQueue() bool { return s.userPromptQueue != nil }
 
 // UserPromptQueue returns the side-channel for prompts the user typed
-// while a Run was in flight, allocating one on first use. The UI's
-// submit handler Enqueue's; the agent loop's drainUserPrompts pulls
-// every entry and folds them into the session as fresh RoleUser
-// messages between iterations.
+// while a Run was in flight. The UI's submit handler enqueues; the agent
+// loop's drainUserPrompts pulls every entry and folds them into the
+// session as fresh RoleUser messages between iterations.
+//
+// Nil-safe for the zero-value ToolState: it allocates a throwaway queue
+// rather than panicking, which keeps Describe's metadata probe working
+// without giving it a queue anyone drains.
 func (s *ToolState) UserPromptQueue() *UserPromptQueue {
 	if s.userPromptQueue == nil {
-		s.userPromptQueue = NewUserPromptQueue()
+		return NewUserPromptQueue()
 	}
 	return s.userPromptQueue
 }

@@ -112,7 +112,8 @@ func (a *Agent) drainUserPrompts() {
 	for _, reminder := range a.computePlanModeAttachments() {
 		a.session.Append(llm.Message{Role: llm.RoleUser, Content: reminder})
 	}
-	for _, p := range prompts {
+	for _, entry := range prompts {
+		p := entry.Text
 		// UserPromptSubmit for mid-run prompts: same semantics as the
 		// primary Run() path — block drops the prompt, additionalContext
 		// is appended. Fires with background ctx since drainUserPrompts
@@ -357,11 +358,24 @@ func (a *Agent) execTool(ctx context.Context, call *tools.Call, tool tools.Tool,
 	}
 
 	if denied, denyResult := a.permissionGateWithOverride(ctx, call, effectiveInput, permOverride); denied {
+		// An interject cancels the approval broker's wait, which surfaces
+		// here as a denial. Say what actually happened instead: the user
+		// did not refuse this tool, they changed the subject.
+		if r := a.interruptedToolResult(ctx, call, ""); r != nil {
+			return r, nil
+		}
 		return denyResult, nil
 	}
 
 	toolLogger := a.logger.With("tool", call.Name, "tool_id", call.ID)
 	result, err := tool.Execute(ctx, toolLogger, effectiveInput)
+	// Interject check before the error check, and before the success path:
+	// a cancelled tool may report either — bash returns ctx.Err() while a
+	// tool that merely notices the cancellation returns a plain result —
+	// and both mean the same thing to the model.
+	if r := a.interruptedToolResult(ctx, call, result.Content); r != nil {
+		return r, nil
+	}
 	if err != nil {
 		// Go-level failure, not a tool-reported error.
 		a.logger.Error("tool.exec.fail", "name", call.Name, "err", err)

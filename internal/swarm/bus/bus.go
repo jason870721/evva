@@ -42,6 +42,24 @@ type Bus struct {
 	// individually — the rescan recovers the row — but a climbing counter is
 	// the cheap tell for a chronically backed-up mailbox.
 	hintsDropped atomic.Int64
+
+	// onUrgent, when set, is called after an interject-urgency row is
+	// persisted and signalled (STE-5). It is a plain func, not an agent
+	// handle, so the bus keeps knowing nothing about agents — the space
+	// installs one that cuts the recipient's in-flight phase.
+	//
+	// The row is durable before this fires, so a hook that no-ops (recipient
+	// idle, unregistered, frozen) costs only the urgency: the message still
+	// arrives, just at the recipient's own next boundary.
+	onUrgent func(recipient, sender string)
+}
+
+// SetUrgentHook installs the interject callback. Called once by the space at
+// construction, before any member runs.
+func (b *Bus) SetUrgentHook(fn func(recipient, sender string)) {
+	b.mu.Lock()
+	b.onUrgent = fn
+	b.mu.Unlock()
 }
 
 // HintsDropped reports how many mailbox hints were dropped on a full buffer
@@ -124,6 +142,7 @@ func (b *Bus) SendExternal(m store.Message, key string) (id string, dup bool, er
 		return existingID, true, nil // duplicate — already delivered/processing, don't re-wake
 	}
 	b.signal(m.Recipient, m.ID)
+	b.nudgeUrgent(m)
 	return m.ID, false, nil
 }
 
@@ -156,7 +175,24 @@ func (b *Bus) deliver(m store.Message, to string) (string, error) {
 		return "", err
 	}
 	b.signal(to, m.ID)
+	b.nudgeUrgent(m)
 	return m.ID, nil
+}
+
+// nudgeUrgent fires the interject hook for a message that asked to be read
+// now. Anything other than the exact interject level is left alone — an
+// unrecognised urgency must never be MORE disruptive than the default.
+func (b *Bus) nudgeUrgent(m store.Message) {
+	if m.Urgency != store.UrgencyInterject {
+		return
+	}
+	b.mu.RLock()
+	fn := b.onUrgent
+	b.mu.RUnlock()
+	if fn == nil {
+		return
+	}
+	fn(m.Recipient, m.Sender)
 }
 
 // signal pushes a UUID onto a recipient's mailbox without ever blocking. A

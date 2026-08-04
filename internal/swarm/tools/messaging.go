@@ -21,12 +21,15 @@ func newSendMessage(mc swarm.MemberContext) pubtools.Tool {
 		name: toolSendMessage,
 		desc: "Send a message to another swarm member, or broadcast to the whole team. " +
 			"Use `to` with a member name (see list_members for valid names) or \"all\" to reach every active member. " +
-			"The recipient sees who sent it, so this is how you ask a teammate for something, hand off context, or report progress to the leader.",
+			"The recipient sees who sent it, so this is how you ask a teammate for something, hand off context, or report progress to the leader. " +
+			"Set urgency:\"interject\" ONLY to stop work already in progress — it cancels whatever the recipient " +
+			"is running right now, discarding that work. For anything that can wait for their current step to finish, leave it out.",
 		schema: `{"type":"object","properties":{` +
 			`"to":{"type":"string","description":"Recipient member name, or \"all\" to broadcast to every active member. Check list_members for valid names."},` +
 			`"subject":{"type":"string","description":"Optional short subject line."},` +
 			`"body":{"type":"string","description":"The message body."},` +
-			`"ref_task":{"type":"integer","description":"Optional id of the task this message relates to."}` +
+			`"ref_task":{"type":"integer","description":"Optional id of the task this message relates to."},` +
+			`"urgency":{"type":"string","enum":["normal","interject"],"description":"How urgently to deliver. \"normal\" (default) lands at the recipient's next step boundary. \"interject\" cancels the recipient's in-flight LLM call or running tool so the message lands immediately — use it to STOP work that is going wrong, not to jump a queue."}` +
 			`},"required":["to","body"]}`,
 		exec: func(_ context.Context, input json.RawMessage) (pubtools.Result, error) {
 			var in struct {
@@ -34,6 +37,7 @@ func newSendMessage(mc swarm.MemberContext) pubtools.Tool {
 				Subject string `json:"subject"`
 				Body    string `json:"body"`
 				RefTask *int64 `json:"ref_task"`
+				Urgency string `json:"urgency"`
 			}
 			if err := json.Unmarshal(input, &in); err != nil {
 				return errf("send_message: invalid input: %v", err), nil
@@ -58,20 +62,38 @@ func newSendMessage(mc swarm.MemberContext) pubtools.Tool {
 				}
 			}
 
+			// Only the exact word arms an interject; anything else — including
+			// a model inventing "high" or "urgent" — is normal delivery. An
+			// unrecognised urgency must never be MORE disruptive than the
+			// default, and a typo must not silently throw away a teammate's
+			// in-flight work.
+			urgency := store.UrgencyNormal
+			if strings.EqualFold(strings.TrimSpace(in.Urgency), store.UrgencyInterject) {
+				urgency = store.UrgencyInterject
+			}
+
 			uuid, err := mc.Space.Bus.Send(store.Message{
 				Sender:    mc.Name,
 				Recipient: in.To,
 				Subject:   in.Subject,
 				Body:      in.Body,
 				RefTask:   in.RefTask,
+				Urgency:   urgency,
 			})
 			if err != nil {
 				return errf("send_message: %v", err), nil
 			}
-			if in.To == store.RecipientAll {
-				return okf("Broadcast from %s delivered to all active members.", mc.Name), nil
+			suffix := ""
+			if urgency == store.UrgencyInterject {
+				// Say "any" rather than "their": a recipient that was idle had
+				// nothing to cut, and the model should not report to its leader
+				// that it stopped work which never existed.
+				suffix = " Delivered as an interject — any step they had in flight was cancelled."
 			}
-			return okf("Message delivered to %s (id %s).", in.To, uuid), nil
+			if in.To == store.RecipientAll {
+				return okf("Broadcast from %s delivered to all active members.%s", mc.Name, suffix), nil
+			}
+			return okf("Message delivered to %s (id %s).%s", in.To, uuid, suffix), nil
 		},
 	}
 }

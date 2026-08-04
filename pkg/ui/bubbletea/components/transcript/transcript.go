@@ -195,7 +195,7 @@ func (t *Transcript) appendKeepingSprite(b Block) {
 //   - RoleAssistant{Content}             → TextBlock     (when non-empty)
 //   - RoleAssistant{ToolCalls[]}         → one ToolBlock per call
 //   - RoleTool{ToolResults[]}            → SetResult on the matching
-//                                          ToolBlock (paired by Call.ID)
+//     ToolBlock (paired by Call.ID)
 //
 // System messages are skipped (they don't appear in live transcripts
 // either). Block IDs are freshly allocated — the persisted file does
@@ -555,6 +555,15 @@ func (t *Transcript) IngestEvent(e event.Event) bool {
 		t.resetInflight()
 		t.appendKeepingSprite(newCancelledBlock())
 		return true
+	case event.KindInterjectFolded:
+		// Rendered on the FOLD, not on the request: the request fires from
+		// the keystroke goroutine before the loop has done anything, so a
+		// marker there would sit above text that is still streaming in.
+		// resetInflight closes the truncated streaming block so the marker
+		// lands after the partial answer rather than inside it.
+		t.resetInflight()
+		t.appendKeepingSprite(newInterjectBlock())
+		return true
 	case event.KindTurnEnd:
 		if e.Turn != nil {
 			t.resetInflight()
@@ -708,9 +717,9 @@ func (t *Transcript) Blocks() []Block {
 // Width / Theme / Markdown accessors — used by the App when
 // constructing RenderContext for outside-Transcript renders (e.g.
 // the M10 permission overlay's diff preview).
-func (t *Transcript) Width() int            { return t.width }
-func (t *Transcript) Theme() *theme.Theme   { return t.theme }
-func (t *Transcript) Markdown() *Markdown   { return t.markdown }
+func (t *Transcript) Width() int          { return t.width }
+func (t *Transcript) Theme() *theme.Theme { return t.theme }
+func (t *Transcript) Markdown() *Markdown { return t.markdown }
 
 // CacheSize is a test hook reporting how many entries the cache
 // holds. Not exported beyond this package.

@@ -12,6 +12,87 @@ was consolidated into v1.3.0-beta.1 — the first beta cut after v1.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Steering v2 (STE-1..6).** evva has accepted typing mid-run for a long
+  time, but only politely: the message waited for the current step to end.
+  If the model was four minutes into the wrong `bash` command, "stop, the
+  tests are in ./scripts" waited four minutes. The only stronger gesture was
+  Esc, which threw the whole turn away. There was nothing in between.
+
+  **Three levels now, chosen by which key sends.** `Enter` queues — today's
+  behaviour, unchanged, and still the right default. **`Ctrl+G` interjects**:
+  whatever is in flight, the streaming reply or the running tool batch, is
+  cancelled and the message lands at once. The **turn survives** — only that
+  step dies. `Esc` still aborts everything.
+
+  **An interject is honest about what it destroyed**, because the model has
+  to reason about it. A cancelled reply keeps the text the user already
+  watched stream in, marked partial, with a note that the tool calls it was
+  about to make were never issued — a transcript that silently dropped it
+  would leave the model denying it said what is still on the user's screen.
+  A cancelled tool returns `[interrupted by user before completion]` plus the
+  tail of whatever output it had produced, still **paired** with the
+  `tool_use` that asked for it. The note names who interrupted, says plainly
+  that side effects already caused are **not** undone, and lands *before* the
+  steer text so the model reads "you were cut off" before it reads what to do
+  instead. It names only the calls that actually died: a fast tool that
+  finished before the cancellation reached it is not reported as interrupted.
+
+  **The seam this needed did not exist.** evva had exactly one context per
+  run, created by the UI and threaded unchanged through the loop, the LLM
+  call and every tool — cancelling it was all-or-nothing, which is precisely
+  why Esc was the only mid-run gesture. `internal/agent.phase` is a
+  cancel-with-cause child scoped to one LLM call or one tool batch, and
+  `errInterjected` is what lets the loop tell steering from aborting. When
+  the two race, **abort wins** — Esc must never quietly become "keep going".
+
+  Partial capture is agent-side, in `chunkAdapter`: the one seam every
+  provider's stream already passes through, so all six clients (claude,
+  deepseek, glm, ollama, openai, qwen) got it without any of them changing.
+
+  **Surfaces:** a `✉ N` status cell (`✉ N!` when an interject is pending),
+  ranked to survive a narrow bar because a message you typed and cannot see
+  is the worst cell to lose; a composer placeholder that names the
+  queue-vs-interject choice only while it exists; `/queue` to review pending
+  messages **and revoke one before the model reads it** — best-effort by
+  design, and it says `too late — already delivered` rather than pretending.
+  The queue stays deliberately non-durable: a message evva never read is one
+  you can retype, and persisting it would resurrect stale instructions on
+  the next resume.
+
+  **Swarm parity.** `send_message` takes `urgency: "interject"`, which
+  cancels the recipient's in-flight step (migration `0008`; legacy rows read
+  as normal with no backfill). Only the exact word arms it — a model
+  inventing `"urgent"` gets normal delivery, because an unrecognised urgency
+  must never be *more* destructive than the default. The hook cuts the phase
+  without re-delivering the body; the row is already durable and the member's
+  own drainer folds it at the boundary the cut brings forward. Idle, frozen
+  or unknown recipients are silent no-ops: urgency changes *when* a message
+  lands, never *whether*.
+
+  **SDK surface:** `ui.Controller` gains `InterjectUserPrompt`,
+  `PendingPrompts`, `RevokePendingPrompt`; `ui.PendingPrompt` is new.
+  `pkg/event` gains `KindInterject` / `KindInterjectFolded` and
+  `InterjectPayload`.
+
+### Fixed
+
+- **A data race between the UI and the agent loop.** `ToolState`'s user-prompt
+  and wakeup queues were allocated lazily on first access, unsynchronised —
+  while the writers are the UI goroutine and the alarm scheduler and the
+  reader is the loop. Present since mid-run queuing shipped; nothing
+  exercised the concurrency until an interject test did, and `-race` caught
+  it at once. Both are now allocated at construction, so there is no
+  post-construction write to guard.
+- **Esc during a tool reported a crash.** Cancelling a run while `bash` was
+  executing routed the tool's context error to the crash path, recording a
+  failure that never happened and parking the TUI in its sticky error state.
+  It now reports the interrupt as an interrupt.
+- **`bash` discarded its output when cancelled.** A killed command returned
+  a bare `bash: cancelled`, throwing away the one piece of evidence about how
+  far it got. The partial output now rides along, capped at the tail.
+
 ## [v1.19.0-beta.1] — 2026-08-03
 
 ### Added
